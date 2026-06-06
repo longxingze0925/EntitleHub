@@ -36,6 +36,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -91,7 +92,7 @@ export function LicensesPage() {
   const createMutation = useMutation({
     mutationFn: createLicense,
     onSuccess: async (data) => {
-      message.success("license_created");
+      message.success(tMessage("license_created"));
       setCreatedLicense(data);
       setCreateOpen(false);
       form.resetFields();
@@ -101,21 +102,21 @@ export function LicensesPage() {
   const revokeMutation = useMutation({
     mutationFn: revokeLicense,
     onSuccess: async (data) => {
-      message.success(`license_revoked:${data.revoked_sessions}`);
+      message.success(tMessage(`license_revoked:${data.revoked_sessions}`));
       await query.refetch();
     }
   });
   const suspendMutation = useMutation({
     mutationFn: suspendLicense,
     onSuccess: async (data) => {
-      message.success(`license_suspended:${data.revoked_sessions}`);
+      message.success(tMessage(`license_suspended:${data.revoked_sessions}`));
       await query.refetch();
     }
   });
   const renewMutation = useMutation({
     mutationFn: renewLicense,
     onSuccess: async () => {
-      message.success("license_renewed");
+      message.success(tMessage("license_renewed"));
       setRenewTarget(null);
       renewForm.resetFields();
       await query.refetch();
@@ -124,7 +125,7 @@ export function LicensesPage() {
   const resetDevicesMutation = useMutation({
     mutationFn: resetLicenseDevices,
     onSuccess: async (data) => {
-      message.success(`license_devices_reset:${data.revoked_sessions}`);
+      message.success(tMessage(`license_devices_reset:${data.revoked_sessions}`));
       setResetDevicesTarget(null);
       resetDevicesForm.resetFields();
       await query.refetch();
@@ -278,7 +279,7 @@ export function LicensesPage() {
         <Space>
           <Input.Search
             allowClear
-            placeholder="keyword"
+            placeholder="关键词"
             onSearch={(value) => {
               setPage(1);
               setKeyword(value);
@@ -287,13 +288,13 @@ export function LicensesPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
             options={[
-              { value: "active", label: "active" },
-              { value: "suspended", label: "suspended" },
-              { value: "revoked", label: "revoked" },
-              { value: "expired", label: "expired" }
+              tOption("active"),
+              tOption("suspended"),
+              tOption("revoked"),
+              tOption("expired")
             ]}
             onChange={(value) => {
               setPage(1);
@@ -312,15 +313,17 @@ export function LicensesPage() {
           ) : null}
         </Space>
       </div>
-      {query.error ? <Alert type="error" message="licenses_load_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("licenses_load_failed")} />
+      ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="license_create_failed" />
+        <Alert type="error" message={tMessage("license_create_failed")} />
       ) : null}
       {revokeMutation.error ||
       suspendMutation.error ||
       renewMutation.error ||
       resetDevicesMutation.error ? (
-        <Alert type="error" message="license_status_update_failed" />
+        <Alert type="error" message={tMessage("license_status_update_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -382,9 +385,9 @@ export function LicensesPage() {
           <Form.Item name="type" label="授权类型">
             <Select
               options={[
-                { value: "standard", label: "standard" },
-                { value: "trial", label: "trial" },
-                { value: "enterprise", label: "enterprise" }
+                tOption("standard"),
+                tOption("trial"),
+                tOption("enterprise")
               ]}
             />
           </Form.Item>
@@ -407,13 +410,13 @@ export function LicensesPage() {
         onOk={() => setCreatedLicense(null)}
       >
         <Space direction="vertical" size={12} className="token-result">
-          <Typography.Text type="secondary">license_key</Typography.Text>
+          <Typography.Text type="secondary">授权码（license_key）</Typography.Text>
           <Typography.Text copyable>{createdLicense?.license_key}</Typography.Text>
-          <Typography.Text type="secondary">license_id</Typography.Text>
+          <Typography.Text type="secondary">授权 ID（license_id）</Typography.Text>
           <Typography.Text copyable>{createdLicense?.license.id}</Typography.Text>
           <Typography.Text type="secondary">
             {createdLicense
-              ? `${createdLicense.license.status} · expires ${dateTime(
+              ? `${tStatus(createdLicense.license.status)} · 到期时间 ${dateTime(
                   createdLicense.license.expires_at
                 )}`
               : null}

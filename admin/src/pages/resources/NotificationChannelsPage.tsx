@@ -29,6 +29,7 @@ import {
 } from "../../api/admin";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
+import { tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface ChannelFormValues {
@@ -50,7 +51,7 @@ type TestMode = "dry_run" | "delivery";
 
 const channelKindOptions = [
   { label: "Webhook", value: "webhook" },
-  { label: "Email", value: "email" },
+  { label: "邮件", value: "email" },
   { label: "PagerDuty", value: "pagerduty" }
 ];
 
@@ -87,7 +88,7 @@ export function NotificationChannelsPage() {
       });
     },
     onSuccess: () => {
-      message.success("notification_channel_saved");
+      message.success(tMessage("notification_channel_saved"));
       setModalOpen(false);
       setEditing(null);
       form.resetFields();
@@ -105,9 +106,11 @@ export function NotificationChannelsPage() {
       }),
     onSuccess: (_, variables) => {
       message.success(
-        variables.mode === "delivery"
-          ? "notification_channel_test_sent"
-          : "notification_channel_test_passed"
+        tMessage(
+          variables.mode === "delivery"
+            ? "notification_channel_test_sent"
+            : "notification_channel_test_passed"
+        )
       );
       queryClient.invalidateQueries({
         queryKey: ["admin", "notification-channels"]
@@ -172,7 +175,9 @@ export function NotificationChannelsPage() {
       key: "enabled",
       width: 90,
       render: (value: boolean) => (
-        <Tag color={value ? "green" : "default"}>{value ? "enabled" : "disabled"}</Tag>
+        <Tag color={value ? "green" : "default"}>
+          {value ? tStatus("enabled") : tStatus("disabled")}
+        </Tag>
       )
     },
     {
@@ -189,7 +194,9 @@ export function NotificationChannelsPage() {
       key: "secret_configured",
       width: 90,
       render: (value: boolean) => (
-        <Tag color={value ? "blue" : "red"}>{value ? "set" : "missing"}</Tag>
+        <Tag color={value ? "blue" : "red"}>
+          {value ? tStatus("set") : tStatus("missing")}
+        </Tag>
       )
     },
     {
@@ -277,10 +284,14 @@ export function NotificationChannelsPage() {
         </Space>
       </div>
 
-      {query.error ? <Alert type="error" message="notification_channels_load_failed" /> : null}
-      {saveMutation.error ? <Alert type="error" message="notification_channel_save_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("notification_channels_load_failed")} />
+      ) : null}
+      {saveMutation.error ? (
+        <Alert type="error" message={tMessage("notification_channel_save_failed")} />
+      ) : null}
       {testMutation.error ? (
-        <Alert type="error" message="notification_channel_test_failed" />
+        <Alert type="error" message={tMessage("notification_channel_test_failed")} />
       ) : null}
 
       <Table
@@ -337,11 +348,11 @@ export function NotificationChannelsPage() {
           {selectedKind === "webhook" ? (
             <Form.Item
               name="webhook_url"
-              label="Webhook URL"
+              label="Webhook 地址"
               rules={[
                 {
                   required: !editing,
-                  message: "请输入 Webhook URL"
+                  message: "请输入 Webhook 地址"
                 },
                 { type: "url", message: "URL 格式不正确" }
               ]}
@@ -354,32 +365,32 @@ export function NotificationChannelsPage() {
             <div className="settings-grid-inner">
               <Form.Item
                 name="smtp_host"
-                label="SMTP Host"
-                rules={[{ required: true, message: "请输入 SMTP Host" }]}
+                label="SMTP 主机"
+                rules={[{ required: true, message: "请输入 SMTP 主机" }]}
               >
                 <Input />
               </Form.Item>
               <Form.Item
                 name="smtp_port"
-                label="SMTP Port"
-                rules={[{ required: true, message: "请输入 SMTP Port" }]}
+                label="SMTP 端口"
+                rules={[{ required: true, message: "请输入 SMTP 端口" }]}
               >
                 <InputNumber min={1} max={65535} className="form-number" />
               </Form.Item>
               <Form.Item
                 name="smtp_user"
-                label="SMTP User"
-                rules={[{ required: true, message: "请输入 SMTP User" }]}
+                label="SMTP 用户名"
+                rules={[{ required: true, message: "请输入 SMTP 用户名" }]}
               >
                 <Input />
               </Form.Item>
               <Form.Item
                 name="smtp_password"
-                label="SMTP Password"
+                label="SMTP 密码"
                 rules={[
                   {
                     required: !editing,
-                    message: "请输入 SMTP Password"
+                    message: "请输入 SMTP 密码"
                   }
                 ]}
               >
@@ -387,9 +398,9 @@ export function NotificationChannelsPage() {
               </Form.Item>
               <Form.Item
                 name="from"
-                label="From"
+                label="发件邮箱"
                 rules={[
-                  { required: true, message: "请输入 From" },
+                  { required: true, message: "请输入发件邮箱" },
                   { type: "email", message: "邮箱格式不正确" }
                 ]}
               >
@@ -397,8 +408,8 @@ export function NotificationChannelsPage() {
               </Form.Item>
               <Form.Item
                 name="to"
-                label="To"
-                rules={[{ required: true, message: "请输入 To" }]}
+                label="收件人"
+                rules={[{ required: true, message: "请输入收件人" }]}
               >
                 <Input />
               </Form.Item>
@@ -407,16 +418,16 @@ export function NotificationChannelsPage() {
 
           {selectedKind === "pagerduty" ? (
             <div className="settings-grid-inner">
-              <Form.Item name="pagerduty_service" label="Service">
+              <Form.Item name="pagerduty_service" label="服务名称">
                 <Input />
               </Form.Item>
               <Form.Item
                 name="pagerduty_routing_key"
-                label="Routing Key"
+                label="路由密钥"
                 rules={[
                   {
                     required: !editing,
-                    message: "请输入 Routing Key"
+                    message: "请输入路由密钥"
                   }
                 ]}
               >
@@ -511,15 +522,15 @@ function KindTag({ kind }: { kind: NotificationChannelKind }) {
   const color =
     kind === "webhook" ? "purple" : kind === "email" ? "blue" : "orange";
 
-  return <Tag color={color}>{kind}</Tag>;
+  return <Tag color={color}>{tStatus(kind)}</Tag>;
 }
 
 function TestStatusTag({ status }: { status?: string | null }) {
   if (!status) {
-    return <Tag>untested</Tag>;
+    return <Tag>{tStatus("untested")}</Tag>;
   }
 
   return (
-    <Tag color={status === "success" ? "green" : "red"}>{status}</Tag>
+    <Tag color={status === "success" ? "green" : "red"}>{tStatus(status)}</Tag>
   );
 }

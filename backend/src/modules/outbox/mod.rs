@@ -28,8 +28,8 @@ pub async fn enqueue_admin_password_reset_email(
         Some(tenant_id),
         "email.admin_password_reset",
         to,
-        "Reset your admin password",
-        "Use this token to reset your admin password.",
+        "重置管理员密码",
+        "请使用以下令牌重置管理员密码。",
         "admin/password-reset",
         token,
         expires_at,
@@ -51,8 +51,8 @@ pub async fn enqueue_team_member_email_verify_email(
         Some(tenant_id),
         "email.team_member_email_verify",
         to,
-        "Verify your admin email",
-        "Use this token to verify your admin email address.",
+        "验证管理员邮箱",
+        "请使用以下令牌验证管理员邮箱地址。",
         "admin/email-verify",
         token,
         expires_at,
@@ -74,8 +74,8 @@ pub async fn enqueue_team_invite_email(
         Some(tenant_id),
         "email.team_invite",
         to,
-        "Accept your team invitation",
-        "Use this token to accept your team invitation.",
+        "接受团队邀请",
+        "请使用以下令牌接受团队邀请。",
         "team/invitations/accept",
         token,
         expires_at,
@@ -97,8 +97,8 @@ pub async fn enqueue_customer_password_reset_email(
         Some(tenant_id),
         "email.customer_password_reset",
         to,
-        "Reset your password",
-        "Use this token to reset your password.",
+        "重置密码",
+        "请使用以下令牌重置密码。",
         "client/password-reset",
         token,
         expires_at,
@@ -120,8 +120,8 @@ pub async fn enqueue_customer_email_verify_email(
         Some(tenant_id),
         "email.customer_email_verify",
         to,
-        "Verify your email",
-        "Use this token to verify your email address.",
+        "验证邮箱",
+        "请使用以下令牌验证邮箱地址。",
         "client/email-verify",
         token,
         expires_at,
@@ -213,17 +213,17 @@ fn token_email_body(
     let mut lines = vec![
         intro.to_owned(),
         String::new(),
-        format!("Token: {token}"),
-        format!("Expires at: {}", expires_at.to_rfc3339()),
+        format!("令牌：{token}"),
+        format!("过期时间：{}", expires_at.to_rfc3339()),
     ];
 
     if let Some(url) = token_action_url(base_url, action_path, token) {
         lines.push(String::new());
-        lines.push(format!("Link: {url}"));
+        lines.push(format!("链接：{url}"));
     }
 
     lines.push(String::new());
-    lines.push("If you did not request this, ignore this email.".to_owned());
+    lines.push("如果这不是你本人操作，请忽略此邮件。".to_owned());
     lines.join("\n")
 }
 
@@ -289,9 +289,9 @@ mod tests {
             expires_at,
         );
 
-        assert!(without_link.contains("Token: token-value"));
-        assert!(!without_link.contains("Link:"));
-        assert!(with_link.contains("Link: https://admin.example.com/reset?token=token-value"));
+        assert!(without_link.contains("令牌：token-value"));
+        assert!(!without_link.contains("链接："));
+        assert!(with_link.contains("链接：https://admin.example.com/reset?token=token-value"));
     }
 
     #[test]

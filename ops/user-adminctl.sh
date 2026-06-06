@@ -26,16 +26,16 @@ log() {
 }
 
 warn() {
-  printf 'WARN: %s\n' "$*" >&2
+  printf '警告：%s\n' "$*" >&2
 }
 
 die() {
-  printf 'ERROR: %s\n' "$*" >&2
+  printf '错误：%s\n' "$*" >&2
   exit 1
 }
 
 pause() {
-  printf '\nPress Enter to continue...'
+  printf '\n按 Enter 继续...'
   read -r _ || true
 }
 
@@ -61,24 +61,24 @@ confirm() {
   local answer
   printf '%s [y/N]: ' "$prompt"
   read -r answer
-  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" || "$answer" == "是" ]]
 }
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    die "This action needs root. Re-run with sudo or as root."
+    die "此操作需要 root 权限，请使用 sudo 或 root 重新运行。"
   fi
   assert_safe_install_dir
 }
 
 assert_safe_install_dir() {
   if [[ -z "$INSTALL_DIR" || "$INSTALL_DIR" == "/" || "$INSTALL_DIR" == "/opt" || "$INSTALL_DIR" == "/usr" || "$INSTALL_DIR" == "/var" ]]; then
-    die "Unsafe install directory: $INSTALL_DIR"
+    die "安装目录不安全：$INSTALL_DIR"
   fi
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "$1 is required."
+  command -v "$1" >/dev/null 2>&1 || die "缺少必需命令：$1"
 }
 
 is_installed() {
@@ -165,13 +165,13 @@ install_docker_prompt() {
     return
   fi
 
-  warn "Docker or Docker Compose plugin is not available."
-  if confirm "Install Docker using the official convenience script now?"; then
+  warn "未检测到 Docker 或 Docker Compose 插件。"
+  if confirm "是否现在使用 Docker 官方脚本安装？"; then
     require_command curl
     curl -fsSL https://get.docker.com | sh
     systemctl enable --now docker >/dev/null 2>&1 || true
   else
-    die "Install Docker and the Docker Compose plugin, then run this installer again."
+    die "请先安装 Docker 和 Docker Compose 插件，然后重新运行安装器。"
   fi
 }
 
@@ -190,7 +190,7 @@ fetch_source() {
   mkdir -p "$dest"
 
   if [[ -n "$LOCAL_SOURCE_ROOT" && "$LOCAL_SOURCE_ROOT" != "$INSTALL_DIR" ]]; then
-    log "Copy local project files"
+    log "复制本地项目文件"
     (
       cd "$LOCAL_SOURCE_ROOT"
       tar \
@@ -209,7 +209,7 @@ fetch_source() {
     return
   fi
 
-  log "Download latest source archive"
+  log "下载最新源码包"
   curl -fsSL "$USER_ADMIN_ARCHIVE_URL" | tar -xz --strip-components=1 -C "$dest"
 }
 
@@ -319,8 +319,8 @@ write_caddy_files() {
 
   mkdir -p "$INSTALL_DIR/certs"
   if [[ "$tls_mode" == "custom" ]]; then
-    [[ -f "$cert_path" ]] || die "Certificate file not found: $cert_path"
-    [[ -f "$key_path" ]] || die "Private key file not found: $key_path"
+    [[ -f "$cert_path" ]] || die "证书文件不存在：$cert_path"
+    [[ -f "$key_path" ]] || die "私钥文件不存在：$key_path"
     openssl x509 -in "$cert_path" -noout >/dev/null
     openssl pkey -in "$key_path" -noout >/dev/null
     cp "$cert_path" "$INSTALL_DIR/certs/fullchain.pem"
@@ -424,7 +424,7 @@ wait_for_http() {
   local i
   for ((i = 1; i <= attempts; i++)); do
     if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
-      printf '%s is ready.\n' "$name"
+      printf '%s 已就绪。\n' "$name"
       return 0
     fi
     sleep 3
@@ -433,26 +433,26 @@ wait_for_http() {
 }
 
 run_migrations() {
-  log "Run database migrations"
+  log "执行数据库迁移"
   in_install_dir
   compose_base up -d postgres redis
   compose_base run --rm --build backend user-admin-backend migrate
 }
 
 start_stack() {
-  log "Start services"
+  log "启动服务"
   in_install_dir
   compose_base up -d --build
 }
 
 init_owner() {
-  log "Initialize owner if needed"
+  log "按需初始化管理员"
   in_install_dir
   compose_base run --rm backend user-admin-backend init-owner || true
 }
 
 run_smoke() {
-  log "Run smoke checks"
+  log "运行冒烟检测"
   in_install_dir
   local backend_port admin_port public_url backend_url
   backend_port="$(get_env_value BACKEND_HOST_PORT)"
@@ -460,11 +460,11 @@ run_smoke() {
   public_url="$(awk -F= '$1 == "PUBLIC_URL" { sub(/^[^=]*=/, ""); print; exit }' "$STATE_FILE" 2>/dev/null || true)"
   backend_url="http://127.0.0.1:${backend_port}"
 
-  wait_for_http "$backend_url/health" "Backend health" 60 || die "Backend health check failed."
-  wait_for_http "http://127.0.0.1:${admin_port}/" "Admin" 30 || warn "Admin direct port check failed."
+  wait_for_http "$backend_url/health" "后端健康检查" 60 || die "后端健康检查失败。"
+  wait_for_http "http://127.0.0.1:${admin_port}/" "后台管理" 30 || warn "后台直连端口检查失败。"
 
   if [[ -n "$public_url" && "$public_url" == https://* ]]; then
-    wait_for_http "$public_url" "Public HTTPS" 40 || warn "Public HTTPS check failed. Check DNS, firewall, and certificate status."
+    wait_for_http "$public_url" "公网 HTTPS" 40 || warn "公网 HTTPS 检查失败，请检查 DNS、防火墙和证书状态。"
   fi
 }
 
@@ -473,17 +473,17 @@ install_flow() {
   preflight
 
   if is_installed; then
-    warn "$APP_NAME is already installed at $INSTALL_DIR."
-    confirm "Continue and refresh installation files without overwriting secrets?" || return
+    warn "$APP_NAME 已安装在 $INSTALL_DIR。"
+    confirm "是否继续刷新安装文件并保留现有密钥？" || return
   fi
 
-  printf '\nChoose access mode:\n'
-  printf '1) No domain, local-only access\n'
-  printf '2) No domain, server IP access\n'
-  printf '3) Domain with automatic HTTPS certificate\n'
-  printf '4) Domain with your own certificate\n'
-  printf '5) Existing reverse proxy / load balancer\n'
-  printf 'Select: '
+  printf '\n请选择访问方式：\n'
+  printf '1) 不使用域名，仅本机访问\n'
+  printf '2) 不使用域名，使用服务器 IP 访问\n'
+  printf '3) 使用域名，自动申请 HTTPS 证书\n'
+  printf '4) 使用域名，使用自有证书\n'
+  printf '5) 已有反向代理 / 负载均衡\n'
+  printf '请选择：'
   local choice
   read -r choice
 
@@ -501,17 +501,17 @@ install_flow() {
       host_bind="0.0.0.0"
       local detected_ip
       detected_ip="$(detect_public_ip)"
-      detected_ip="$(ask "Server IP or host" "$detected_ip")"
+      detected_ip="$(ask "服务器 IP 或主机名" "$detected_ip")"
       public_url="http://${detected_ip}:5173"
       backend_public_url="http://${detected_ip}:8080"
       cookie_secure="false"
       ;;
     3)
       mode="domain-auto"
-      domain="$(ask "Domain")"
-      [[ -n "$domain" ]] || die "Domain is required."
-      check_port_available 80 || die "Port 80 is already in use."
-      check_port_available 443 || die "Port 443 is already in use."
+      domain="$(ask "域名")"
+      [[ -n "$domain" ]] || die "必须填写域名。"
+      check_port_available 80 || die "80 端口已被占用。"
+      check_port_available 443 || die "443 端口已被占用。"
       host_bind="127.0.0.1"
       public_url="https://${domain}"
       backend_public_url="https://${domain}"
@@ -519,12 +519,12 @@ install_flow() {
       ;;
     4)
       mode="domain-custom"
-      domain="$(ask "Domain")"
-      [[ -n "$domain" ]] || die "Domain is required."
-      cert="$(ask "Certificate fullchain.pem path")"
-      key="$(ask "Private key path")"
-      check_port_available 80 || die "Port 80 is already in use."
-      check_port_available 443 || die "Port 443 is already in use."
+      domain="$(ask "域名")"
+      [[ -n "$domain" ]] || die "必须填写域名。"
+      cert="$(ask "证书 fullchain.pem 路径")"
+      key="$(ask "私钥路径")"
+      check_port_available 80 || die "80 端口已被占用。"
+      check_port_available 443 || die "443 端口已被占用。"
       host_bind="127.0.0.1"
       public_url="https://${domain}"
       backend_public_url="https://${domain}"
@@ -532,27 +532,27 @@ install_flow() {
       ;;
     5)
       mode="external-proxy"
-      domain="$(ask "Public domain or URL host")"
-      [[ -n "$domain" ]] || die "Domain is required."
+      domain="$(ask "公网域名或 URL 主机")"
+      [[ -n "$domain" ]] || die "必须填写域名。"
       host_bind="127.0.0.1"
       public_url="https://${domain}"
       backend_public_url="https://${domain}"
       cookie_secure="true"
       ;;
     *)
-      warn "Cancelled."
+      warn "已取消。"
       return
       ;;
   esac
 
-  log "Prepare installation directory"
+  log "准备安装目录"
   mkdir -p "$INSTALL_DIR"
   safe_refresh_source
 
   if [[ ! -f "$INSTALL_DIR/$ENV_FILE" ]]; then
     write_env_file "$mode" "$public_url" "$backend_public_url" "$host_bind" "$cookie_secure"
   else
-    warn "Existing $ENV_FILE kept. Secrets were not overwritten."
+    warn "已保留现有 $ENV_FILE，未覆盖密钥。"
   fi
 
   rm -f "$INSTALL_DIR/compose.proxy.yml" "$INSTALL_DIR/Caddyfile"
@@ -575,9 +575,9 @@ install_flow() {
   init_owner
   run_smoke
 
-  printf '\nInstallation finished.\n'
-  printf 'Admin URL: %s\n' "$public_url"
-  printf 'Install dir: %s\n' "$INSTALL_DIR"
+  printf '\n安装完成。\n'
+  printf '后台地址：%s\n' "$public_url"
+  printf '安装目录：%s\n' "$INSTALL_DIR"
 }
 
 install_local_command() {
@@ -600,7 +600,7 @@ EOF
 
 backup_flow() {
   require_root
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
   in_install_dir
   mkdir -p "$BACKUP_DIR"
   local ts target postgres_user postgres_db
@@ -608,7 +608,7 @@ backup_flow() {
   target="$BACKUP_DIR/user_admin_${ts}.dump"
   postgres_user="$(get_env_value POSTGRES_USER)"
   postgres_db="$(get_env_value POSTGRES_DB)"
-  log "Backup PostgreSQL to $INSTALL_DIR/$target"
+  log "备份 PostgreSQL 到 $INSTALL_DIR/$target"
   compose_base exec -T postgres pg_dump --format=custom --no-owner --no-acl -U "$postgres_user" -d "$postgres_db" > "$target"
   sha256sum "$target" > "${target}.sha256" 2>/dev/null || true
   printf '%s\n' "$INSTALL_DIR/$target"
@@ -616,12 +616,12 @@ backup_flow() {
 
 restore_flow() {
   require_root
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
   local file
-  file="$(ask "Backup file path")"
-  [[ -f "$file" ]] || die "Backup file not found: $file"
-  confirm "Restore will modify the current database. Create a safety backup first?" && backup_flow
-  confirm "Continue restore now?" || return
+  file="$(ask "备份文件路径")"
+  [[ -f "$file" ]] || die "备份文件不存在：$file"
+  confirm "恢复会修改当前数据库，是否先创建安全备份？" && backup_flow
+  confirm "是否现在继续恢复？" || return
 
   in_install_dir
   local postgres_user postgres_db
@@ -636,36 +636,36 @@ restore_flow() {
 update_flow() {
   require_root
   preflight
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
 
-  printf '\nUpdate options:\n'
-  printf '1) Update to latest stable source\n'
-  printf '2) Cancel\n'
-  printf 'Select: '
+  printf '\n更新选项：\n'
+  printf '1) 更新到最新稳定源码\n'
+  printf '2) 取消\n'
+  printf '请选择：'
   local choice
   read -r choice
   [[ "$choice" == "1" ]] || return
 
   backup_flow
-  log "Refresh source and rebuild services"
+  log "刷新源码并重建服务"
   safe_refresh_source
   in_install_dir
   compose_base build --pull
   run_migrations
   compose_base up -d
   run_smoke
-  printf '\nUpdate finished.\n'
+  printf '\n更新完成。\n'
 }
 
 uninstall_flow() {
   require_root
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
 
-  printf '\nUninstall options:\n'
-  printf '1) Safe uninstall, keep data volumes and backups\n'
-  printf '2) Purge everything, including Docker volumes\n'
-  printf '3) Cancel\n'
-  printf 'Select: '
+  printf '\n卸载选项：\n'
+  printf '1) 安全卸载，保留数据卷和备份\n'
+  printf '2) 彻底清除，包括 Docker 数据卷\n'
+  printf '3) 取消\n'
+  printf '请选择：'
   local choice
   read -r choice
 
@@ -674,36 +674,59 @@ uninstall_flow() {
     1)
       compose_base down
       rm -f /usr/local/bin/user-admin /usr/local/bin/entitle-hub
-      printf 'Services stopped. Data volumes and %s are kept.\n' "$INSTALL_DIR"
+      printf '服务已停止，数据卷和 %s 已保留。\n' "$INSTALL_DIR"
       ;;
     2)
-      printf 'Type DELETE USER-ADMIN DATA to confirm purge: '
+      printf '请输入 DELETE USER-ADMIN DATA 确认清除：'
       local phrase
       read -r phrase
-      [[ "$phrase" == "DELETE USER-ADMIN DATA" ]] || die "Confirmation did not match."
+      [[ "$phrase" == "DELETE USER-ADMIN DATA" ]] || die "确认短语不匹配。"
       compose_base down -v --rmi local
       rm -f /usr/local/bin/user-admin /usr/local/bin/entitle-hub
       rm -rf "$INSTALL_DIR"
-      printf 'Purged.\n'
+      printf '已彻底清除。\n'
       ;;
     *)
-      warn "Cancelled."
+      warn "已取消。"
       ;;
   esac
 }
 
+translate_mode() {
+  case "$1" in
+    local) printf '不使用域名，仅本机访问' ;;
+    ip) printf '不使用域名，服务器 IP 访问' ;;
+    domain-auto) printf '使用域名，自动申请 HTTPS 证书' ;;
+    domain-custom) printf '使用域名，自有证书' ;;
+    external-proxy) printf '已有反向代理 / 负载均衡' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 status_flow() {
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
   in_install_dir
-  printf '\nInstall dir: %s\n' "$INSTALL_DIR"
-  [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE"
+  printf '\n安装目录：%s\n' "$INSTALL_DIR"
+  if [[ -f "$STATE_FILE" ]]; then
+    local mode public_url domain installed_at source_ref
+    mode="$(get_env_value MODE "$STATE_FILE" || true)"
+    public_url="$(get_env_value PUBLIC_URL "$STATE_FILE" || true)"
+    domain="$(get_env_value DOMAIN "$STATE_FILE" || true)"
+    installed_at="$(get_env_value INSTALLED_AT "$STATE_FILE" || true)"
+    source_ref="$(get_env_value SOURCE_REF "$STATE_FILE" || true)"
+    [[ -n "$mode" ]] && printf '访问方式：%s\n' "$(translate_mode "$mode")"
+    [[ -n "$public_url" ]] && printf '访问地址：%s\n' "$public_url"
+    [[ -n "$domain" ]] && printf '域名：%s\n' "$domain"
+    [[ -n "$installed_at" ]] && printf '安装时间：%s\n' "$installed_at"
+    [[ -n "$source_ref" ]] && printf '源码版本：%s\n' "$source_ref"
+  fi
   compose_base ps
 }
 
 logs_flow() {
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
   in_install_dir
-  printf 'Service name, or empty for all: '
+  printf '服务名，留空查看全部：'
   local service
   read -r service
   if [[ -n "$service" ]]; then
@@ -715,7 +738,7 @@ logs_flow() {
 
 restart_flow() {
   require_root
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
   in_install_dir
   compose_base restart
   run_smoke
@@ -723,15 +746,15 @@ restart_flow() {
 
 cert_flow() {
   require_root
-  is_installed || die "$APP_NAME is not installed."
+  is_installed || die "$APP_NAME 尚未安装。"
 
-  printf '\nCertificate management:\n'
-  printf '1) Show certificate status\n'
-  printf '2) Switch to automatic certificate\n'
-  printf '3) Switch to custom certificate\n'
-  printf '4) Reload proxy\n'
-  printf '5) Return\n'
-  printf 'Select: '
+  printf '\n证书管理：\n'
+  printf '1) 查看证书状态\n'
+  printf '2) 切换到自动申请证书\n'
+  printf '3) 切换到自有证书\n'
+  printf '4) 重载代理\n'
+  printf '5) 返回\n'
+  printf '请选择：'
   local choice
   read -r choice
 
@@ -742,7 +765,7 @@ cert_flow() {
       compose_base logs --tail=100 caddy || true
       ;;
     2)
-      domain="$(ask "Domain")"
+      domain="$(ask "域名")"
       write_caddy_files "$domain" "auto"
       set_env_value "$ENV_FILE" APP_BASE_URL "https://${domain}"
       set_env_value "$ENV_FILE" ALLOWED_ORIGINS "https://${domain}"
@@ -752,9 +775,9 @@ cert_flow() {
       compose_base up -d caddy backend admin
       ;;
     3)
-      domain="$(ask "Domain")"
-      cert="$(ask "Certificate fullchain.pem path")"
-      key="$(ask "Private key path")"
+      domain="$(ask "域名")"
+      cert="$(ask "证书 fullchain.pem 路径")"
+      key="$(ask "私钥路径")"
       write_caddy_files "$domain" "custom" "$cert" "$key"
       set_env_value "$ENV_FILE" APP_BASE_URL "https://${domain}"
       set_env_value "$ENV_FILE" ALLOWED_ORIGINS "https://${domain}"
@@ -773,11 +796,11 @@ cert_flow() {
 }
 
 doctor_flow() {
-  printf '\nEnvironment diagnostics:\n'
-  command -v docker >/dev/null 2>&1 && printf 'docker: OK\n' || printf 'docker: missing\n'
-  docker compose version >/dev/null 2>&1 && printf 'docker compose: OK\n' || printf 'docker compose: missing\n'
-  command -v curl >/dev/null 2>&1 && printf 'curl: OK\n' || printf 'curl: missing\n'
-  command -v openssl >/dev/null 2>&1 && printf 'openssl: OK\n' || printf 'openssl: missing\n'
+  printf '\n环境诊断：\n'
+  command -v docker >/dev/null 2>&1 && printf 'docker: 正常\n' || printf 'docker: 缺失\n'
+  docker compose version >/dev/null 2>&1 && printf 'docker compose: 正常\n' || printf 'docker compose: 缺失\n'
+  command -v curl >/dev/null 2>&1 && printf 'curl: 正常\n' || printf 'curl: 缺失\n'
+  command -v openssl >/dev/null 2>&1 && printf 'openssl: 正常\n' || printf 'openssl: 缺失\n'
   df -h "$INSTALL_DIR" 2>/dev/null || df -h /
   if is_installed; then
     status_flow || true
@@ -788,18 +811,18 @@ doctor_flow() {
 print_header() {
   clear 2>/dev/null || true
   printf '========================================\n'
-  printf ' %s one-command manager\n' "$APP_NAME"
+  printf ' %s 一键管理器\n' "$APP_NAME"
   printf '========================================\n'
   if is_installed; then
-    printf 'Status: installed\n'
-    printf 'Install dir: %s\n' "$INSTALL_DIR"
+    printf '状态：已安装\n'
+    printf '安装目录：%s\n' "$INSTALL_DIR"
     if [[ -f "$INSTALL_DIR/$STATE_FILE" ]]; then
-      awk -F= '$1 == "PUBLIC_URL" { print "Public URL: " $2 }' "$INSTALL_DIR/$STATE_FILE"
-      awk -F= '$1 == "SOURCE_REF" { print "Source ref: " $2 }' "$INSTALL_DIR/$STATE_FILE"
+      awk -F= '$1 == "PUBLIC_URL" { print "访问地址：" $2 }' "$INSTALL_DIR/$STATE_FILE"
+      awk -F= '$1 == "SOURCE_REF" { print "源码版本：" $2 }' "$INSTALL_DIR/$STATE_FILE"
     fi
   else
-    printf 'Status: not installed\n'
-    printf 'Install dir: %s\n' "$INSTALL_DIR"
+    printf '状态：未安装\n'
+    printf '安装目录：%s\n' "$INSTALL_DIR"
   fi
   printf '\n'
 }
@@ -809,18 +832,18 @@ main_menu() {
     print_header
     if is_installed; then
       cat <<'EOF'
-1) Update to latest
-2) Show status
-3) Show logs
-4) Backup data
-5) Restore backup
-6) Certificate management
-7) Run diagnostics
-8) Restart services
-9) Uninstall
-10) Exit
+1) 更新到最新版
+2) 查看状态
+3) 查看日志
+4) 备份数据
+5) 恢复备份
+6) 证书管理
+7) 运行诊断
+8) 重启服务
+9) 卸载
+10) 退出
 EOF
-      printf 'Select: '
+      printf '请选择：'
       local choice
       read -r choice
       case "$choice" in
@@ -834,16 +857,16 @@ EOF
         8) restart_flow; pause ;;
         9) uninstall_flow; pause ;;
         10) exit 0 ;;
-        *) warn "Invalid choice."; pause ;;
+        *) warn "无效选择。"; pause ;;
       esac
     else
       cat <<'EOF'
-1) Install
-2) Restore from backup
-3) Run diagnostics
-4) Exit
+1) 安装
+2) 从备份恢复
+3) 运行诊断
+4) 退出
 EOF
-      printf 'Select: '
+      printf '请选择：'
       local choice
       read -r choice
       case "$choice" in
@@ -851,7 +874,7 @@ EOF
         2) install_flow; restore_flow; pause ;;
         3) doctor_flow; pause ;;
         4) exit 0 ;;
-        *) warn "Invalid choice."; pause ;;
+        *) warn "无效选择。"; pause ;;
       esac
     fi
   done

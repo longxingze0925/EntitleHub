@@ -3,9 +3,9 @@ import { LockKeyhole, LogIn, Mail } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
-import { ApiError } from "../../api/client";
 import { login } from "../../api/auth";
 import { useAuthStore } from "../../stores/authStore";
+import { tApiError } from "../../utils/i18n";
 
 interface LoginFormValues {
   email: string;
@@ -36,12 +36,7 @@ export function LoginPage() {
     return <Navigate to="/" replace />;
   }
 
-  const error =
-    mutation.error instanceof ApiError
-      ? mutation.error.message
-      : mutation.error
-        ? "service_unavailable"
-        : null;
+  const error = tApiError(mutation.error);
 
   return (
     <main className="login-screen">
@@ -81,11 +76,11 @@ export function LoginPage() {
             <Input.Password
               prefix={<LockKeyhole size={16} />}
               autoComplete="current-password"
-              placeholder="Password"
+              placeholder="请输入密码"
             />
           </Form.Item>
 
-          <Form.Item name="mfa_code" label="MFA">
+          <Form.Item name="mfa_code" label="多因素验证码">
             <Input inputMode="numeric" autoComplete="one-time-code" />
           </Form.Item>
 

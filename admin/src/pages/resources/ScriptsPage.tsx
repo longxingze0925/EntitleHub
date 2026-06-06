@@ -33,6 +33,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -122,7 +123,7 @@ export function ScriptsPage() {
       return created.script;
     },
     onSuccess: async (script) => {
-      message.success("secure_script_created");
+      message.success(tMessage("secure_script_created"));
       setSignedScript(script);
       setCreateOpen(false);
       createForm.resetFields();
@@ -147,7 +148,7 @@ export function ScriptsPage() {
       return updated.script;
     },
     onSuccess: async (script) => {
-      message.success("secure_script_content_updated");
+      message.success(tMessage("secure_script_content_updated"));
       setSignedScript(script);
       setEditingScript(null);
       updateForm.resetFields();
@@ -157,14 +158,14 @@ export function ScriptsPage() {
   const publishMutation = useMutation({
     mutationFn: publishSecureScript,
     onSuccess: async () => {
-      message.success("secure_script_published");
+      message.success(tMessage("secure_script_published"));
       await scriptsQuery.refetch();
     }
   });
   const deprecateMutation = useMutation({
     mutationFn: deprecateSecureScript,
     onSuccess: async () => {
-      message.success("secure_script_deprecated");
+      message.success(tMessage("secure_script_deprecated"));
       await scriptsQuery.refetch();
     }
   });
@@ -187,7 +188,7 @@ export function ScriptsPage() {
         <Space direction="vertical" size={0}>
           <Typography.Text strong>{record.name}</Typography.Text>
           <Typography.Text type="secondary">
-            {record.version} / code {record.version_code}
+            {record.version} / 编号 {record.version_code}
           </Typography.Text>
         </Space>
       )
@@ -298,7 +299,7 @@ export function ScriptsPage() {
         <Space>
           <Select
             loading={appsQuery.isLoading}
-            placeholder="application"
+            placeholder="应用"
             className="table-select"
             options={appOptions}
             value={appId}
@@ -309,12 +310,12 @@ export function ScriptsPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
             options={[
-              { value: "draft", label: "draft" },
-              { value: "published", label: "published" },
-              { value: "deprecated", label: "deprecated" }
+              tOption("draft"),
+              tOption("published"),
+              tOption("deprecated")
             ]}
             onChange={(value) => {
               setPage(1);
@@ -335,16 +336,16 @@ export function ScriptsPage() {
         </Space>
       </div>
       {appsQuery.error || scriptsQuery.error ? (
-        <Alert type="error" message="secure_scripts_load_failed" />
+        <Alert type="error" message={tMessage("secure_scripts_load_failed")} />
       ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="secure_script_create_failed" />
+        <Alert type="error" message={tMessage("secure_script_create_failed")} />
       ) : null}
       {updateMutation.error ? (
-        <Alert type="error" message="secure_script_content_update_failed" />
+        <Alert type="error" message={tMessage("secure_script_content_update_failed")} />
       ) : null}
       {publishMutation.error || deprecateMutation.error ? (
-        <Alert type="error" message="secure_script_status_update_failed" />
+        <Alert type="error" message={tMessage("secure_script_status_update_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -383,8 +384,8 @@ export function ScriptsPage() {
           </Form.Item>
           <Form.Item
             name="version_code"
-            label="版本 Code"
-            rules={[{ required: true, message: "请输入版本 Code" }]}
+            label="版本编号"
+            rules={[{ required: true, message: "请输入版本编号" }]}
           >
             <InputNumber min={1} precision={0} className="form-number" />
           </Form.Item>
@@ -421,7 +422,7 @@ export function ScriptsPage() {
           <Form.Item name="version" label="版本号">
             <Input />
           </Form.Item>
-          <Form.Item name="version_code" label="版本 Code">
+          <Form.Item name="version_code" label="版本编号">
             <InputNumber min={1} precision={0} className="form-number" />
           </Form.Item>
           <Form.Item
@@ -441,13 +442,13 @@ export function ScriptsPage() {
         onOk={() => setSignedScript(null)}
       >
         <Space direction="vertical" size={12} className="token-result">
-          <Typography.Text type="secondary">script_id</Typography.Text>
+          <Typography.Text type="secondary">脚本 ID（script_id）</Typography.Text>
           <Typography.Text copyable>{signedScript?.id}</Typography.Text>
-          <Typography.Text type="secondary">content_sha256</Typography.Text>
+          <Typography.Text type="secondary">内容哈希（content_sha256）</Typography.Text>
           <Typography.Text copyable>{signedScript?.content_sha256}</Typography.Text>
-          <Typography.Text type="secondary">signature_kid</Typography.Text>
+          <Typography.Text type="secondary">签名密钥 ID（signature_kid）</Typography.Text>
           <Typography.Text copyable>{signedScript?.signature_kid}</Typography.Text>
-          <Typography.Text type="secondary">signature</Typography.Text>
+          <Typography.Text type="secondary">签名（signature）</Typography.Text>
           <Typography.Text copyable>{signedScript?.signature}</Typography.Text>
         </Space>
       </Modal>

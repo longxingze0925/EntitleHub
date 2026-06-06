@@ -29,6 +29,7 @@ import {
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
+import { tMessage, tOption } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -53,7 +54,7 @@ export function CustomersPage() {
   const createMutation = useMutation({
     mutationFn: createCustomer,
     onSuccess: async () => {
-      message.success("customer_created");
+      message.success(tMessage("customer_created"));
       setCreateOpen(false);
       createForm.resetFields();
       await query.refetch();
@@ -62,7 +63,7 @@ export function CustomersPage() {
   const updateMutation = useMutation({
     mutationFn: updateCustomer,
     onSuccess: async () => {
-      message.success("customer_updated");
+      message.success(tMessage("customer_updated"));
       setEditingCustomer(null);
       editForm.resetFields();
       await query.refetch();
@@ -71,14 +72,14 @@ export function CustomersPage() {
   const disableMutation = useMutation({
     mutationFn: disableCustomer,
     onSuccess: async (data) => {
-      message.success(`customer_disabled:${data.revoked_sessions ?? 0}`);
+      message.success(tMessage(`customer_disabled:${data.revoked_sessions ?? 0}`));
       await query.refetch();
     }
   });
   const resetPasswordMutation = useMutation({
     mutationFn: resetCustomerPassword,
     onSuccess: () => {
-      message.success("customer_password_reset_email_queued");
+      message.success(tMessage("customer_password_reset_email_queued"));
     }
   });
 
@@ -122,7 +123,7 @@ export function CustomersPage() {
       dataIndex: "email_verified",
       key: "email_verified",
       width: 110,
-      render: (verified: boolean) => (verified ? "verified" : "pending")
+      render: (verified: boolean) => (verified ? "已验证" : "待验证")
     },
     {
       title: "操作",
@@ -206,7 +207,7 @@ export function CustomersPage() {
         <Space>
           <Input.Search
             allowClear
-            placeholder="keyword"
+            placeholder="关键词"
             onSearch={(value) => {
               setPage(1);
               setKeyword(value);
@@ -215,12 +216,9 @@ export function CustomersPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
-            options={[
-              { value: "active", label: "active" },
-              { value: "disabled", label: "disabled" }
-            ]}
+            options={[tOption("active"), tOption("disabled")]}
             onChange={(value) => {
               setPage(1);
               setStatus(value);
@@ -238,18 +236,20 @@ export function CustomersPage() {
           ) : null}
         </Space>
       </div>
-      {query.error ? <Alert type="error" message="customers_load_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("customers_load_failed")} />
+      ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="customer_create_failed" />
+        <Alert type="error" message={tMessage("customer_create_failed")} />
       ) : null}
       {updateMutation.error ? (
-        <Alert type="error" message="customer_update_failed" />
+        <Alert type="error" message={tMessage("customer_update_failed")} />
       ) : null}
       {disableMutation.error ? (
-        <Alert type="error" message="customer_disable_failed" />
+        <Alert type="error" message={tMessage("customer_disable_failed")} />
       ) : null}
       {resetPasswordMutation.error ? (
-        <Alert type="error" message="customer_password_reset_failed" />
+        <Alert type="error" message={tMessage("customer_password_reset_failed")} />
       ) : null}
       <Table
         rowKey="id"

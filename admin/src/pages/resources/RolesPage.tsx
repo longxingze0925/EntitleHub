@@ -30,6 +30,7 @@ import {
 } from "../../api/admin";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
+import { tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface RoleFormValues {
@@ -61,7 +62,7 @@ export function RolesPage() {
   const createMutation = useMutation({
     mutationFn: createRole,
     onSuccess: () => {
-      message.success("role_created");
+      message.success(tMessage("role_created"));
       closeModal();
       queryClient.invalidateQueries({ queryKey: ["admin", "roles"] });
     }
@@ -69,7 +70,7 @@ export function RolesPage() {
   const updateMutation = useMutation({
     mutationFn: updateRole,
     onSuccess: () => {
-      message.success("role_updated");
+      message.success(tMessage("role_updated"));
       closeModal();
       queryClient.invalidateQueries({ queryKey: ["admin", "roles"] });
     }
@@ -77,7 +78,7 @@ export function RolesPage() {
   const deleteMutation = useMutation({
     mutationFn: deleteRole,
     onSuccess: () => {
-      message.success("role_deleted");
+      message.success(tMessage("role_deleted"));
       queryClient.invalidateQueries({ queryKey: ["admin", "roles"] });
     }
   });
@@ -159,7 +160,7 @@ export function RolesPage() {
       key: "builtin",
       width: 100,
       render: (value: boolean) =>
-        value ? <Tag color="blue">builtin</Tag> : <Tag>custom</Tag>
+        value ? <Tag color="blue">{tStatus("builtin")}</Tag> : <Tag>{tStatus("custom")}</Tag>
     },
     {
       title: "权限",
@@ -232,13 +233,21 @@ export function RolesPage() {
         </Space>
       </div>
 
-      {rolesQuery.error ? <Alert type="error" message="roles_load_failed" /> : null}
-      {permissionsQuery.error ? (
-        <Alert type="error" message="permissions_load_failed" />
+      {rolesQuery.error ? (
+        <Alert type="error" message={tMessage("roles_load_failed")} />
       ) : null}
-      {createMutation.error ? <Alert type="error" message="role_create_failed" /> : null}
-      {updateMutation.error ? <Alert type="error" message="role_update_failed" /> : null}
-      {deleteMutation.error ? <Alert type="error" message="role_delete_failed" /> : null}
+      {permissionsQuery.error ? (
+        <Alert type="error" message={tMessage("permissions_load_failed")} />
+      ) : null}
+      {createMutation.error ? (
+        <Alert type="error" message={tMessage("role_create_failed")} />
+      ) : null}
+      {updateMutation.error ? (
+        <Alert type="error" message={tMessage("role_update_failed")} />
+      ) : null}
+      {deleteMutation.error ? (
+        <Alert type="error" message={tMessage("role_delete_failed")} />
+      ) : null}
 
       <Table
         rowKey="id"
@@ -261,12 +270,12 @@ export function RolesPage() {
         <Form<RoleFormValues> form={form} layout="vertical" onFinish={submitRole}>
           <Form.Item
             name="code"
-            label="Code"
+            label="角色编码"
             rules={[
-              { required: !editing, message: "请输入 code" },
+              { required: !editing, message: "请输入角色编码" },
               {
                 pattern: /^[A-Za-z0-9_-]+$/,
-                message: "code 只能包含字母、数字、_、-"
+                message: "角色编码只能包含字母、数字、_、-"
               }
             ]}
           >

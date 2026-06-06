@@ -23,6 +23,7 @@ import {
 import { SimplePager } from "../../components/SimplePager";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -49,7 +50,7 @@ export function OutboxEventsPage() {
   const retryMutation = useMutation({
     mutationFn: retryOutboxEvent,
     onSuccess: () => {
-      message.success("outbox_event_retry_scheduled");
+      message.success(tMessage("outbox_event_retry_scheduled"));
       queryClient.invalidateQueries({ queryKey: ["admin", "outbox-events"] });
     }
   });
@@ -81,7 +82,7 @@ export function OutboxEventsPage() {
       render: (value?: string | null) => shortId(value)
     },
     {
-      title: "Attempts",
+      title: "尝试次数",
       dataIndex: "attempts",
       key: "attempts",
       width: 100
@@ -130,13 +131,13 @@ export function OutboxEventsPage() {
     <section className="workspace-page">
       <div className="page-heading">
         <div>
-          <Typography.Title level={2}>Outbox</Typography.Title>
+          <Typography.Title level={2}>异步事件</Typography.Title>
           <Typography.Text type="secondary">异步任务事件</Typography.Text>
         </div>
         <Space>
           <Input.Search
             allowClear
-            placeholder="status"
+            placeholder="状态"
             onSearch={(value) => {
               setPage(1);
               setStatus(value);
@@ -145,7 +146,7 @@ export function OutboxEventsPage() {
           />
           <Input.Search
             allowClear
-            placeholder="event_type"
+            placeholder="事件类型"
             onSearch={(value) => {
               setPage(1);
               setEventType(value);
@@ -156,8 +157,12 @@ export function OutboxEventsPage() {
         </Space>
       </div>
 
-      {query.error ? <Alert type="error" message="outbox_events_load_failed" /> : null}
-      {retryMutation.error ? <Alert type="error" message="outbox_event_retry_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("outbox_events_load_failed")} />
+      ) : null}
+      {retryMutation.error ? (
+        <Alert type="error" message={tMessage("outbox_event_retry_failed")} />
+      ) : null}
 
       <Table
         rowKey="id"
@@ -176,7 +181,7 @@ export function OutboxEventsPage() {
       />
 
       <Modal
-        title="Outbox 详情"
+        title="异步事件详情"
         open={Boolean(selected)}
         onCancel={() => setSelected(null)}
         onOk={() => setSelected(null)}
@@ -198,7 +203,7 @@ function StatusTag({ status }: { status: string }) {
           ? "red"
           : "default";
 
-  return <Tag color={color}>{status}</Tag>;
+  return <Tag color={color}>{tStatus(status)}</Tag>;
 }
 
 function OutboxEventDetail({ event }: { event: OutboxEventSummary }) {
@@ -210,20 +215,20 @@ function OutboxEventDetail({ event }: { event: OutboxEventSummary }) {
         <Typography.Text type="secondary">{shortId(event.id)}</Typography.Text>
       </Space>
       <Space direction="vertical" size={2}>
-        <Typography.Text type="secondary">schedule</Typography.Text>
+        <Typography.Text type="secondary">调度</Typography.Text>
         <Typography.Text>
-          next_run_at: {dateTime(event.next_run_at)} · attempts: {event.attempts}
+          下次运行：{dateTime(event.next_run_at)} · 尝试次数：{event.attempts}
         </Typography.Text>
       </Space>
       <Space direction="vertical" size={2}>
-        <Typography.Text type="secondary">processed_at</Typography.Text>
+        <Typography.Text type="secondary">处理时间</Typography.Text>
         <Typography.Text>{event.processed_at ? dateTime(event.processed_at) : "-"}</Typography.Text>
       </Space>
       {event.last_error ? (
         <Alert type="error" message={event.last_error} />
       ) : null}
       <Space direction="vertical" size={4} className="audit-json-block">
-        <Typography.Text type="secondary">payload</Typography.Text>
+        <Typography.Text type="secondary">载荷</Typography.Text>
         <pre className="json-view">
           {JSON.stringify(event.payload, null, 2)}
         </pre>

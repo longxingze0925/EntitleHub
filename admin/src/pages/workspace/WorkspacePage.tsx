@@ -1,6 +1,8 @@
 import { Button, Space, Table, Tag, Typography } from "antd";
 import { Plus, RefreshCw } from "lucide-react";
 
+import { tStatus } from "../../utils/i18n";
+
 export interface WorkspacePageProps {
   title: string;
   subtitle: string;
@@ -18,7 +20,7 @@ const columns = [
     title: "状态",
     dataIndex: "status",
     key: "status",
-    render: (status: string) => <Tag color="blue">{status}</Tag>
+    render: (status: string) => <Tag color="blue">{tStatus(status)}</Tag>
   },
   {
     title: "更新时间",

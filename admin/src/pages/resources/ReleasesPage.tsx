@@ -33,6 +33,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -114,7 +115,7 @@ export function ReleasesPage() {
       return { file, release: release.release };
     },
     onSuccess: async (data) => {
-      message.success("release_created");
+      message.success(tMessage("release_created"));
       setCreatedRelease(data);
       setCreateOpen(false);
       setSelectedFile(null);
@@ -125,14 +126,14 @@ export function ReleasesPage() {
   const publishMutation = useMutation({
     mutationFn: publishRelease,
     onSuccess: async () => {
-      message.success("release_published");
+      message.success(tMessage("release_published"));
       await releasesQuery.refetch();
     }
   });
   const deprecateMutation = useMutation({
     mutationFn: deprecateRelease,
     onSuccess: async () => {
-      message.success("release_deprecated");
+      message.success(tMessage("release_deprecated"));
       await releasesQuery.refetch();
     }
   });
@@ -145,7 +146,7 @@ export function ReleasesPage() {
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <Typography.Text strong>{record.version}</Typography.Text>
-          <Typography.Text type="secondary">code {record.version_code}</Typography.Text>
+          <Typography.Text type="secondary">编号 {record.version_code}</Typography.Text>
         </Space>
       )
     },
@@ -168,7 +169,7 @@ export function ReleasesPage() {
       key: "force_update",
       width: 90,
       render: (enabled: boolean) =>
-        enabled ? <Tag color="red">force</Tag> : <Tag>normal</Tag>
+        enabled ? <Tag color="red">{tStatus("force")}</Tag> : <Tag>{tStatus("normal")}</Tag>
     },
     {
       title: "发布时间",
@@ -235,7 +236,7 @@ export function ReleasesPage() {
         <Space>
           <Select
             loading={appsQuery.isLoading}
-            placeholder="application"
+            placeholder="应用"
             className="table-select"
             options={appOptions}
             value={appId}
@@ -246,12 +247,12 @@ export function ReleasesPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
             options={[
-              { value: "draft", label: "draft" },
-              { value: "published", label: "published" },
-              { value: "deprecated", label: "deprecated" }
+              tOption("draft"),
+              tOption("published"),
+              tOption("deprecated")
             ]}
             onChange={(value) => {
               setPage(1);
@@ -272,13 +273,13 @@ export function ReleasesPage() {
         </Space>
       </div>
       {appsQuery.error || releasesQuery.error ? (
-        <Alert type="error" message="releases_load_failed" />
+        <Alert type="error" message={tMessage("releases_load_failed")} />
       ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="release_create_failed" />
+        <Alert type="error" message={tMessage("release_create_failed")} />
       ) : null}
       {publishMutation.error || deprecateMutation.error ? (
-        <Alert type="error" message="release_status_update_failed" />
+        <Alert type="error" message={tMessage("release_status_update_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -322,7 +323,7 @@ export function ReleasesPage() {
             />
             {selectedFile ? (
               <Typography.Text type="secondary">
-                {selectedFile.name} · {selectedFile.size} bytes
+                {selectedFile.name} · {selectedFile.size} 字节
               </Typography.Text>
             ) : null}
           </Form.Item>
@@ -335,8 +336,8 @@ export function ReleasesPage() {
           </Form.Item>
           <Form.Item
             name="version_code"
-            label="版本 Code"
-            rules={[{ required: true, message: "请输入版本 Code" }]}
+            label="版本编号"
+            rules={[{ required: true, message: "请输入版本编号" }]}
           >
             <InputNumber min={1} precision={0} className="form-number" />
           </Form.Item>
@@ -356,13 +357,13 @@ export function ReleasesPage() {
         onOk={() => setCreatedRelease(null)}
       >
         <Space direction="vertical" size={12} className="token-result">
-          <Typography.Text type="secondary">release_id</Typography.Text>
+          <Typography.Text type="secondary">版本 ID（release_id）</Typography.Text>
           <Typography.Text copyable>{createdRelease?.release.id}</Typography.Text>
-          <Typography.Text type="secondary">file_id</Typography.Text>
+          <Typography.Text type="secondary">文件 ID（file_id）</Typography.Text>
           <Typography.Text copyable>{createdRelease?.file.file_id}</Typography.Text>
-          <Typography.Text type="secondary">signature_kid</Typography.Text>
+          <Typography.Text type="secondary">签名密钥 ID（signature_kid）</Typography.Text>
           <Typography.Text copyable>{createdRelease?.file.signature_kid}</Typography.Text>
-          <Typography.Text type="secondary">signature</Typography.Text>
+          <Typography.Text type="secondary">签名（signature）</Typography.Text>
           <Typography.Text copyable>{createdRelease?.file.signature}</Typography.Text>
         </Space>
       </Modal>

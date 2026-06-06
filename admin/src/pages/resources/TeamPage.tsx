@@ -31,6 +31,7 @@ import {
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
+import { tMessage } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 export function TeamPage() {
@@ -56,7 +57,7 @@ export function TeamPage() {
   const inviteMutation = useMutation({
     mutationFn: inviteTeamMember,
     onSuccess: async (data) => {
-      message.success("member_invited");
+      message.success(tMessage("member_invited"));
       setInvitation(data.invitation);
       setInviteOpen(false);
       inviteForm.resetFields();
@@ -66,7 +67,7 @@ export function TeamPage() {
   const roleMutation = useMutation({
     mutationFn: updateTeamMemberRoles,
     onSuccess: async () => {
-      message.success("member_roles_updated");
+      message.success(tMessage("member_roles_updated"));
       setEditingMember(null);
       roleForm.resetFields();
       await query.refetch();
@@ -75,7 +76,7 @@ export function TeamPage() {
   const disableMutation = useMutation({
     mutationFn: disableTeamMember,
     onSuccess: async (data) => {
-      message.success(`member_disabled:${data.revoked_sessions ?? 0}`);
+      message.success(tMessage(`member_disabled:${data.revoked_sessions ?? 0}`));
       await query.refetch();
     }
   });
@@ -116,12 +117,12 @@ export function TeamPage() {
           : "-"
     },
     {
-      title: "MFA",
+      title: "多因素认证",
       dataIndex: "mfa_enabled",
       key: "mfa_enabled",
       width: 90,
       render: (enabled: boolean) =>
-        enabled ? <Tag color="green">on</Tag> : <Tag>off</Tag>
+        enabled ? <Tag color="green">已开启</Tag> : <Tag>未开启</Tag>
     },
     {
       title: "邮箱验证",
@@ -129,7 +130,7 @@ export function TeamPage() {
       key: "email_verified",
       width: 110,
       render: (verified: boolean) =>
-        verified ? <Tag color="green">verified</Tag> : <Tag>pending</Tag>
+        verified ? <Tag color="green">已验证</Tag> : <Tag>待验证</Tag>
     },
     {
       title: "操作",
@@ -210,16 +211,20 @@ export function TeamPage() {
           ) : null}
         </Space>
       </div>
-      {query.error ? <Alert type="error" message="team_members_load_failed" /> : null}
-      {rolesQuery.error ? <Alert type="error" message="roles_load_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("team_members_load_failed")} />
+      ) : null}
+      {rolesQuery.error ? (
+        <Alert type="error" message={tMessage("roles_load_failed")} />
+      ) : null}
       {inviteMutation.error ? (
-        <Alert type="error" message="team_member_invite_failed" />
+        <Alert type="error" message={tMessage("team_member_invite_failed")} />
       ) : null}
       {roleMutation.error ? (
-        <Alert type="error" message="team_member_roles_update_failed" />
+        <Alert type="error" message={tMessage("team_member_roles_update_failed")} />
       ) : null}
       {disableMutation.error ? (
-        <Alert type="error" message="team_member_disable_failed" />
+        <Alert type="error" message={tMessage("team_member_disable_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -310,7 +315,7 @@ export function TeamPage() {
         <Space direction="vertical" size={12} className="token-result">
           <Typography.Text copyable>{invitation?.token}</Typography.Text>
           <Typography.Text type="secondary">
-            {dateTime(invitation?.expires_at)}
+            有效期至 {dateTime(invitation?.expires_at)}
           </Typography.Text>
         </Space>
       </Modal>

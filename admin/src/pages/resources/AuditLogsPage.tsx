@@ -16,6 +16,7 @@ import {
 import { SimplePager } from "../../components/SimplePager";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -165,7 +166,7 @@ export function AuditLogsPage() {
       <div className="audit-filter-bar">
         <Input
           allowClear
-          placeholder="actor_id"
+          placeholder="操作者 ID"
           value={draftFilters.actor_id}
           onChange={(event) =>
             setDraftFilters((current) => ({ ...current, actor_id: event.target.value }))
@@ -175,7 +176,7 @@ export function AuditLogsPage() {
         />
         <Input
           allowClear
-          placeholder="action"
+          placeholder="动作"
           value={draftFilters.action}
           onChange={(event) =>
             setDraftFilters((current) => ({ ...current, action: event.target.value }))
@@ -185,7 +186,7 @@ export function AuditLogsPage() {
         />
         <Input
           allowClear
-          placeholder="resource_type"
+          placeholder="资源类型"
           value={draftFilters.resource_type}
           onChange={(event) =>
             setDraftFilters((current) => ({
@@ -198,7 +199,7 @@ export function AuditLogsPage() {
         />
         <Input
           allowClear
-          placeholder="resource_id"
+          placeholder="资源 ID"
           value={draftFilters.resource_id}
           onChange={(event) =>
             setDraftFilters((current) => ({ ...current, resource_id: event.target.value }))
@@ -227,9 +228,15 @@ export function AuditLogsPage() {
           清空
         </Button>
       </div>
-      {query.error ? <Alert type="error" message="audit_logs_load_failed" /> : null}
-      {detailQuery.error ? <Alert type="error" message="audit_log_detail_failed" /> : null}
-      {exportMutation.error ? <Alert type="error" message="audit_logs_export_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("audit_logs_load_failed")} />
+      ) : null}
+      {detailQuery.error ? (
+        <Alert type="error" message={tMessage("audit_log_detail_failed")} />
+      ) : null}
+      {exportMutation.error ? (
+        <Alert type="error" message={tMessage("audit_logs_export_failed")} />
+      ) : null}
       <Table
         rowKey="id"
         loading={query.isLoading}
@@ -254,7 +261,7 @@ export function AuditLogsPage() {
         width={880}
       >
         {detailQuery.isLoading ? (
-          <Typography.Text type="secondary">loading</Typography.Text>
+          <Typography.Text type="secondary">加载中</Typography.Text>
         ) : detail ? (
           <AuditDetailView detail={detail} />
         ) : null}
@@ -285,20 +292,20 @@ function AuditDetailView({ detail }: { detail: AuditLogDetail }) {
         <Typography.Text type="secondary">{dateTime(detail.created_at)}</Typography.Text>
       </Space>
       <Space direction="vertical" size={2}>
-        <Typography.Text type="secondary">actor</Typography.Text>
+        <Typography.Text type="secondary">操作者</Typography.Text>
         <Typography.Text>
           {detail.actor_type} · {shortId(detail.actor_id)}
         </Typography.Text>
       </Space>
       <Space direction="vertical" size={2}>
-        <Typography.Text type="secondary">request</Typography.Text>
+        <Typography.Text type="secondary">请求</Typography.Text>
         <Typography.Text copyable={Boolean(detail.request_id)}>
           {detail.request_id ?? "-"}
         </Typography.Text>
       </Space>
-      <JsonBlock title="before_json" value={detail.before_json} />
-      <JsonBlock title="after_json" value={detail.after_json} />
-      <JsonBlock title="metadata_json" value={detail.metadata_json} />
+      <JsonBlock title="变更前" value={detail.before_json} />
+      <JsonBlock title="变更后" value={detail.after_json} />
+      <JsonBlock title="元数据" value={detail.metadata_json} />
     </Space>
   );
 }

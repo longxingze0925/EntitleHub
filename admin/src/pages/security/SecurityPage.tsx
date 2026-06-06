@@ -33,6 +33,7 @@ import {
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
+import { tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface PasswordFormValues {
@@ -82,14 +83,14 @@ export function SecurityPage() {
     mutationFn: changePassword,
     onSuccess: (data) => {
       passwordForm.resetFields();
-      message.success(`password_changed:${data.revoked_sessions}`);
+      message.success(tMessage(`password_changed:${data.revoked_sessions}`));
     }
   });
 
   const emailMutation = useMutation({
     mutationFn: requestEmailVerify,
     onSuccess: () => {
-      message.success("email_verify_requested");
+      message.success(tMessage("email_verify_requested"));
     }
   });
 
@@ -109,7 +110,7 @@ export function SecurityPage() {
       setRecoveryCodes([]);
       enableForm.resetFields();
       updateCurrentUser({ mfa_enabled: true });
-      message.success("mfa_enabled");
+      message.success(tMessage("mfa_enabled"));
     }
   });
 
@@ -122,7 +123,7 @@ export function SecurityPage() {
     onSuccess: () => {
       disableForm.resetFields();
       updateCurrentUser({ mfa_enabled: false });
-      message.success("mfa_disabled");
+      message.success(tMessage("mfa_disabled"));
     }
   });
 
@@ -135,14 +136,14 @@ export function SecurityPage() {
     onSuccess: (data) => {
       regenerateForm.resetFields();
       setRecoveryCodes(data.recovery_codes);
-      message.success("recovery_codes_regenerated");
+      message.success(tMessage("recovery_codes_regenerated"));
     }
   });
 
   const rotateJwtKeyMutation = useMutation({
     mutationFn: rotateGlobalJwtSigningKey,
     onSuccess: async (data) => {
-      message.success(`jwt_key_rotated:${data.retired_key_count}`);
+      message.success(tMessage(`jwt_key_rotated:${data.retired_key_count}`));
       await jwtKeysQuery.refetch();
     }
   });
@@ -194,10 +195,10 @@ export function SecurityPage() {
         </div>
         <Space>
           <Tag color={user?.email_verified ? "green" : "default"}>
-            {user?.email_verified ? "email_verified" : "email_unverified"}
+            {user?.email_verified ? "邮箱已验证" : "邮箱未验证"}
           </Tag>
           <Tag color={user?.mfa_enabled ? "green" : "default"}>
-            {user?.mfa_enabled ? "mfa_enabled" : "mfa_disabled"}
+            {user?.mfa_enabled ? tStatus("enabled") : "未启用多因素认证"}
           </Tag>
         </Space>
       </div>
@@ -257,7 +258,7 @@ export function SecurityPage() {
         <section className="settings-panel settings-panel-wide">
           <div className="settings-panel-title">
             <ShieldCheck size={18} />
-            <Typography.Title level={3}>MFA</Typography.Title>
+            <Typography.Title level={3}>多因素认证</Typography.Title>
           </div>
 
           {!user?.mfa_enabled ? (
@@ -267,16 +268,20 @@ export function SecurityPage() {
                 onClick={() => setupMutation.mutate()}
                 loading={setupMutation.isPending}
               >
-                初始化 MFA
+                初始化多因素认证
               </Button>
 
               {setupResult ? (
                 <>
-                  <Alert type="warning" message="recovery_codes_only_shown_once" showIcon />
+                  <Alert
+                    type="warning"
+                    message={tMessage("recovery_codes_only_shown_once")}
+                    showIcon
+                  />
                   <div className="secret-list">
-                    <Typography.Text strong>Secret</Typography.Text>
+                    <Typography.Text strong>密钥</Typography.Text>
                     <Typography.Text copyable>{setupResult.secret}</Typography.Text>
-                    <Typography.Text strong>OTPAuth URL</Typography.Text>
+                    <Typography.Text strong>OTPAuth 地址</Typography.Text>
                     <Typography.Text copyable>{setupResult.otpauth_url}</Typography.Text>
                   </div>
                   <RecoveryCodes codes={recoveryCodes} />
@@ -288,7 +293,7 @@ export function SecurityPage() {
                   >
                     <Form.Item
                       name="code"
-                      rules={[{ required: true, message: "请输入 MFA code" }]}
+                      rules={[{ required: true, message: "请输入多因素验证码" }]}
                     >
                       <Input inputMode="numeric" autoComplete="one-time-code" />
                     </Form.Item>
@@ -310,7 +315,7 @@ export function SecurityPage() {
                 layout="vertical"
                 onFinish={(values) => disableMutation.mutate(values)}
               >
-                <Typography.Title level={4}>关闭 MFA</Typography.Title>
+                <Typography.Title level={4}>关闭多因素认证</Typography.Title>
                 <Form.Item
                   name="password"
                   label="密码"
@@ -320,8 +325,8 @@ export function SecurityPage() {
                 </Form.Item>
                 <Form.Item
                   name="code"
-                  label="MFA code"
-                  rules={[{ required: true, message: "请输入 MFA code" }]}
+                  label="多因素验证码"
+                  rules={[{ required: true, message: "请输入多因素验证码" }]}
                 >
                   <Input autoComplete="one-time-code" />
                 </Form.Item>
@@ -345,8 +350,8 @@ export function SecurityPage() {
                 </Form.Item>
                 <Form.Item
                   name="code"
-                  label="MFA code"
-                  rules={[{ required: true, message: "请输入 MFA code" }]}
+                  label="多因素验证码"
+                  rules={[{ required: true, message: "请输入多因素验证码" }]}
                 >
                   <Input autoComplete="one-time-code" />
                 </Form.Item>
@@ -377,11 +382,11 @@ export function SecurityPage() {
             >
               <Space size={8}>
                 <KeyRound size={18} />
-                <Typography.Title level={3}>JWT Key</Typography.Title>
+                <Typography.Title level={3}>JWT 密钥</Typography.Title>
               </Space>
               {canRotateSecurityKey ? (
                 <Popconfirm
-                  title="轮换 JWT key"
+                  title="轮换 JWT 密钥"
                   onConfirm={() => rotateJwtKeyMutation.mutate()}
                 >
                   <Button

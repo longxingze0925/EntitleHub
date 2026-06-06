@@ -34,6 +34,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -49,15 +50,15 @@ interface ApplicationFormValues {
 }
 
 const authModeOptions = [
-  { value: "both", label: "both" },
-  { value: "license", label: "license" },
-  { value: "subscription", label: "subscription" }
+  tOption("both"),
+  tOption("license"),
+  tOption("subscription")
 ];
 
 const statusOptions = [
-  { value: "active", label: "active" },
-  { value: "disabled", label: "disabled" },
-  { value: "archived", label: "archived" }
+  tOption("active"),
+  tOption("disabled"),
+  tOption("archived")
 ];
 
 export function ApplicationsPage() {
@@ -89,7 +90,7 @@ export function ApplicationsPage() {
   const createMutation = useMutation({
     mutationFn: createApplication,
     onSuccess: async (data) => {
-      message.success("application_created");
+      message.success(tMessage("application_created"));
       setSecretResult(data);
       setCreateOpen(false);
       createForm.resetFields();
@@ -99,7 +100,7 @@ export function ApplicationsPage() {
   const updateMutation = useMutation({
     mutationFn: updateApplication,
     onSuccess: async () => {
-      message.success("application_updated");
+      message.success(tMessage("application_updated"));
       setEditingApp(null);
       editForm.resetFields();
       await query.refetch();
@@ -108,7 +109,7 @@ export function ApplicationsPage() {
   const rotateMutation = useMutation({
     mutationFn: rotateApplicationKeys,
     onSuccess: async (data) => {
-      message.success("application_keys_rotated");
+      message.success(tMessage("application_keys_rotated"));
       setSecretResult(data);
       await query.refetch();
       await keysQuery.refetch();
@@ -130,7 +131,7 @@ export function ApplicationsPage() {
       )
     },
     {
-      title: "App Key",
+      title: "应用 Key",
       dataIndex: "app_key",
       key: "app_key"
     },
@@ -138,7 +139,8 @@ export function ApplicationsPage() {
       title: "认证",
       dataIndex: "auth_mode",
       key: "auth_mode",
-      width: 120
+      width: 130,
+      render: (value: string) => tStatus(value)
     },
     {
       title: "设备默认上限",
@@ -166,7 +168,7 @@ export function ApplicationsPage() {
           ) : null}
           {canReadKey ? (
             <Button size="small" icon={<List size={14} />} onClick={() => setKeyTarget(record)}>
-              Key
+              密钥
             </Button>
           ) : null}
           {canRotateKey ? (
@@ -267,7 +269,7 @@ export function ApplicationsPage() {
         <Space>
           <Input.Search
             allowClear
-            placeholder="keyword"
+            placeholder="关键词"
             onSearch={(value) => {
               setPage(1);
               setKeyword(value);
@@ -276,13 +278,9 @@ export function ApplicationsPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
-            options={[
-              { value: "active", label: "active" },
-              { value: "disabled", label: "disabled" },
-              { value: "archived", label: "archived" }
-            ]}
+            options={statusOptions}
             onChange={(value) => {
               setPage(1);
               setStatus(value);
@@ -300,15 +298,17 @@ export function ApplicationsPage() {
           ) : null}
         </Space>
       </div>
-      {query.error ? <Alert type="error" message="applications_load_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("applications_load_failed")} />
+      ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="application_create_failed" />
+        <Alert type="error" message={tMessage("application_create_failed")} />
       ) : null}
       {updateMutation.error ? (
-        <Alert type="error" message="application_update_failed" />
+        <Alert type="error" message={tMessage("application_update_failed")} />
       ) : null}
       {rotateMutation.error ? (
-        <Alert type="error" message="application_rotate_keys_failed" />
+        <Alert type="error" message={tMessage("application_rotate_keys_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -356,17 +356,17 @@ export function ApplicationsPage() {
         onOk={() => setSecretResult(null)}
       >
         <Space direction="vertical" size={12} className="token-result">
-          <Typography.Text type="secondary">app_key</Typography.Text>
+          <Typography.Text type="secondary">应用 Key（app_key）</Typography.Text>
           <Typography.Text copyable>{secretResult?.app_key}</Typography.Text>
-          <Typography.Text type="secondary">app_secret</Typography.Text>
+          <Typography.Text type="secondary">应用密钥（app_secret）</Typography.Text>
           <Typography.Text copyable>{secretResult?.app_secret}</Typography.Text>
-          <Typography.Text type="secondary">signing_kid</Typography.Text>
+          <Typography.Text type="secondary">签名密钥 ID（signing_kid）</Typography.Text>
           <Typography.Text copyable>{secretResult?.signing_key.kid}</Typography.Text>
         </Space>
       </Modal>
 
       <Modal
-        title="签名 Key"
+        title="签名密钥"
         open={Boolean(keyTarget)}
         onCancel={() => setKeyTarget(null)}
         onOk={() => setKeyTarget(null)}
@@ -423,7 +423,7 @@ function ApplicationFormModal(props: {
         </Form.Item>
         <Form.Item
           name="slug"
-          label="Slug"
+          label="应用标识（Slug）"
           rules={[
             {
               pattern: /^[a-z0-9-]+$/,

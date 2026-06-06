@@ -785,15 +785,15 @@ fn validate_pagerduty_secret(secret: &Value) -> Result<(), AppError> {
 }
 
 fn build_test_delivery_message(channel: &NotificationChannelRecord) -> TestDeliveryMessage {
-    let summary = format!("Notification channel test: {}", channel.name);
+    let summary = format!("通知渠道测试：{}", channel.name);
     let severity = "info".to_owned();
     let source = "admin-notification-channel-test".to_owned();
     let body = [
-        "Status: firing".to_owned(),
-        format!("Severity: {severity}"),
-        format!("Summary: {summary}"),
-        format!("Source: {source}"),
-        format!("Channel: {} ({})", channel.name, channel.kind),
+        "状态：触发中".to_owned(),
+        format!("级别：{severity}"),
+        format!("摘要：{summary}"),
+        format!("来源：{source}"),
+        format!("渠道：{} ({})", channel.name, channel.kind),
     ]
     .join("\n");
     let payload = json!({

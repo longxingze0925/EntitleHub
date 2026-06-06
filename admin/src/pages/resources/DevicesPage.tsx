@@ -27,6 +27,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -53,14 +54,14 @@ export function DevicesPage() {
   const unbindMutation = useMutation({
     mutationFn: unbindDevice,
     onSuccess: async () => {
-      message.success("device_unbound");
+      message.success(tMessage("device_unbound"));
       await query.refetch();
     }
   });
   const blacklistMutation = useMutation({
     mutationFn: blacklistDevice,
     onSuccess: async () => {
-      message.success("device_blacklisted");
+      message.success(tMessage("device_blacklisted"));
       setBlacklistTarget(null);
       form.resetFields();
       await query.refetch();
@@ -69,7 +70,7 @@ export function DevicesPage() {
   const unblacklistMutation = useMutation({
     mutationFn: unblacklistDevice,
     onSuccess: async () => {
-      message.success("device_unblacklisted");
+      message.success(tMessage("device_unblacklisted"));
       await query.refetch();
     }
   });
@@ -193,7 +194,7 @@ export function DevicesPage() {
         <Space>
           <Input.Search
             allowClear
-            placeholder="machine_id"
+            placeholder="机器 ID"
             onSearch={(value) => {
               setPage(1);
               setMachineId(value);
@@ -202,13 +203,13 @@ export function DevicesPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
             options={[
-              { value: "active", label: "active" },
-              { value: "disabled", label: "disabled" },
-              { value: "blacklisted", label: "blacklisted" },
-              { value: "unbound", label: "unbound" }
+              tOption("active"),
+              tOption("disabled"),
+              tOption("blacklisted"),
+              tOption("unbound")
             ]}
             onChange={(value) => {
               setPage(1);
@@ -218,11 +219,13 @@ export function DevicesPage() {
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />
         </Space>
       </div>
-      {query.error ? <Alert type="error" message="devices_load_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("devices_load_failed")} />
+      ) : null}
       {unbindMutation.error ||
       blacklistMutation.error ||
       unblacklistMutation.error ? (
-        <Alert type="error" message="device_status_update_failed" />
+        <Alert type="error" message={tMessage("device_status_update_failed")} />
       ) : null}
       <Table
         rowKey="id"

@@ -1,7 +1,10 @@
 import { Tag } from "antd";
 
+import { tStatus } from "../utils/i18n";
+
 const colors: Record<string, string> = {
   active: "green",
+  archived: "default",
   disabled: "default",
   trialing: "cyan",
   past_due: "orange",
@@ -15,7 +18,11 @@ const colors: Record<string, string> = {
   deprecated: "orange",
   standard: "blue",
   trial: "purple",
-  enterprise: "cyan"
+  enterprise: "cyan",
+  pending: "blue",
+  processed: "green",
+  failed: "red",
+  unbound: "default"
 };
 
 export function StatusTag({ value }: { value?: string | null }) {
@@ -23,5 +30,5 @@ export function StatusTag({ value }: { value?: string | null }) {
     return <Tag>-</Tag>;
   }
 
-  return <Tag color={colors[value] ?? "blue"}>{value}</Tag>;
+  return <Tag color={colors[value] ?? "blue"}>{tStatus(value)}</Tag>;
 }

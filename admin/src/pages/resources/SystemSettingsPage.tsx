@@ -21,6 +21,7 @@ import {
 } from "../../api/admin";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
+import { tMessage } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface SettingFormValues {
@@ -52,7 +53,7 @@ export function SystemSettingsPage() {
         payload: { value: JSON.parse(values.value) }
       }),
     onSuccess: () => {
-      message.success("system_setting_saved");
+      message.success(tMessage("system_setting_saved"));
       setModalOpen(false);
       setEditing(null);
       form.resetFields();
@@ -77,14 +78,14 @@ export function SystemSettingsPage() {
 
   const columns: ColumnsType<SystemSetting> = [
     {
-      title: "Key",
+      title: "配置键",
       dataIndex: "key",
       key: "key",
       width: 240,
       render: (value: string) => <Typography.Text copyable>{value}</Typography.Text>
     },
     {
-      title: "Value",
+      title: "配置值",
       dataIndex: "value",
       key: "value",
       render: (value: unknown) => (
@@ -133,8 +134,12 @@ export function SystemSettingsPage() {
         </Space>
       </div>
 
-      {query.error ? <Alert type="error" message="system_settings_load_failed" /> : null}
-      {mutation.error ? <Alert type="error" message="system_setting_save_failed" /> : null}
+      {query.error ? (
+        <Alert type="error" message={tMessage("system_settings_load_failed")} />
+      ) : null}
+      {mutation.error ? (
+        <Alert type="error" message={tMessage("system_setting_save_failed")} />
+      ) : null}
 
       <Table
         rowKey="key"
@@ -164,12 +169,12 @@ export function SystemSettingsPage() {
         >
           <Form.Item
             name="key"
-            label="Key"
+            label="配置键"
             rules={[
-              { required: true, message: "请输入 key" },
+              { required: true, message: "请输入配置键" },
               {
                 pattern: /^[A-Za-z0-9_.:-]+$/,
-                message: "key 只能包含字母、数字、_、-、.、:"
+                message: "配置键只能包含字母、数字、_、-、.、:"
               }
             ]}
           >
@@ -177,7 +182,7 @@ export function SystemSettingsPage() {
           </Form.Item>
           <Form.Item
             name="value"
-            label="Value"
+            label="配置值"
             rules={[
               { required: true, message: "请输入 JSON" },
               {

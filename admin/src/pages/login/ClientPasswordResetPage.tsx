@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { confirmClientPasswordReset } from "../../api/auth";
-import { ApiError } from "../../api/client";
+import { tApiError, tMessage } from "../../utils/i18n";
 
 interface ClientPasswordResetFormValues {
   token: string;
@@ -22,16 +22,11 @@ export function ClientPasswordResetPage() {
         new_password: values.new_password
       }),
     onSuccess: () => {
-      message.success("password_reset_confirmed");
+      message.success(tMessage("password_reset_confirmed"));
     }
   });
 
-  const error =
-    mutation.error instanceof ApiError
-      ? mutation.error.message
-      : mutation.error
-        ? "service_unavailable"
-        : null;
+  const error = tApiError(mutation.error);
 
   return (
     <main className="login-screen">
@@ -47,8 +42,8 @@ export function ClientPasswordResetPage() {
         >
           <Form.Item
             name="token"
-            label="Token"
-            rules={[{ required: true, message: "请输入 token" }]}
+            label="令牌"
+            rules={[{ required: true, message: "请输入令牌" }]}
           >
             <Input prefix={<KeyRound size={16} />} />
           </Form.Item>

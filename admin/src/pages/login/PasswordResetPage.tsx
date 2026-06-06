@@ -3,11 +3,11 @@ import { KeyRound, Mail, Save } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { ApiError } from "../../api/client";
 import {
   confirmPasswordReset,
   requestPasswordReset
 } from "../../api/auth";
+import { tApiError, tMessage } from "../../utils/i18n";
 
 interface RequestResetFormValues {
   email: string;
@@ -30,7 +30,7 @@ export function PasswordResetPage() {
       requestPasswordReset(values.email.trim()),
     onSuccess: () => {
       requestForm.resetFields();
-      message.success("password_reset_requested");
+      message.success(tMessage("password_reset_requested"));
     }
   });
 
@@ -41,7 +41,7 @@ export function PasswordResetPage() {
         new_password: values.new_password
       }),
     onSuccess: () => {
-      message.success("password_reset_confirmed");
+      message.success(tMessage("password_reset_confirmed"));
       navigate("/login", { replace: true });
     }
   });
@@ -65,8 +65,8 @@ export function PasswordResetPage() {
           >
             <Form.Item
               name="token"
-              label="Token"
-              rules={[{ required: true, message: "请输入 token" }]}
+              label="令牌"
+              rules={[{ required: true, message: "请输入令牌" }]}
             >
               <Input prefix={<KeyRound size={16} />} />
             </Form.Item>
@@ -144,9 +144,5 @@ export function PasswordResetPage() {
 }
 
 function errorMessage(error: unknown): string | null {
-  if (!error) {
-    return null;
-  }
-
-  return error instanceof ApiError ? error.message : "service_unavailable";
+  return tApiError(error);
 }

@@ -7,8 +7,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Backend metrics endpoint is down
-          description: Prometheus cannot scrape the backend /metrics endpoint.
+          summary: 后端指标端点不可用
+          description: Prometheus 无法抓取后端 /metrics 端点。
 
       - alert: BackendHigh5xxRate
         expr: sum(increase(http_server_errors_total[5m])) / clamp_min(sum(increase(http_requests_total[5m])), 1) > 0.01
@@ -16,8 +16,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Backend 5xx error rate is above 1%
-          description: More than 1% of observed backend responses returned status >= 500 over 5 minutes.
+          summary: 后端 5xx 错误率超过 1%
+          description: 最近 5 分钟内，超过 1% 的后端响应返回了大于等于 500 的状态码。
 
       - alert: BackendHighP95Latency
         expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
@@ -25,8 +25,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Backend P95 latency is above 1 second
-          description: The backend HTTP P95 latency stayed above 1 second for 10 minutes.
+          summary: 后端 P95 延迟超过 1 秒
+          description: 后端 HTTP P95 延迟已连续 10 分钟高于 1 秒。
 
       - alert: BackendRateLimitSpike
         expr: sum(increase(rate_limited_total[5m])) > 20
@@ -34,8 +34,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Backend rate limiting increased
-          description: More than 20 requests were rejected by rate limiting over 5 minutes.
+          summary: 后端限流次数增加
+          description: 最近 5 分钟内，超过 20 个请求被限流拒绝。
 
       - alert: BackendLoginFailureSpike
         expr: sum(increase(login_failures_total[10m])) > 20
@@ -43,8 +43,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Login failures increased
-          description: More than 20 admin or client login attempts failed over 10 minutes.
+          summary: 登录失败次数增加
+          description: 最近 10 分钟内，管理员或客户端登录失败次数超过 20 次。
 
       - alert: ClientRefreshFailureSpike
         expr: sum(increase(client_refresh_failures_total[10m])) > 20
@@ -52,8 +52,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Client refresh failures increased
-          description: More than 20 client refresh attempts failed over 10 minutes.
+          summary: 客户端刷新失败次数增加
+          description: 最近 10 分钟内，客户端刷新失败次数超过 20 次。
 
       - alert: NonceReplayDetected
         expr: sum(increase(nonce_replay_total[5m])) > 0
@@ -61,8 +61,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Device signature nonce replay detected
-          description: At least one duplicate device signature nonce was rejected.
+          summary: 检测到设备签名 nonce 重放
+          description: 至少一个重复的设备签名 nonce 已被拒绝。
 
       - alert: RedisErrorsDetected
         expr: sum(increase(redis_errors_total[5m])) > 0
@@ -70,8 +70,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Redis errors detected
-          description: The backend observed Redis operation failures.
+          summary: 检测到 Redis 错误
+          description: 后端观察到 Redis 操作失败。
 
       - alert: NotificationDeliveryFailures
         expr: sum(increase(notification_delivery_failures_total[10m])) > 0
@@ -79,8 +79,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Notification delivery failures detected
-          description: At least one Alertmanager notification channel delivery failed over 10 minutes.
+          summary: 检测到通知投递失败
+          description: 最近 10 分钟内，至少一个 Alertmanager 通知渠道投递失败。
 
       - alert: DatabasePoolExhausted
         expr: db_pool_idle_connections == 0
@@ -88,8 +88,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Database pool has no idle connections
-          description: The backend database pool reported zero idle connections for 5 minutes.
+          summary: 数据库连接池没有空闲连接
+          description: 后端数据库连接池已连续 5 分钟报告空闲连接数为 0。
 
       - alert: PostgresExporterDown
         expr: up{job="postgres"} == 0
@@ -97,8 +97,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: PostgreSQL exporter is down
-          description: Prometheus cannot scrape the PostgreSQL exporter.
+          summary: PostgreSQL exporter 不可用
+          description: Prometheus 无法抓取 PostgreSQL exporter。
 
       - alert: PostgresDown
         expr: pg_up == 0
@@ -106,8 +106,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: PostgreSQL is down
-          description: The PostgreSQL exporter reports that PostgreSQL is unavailable.
+          summary: PostgreSQL 不可用
+          description: PostgreSQL exporter 报告 PostgreSQL 不可用。
 
       - alert: PostgresConnectionsHigh
         expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.8
@@ -115,8 +115,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: PostgreSQL connections are high
-          description: PostgreSQL active connections exceeded 80% of max_connections for 10 minutes.
+          summary: PostgreSQL 连接数偏高
+          description: PostgreSQL 活跃连接数已连续 10 分钟超过 max_connections 的 80%。
 
       - alert: RedisExporterDown
         expr: up{job="redis"} == 0
@@ -124,8 +124,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Redis exporter is down
-          description: Prometheus cannot scrape the Redis exporter.
+          summary: Redis exporter 不可用
+          description: Prometheus 无法抓取 Redis exporter。
 
       - alert: RedisDown
         expr: redis_up == 0
@@ -133,8 +133,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: Redis is down
-          description: The Redis exporter reports that Redis is unavailable.
+          summary: Redis 不可用
+          description: Redis exporter 报告 Redis 不可用。
 
       - alert: RedisConnectedClientsHigh
         expr: redis_connected_clients > 100
@@ -142,8 +142,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Redis connected clients are high
-          description: Redis connected clients stayed above 100 for 10 minutes.
+          summary: Redis 客户端连接数偏高
+          description: Redis 客户端连接数已连续 10 分钟高于 100。
 
       - alert: WorkerJobsFailed
         expr: sum(increase(worker_jobs_failed_total[10m])) > 0
@@ -151,5 +151,5 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Worker jobs failed
-          description: At least one worker job was marked failed.
+          summary: Worker 任务失败
+          description: 至少一个 Worker 任务被标记为失败。

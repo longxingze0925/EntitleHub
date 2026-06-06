@@ -314,7 +314,13 @@ fn alert_summary(payload: &AlertmanagerWebhookPayload) -> String {
         .or_else(|| annotation_text(&payload.common_annotations, "description"))
         .or_else(|| label_text(&payload.common_labels, "alertname"))
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("{} alert(s) {}", payload.alerts.len(), payload.status))
+        .unwrap_or_else(|| {
+            format!(
+                "{} 条告警 {}",
+                payload.alerts.len(),
+                alert_status_text(&payload.status)
+            )
+        })
 }
 
 fn alert_text_body(
@@ -324,19 +330,19 @@ fn alert_text_body(
     source: &str,
 ) -> String {
     let mut lines = vec![
-        format!("Status: {}", payload.status),
-        format!("Severity: {severity}"),
-        format!("Summary: {summary}"),
-        format!("Source: {source}"),
+        format!("状态：{}", alert_status_text(&payload.status)),
+        format!("级别：{severity}"),
+        format!("摘要：{summary}"),
+        format!("来源：{source}"),
     ];
     if let Some(group_key) = payload.group_key.as_deref() {
-        lines.push(format!("Group: {group_key}"));
+        lines.push(format!("分组：{group_key}"));
     }
     if let Some(receiver) = payload.receiver.as_deref() {
-        lines.push(format!("Receiver: {receiver}"));
+        lines.push(format!("接收器：{receiver}"));
     }
     lines.push(String::new());
-    lines.push(format!("Alerts: {}", payload.alerts.len()));
+    lines.push(format!("告警数量：{}", payload.alerts.len()));
 
     for alert in &payload.alerts {
         let alert_name = label_text(&alert.labels, "alertname").unwrap_or("alert");
@@ -345,8 +351,11 @@ fn alert_text_body(
             .or_else(|| annotation_text(&alert.annotations, "summary"))
             .unwrap_or("");
         lines.push(format!(
-            "- [{}] {} instance={} {}",
-            alert.status, alert_name, instance, description
+            "- [{}] {} 实例={} {}",
+            alert_status_text(&alert.status),
+            alert_name,
+            instance,
+            description
         ));
         if let Some(generator_url) = alert.generator_url.as_deref() {
             if !generator_url.trim().is_empty() {
@@ -356,6 +365,14 @@ fn alert_text_body(
     }
 
     lines.join("\n")
+}
+
+fn alert_status_text(status: &str) -> &'static str {
+    match status {
+        "firing" => "触发中",
+        "resolved" => "已恢复",
+        _ => "未知",
+    }
 }
 
 fn build_pagerduty_event(
@@ -577,7 +594,7 @@ mod tests {
 
         assert_eq!(alert_summary(&payload), "High error rate");
         assert_eq!(message.severity, "critical");
-        assert!(message.body.contains("Alerts: 1"));
+        assert!(message.body.contains("告警数量：1"));
         assert!(message.body.contains("api-1"));
     }
 

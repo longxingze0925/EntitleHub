@@ -20,7 +20,7 @@ export function SimplePager({
   return (
     <div className="simple-pager">
       <Typography.Text type="secondary">
-        page {page} · {itemCount} items
+        第 {page} 页 · 本页 {itemCount} 条
       </Typography.Text>
       <Space>
         <Button

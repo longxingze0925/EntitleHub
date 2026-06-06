@@ -32,6 +32,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
+import { tMessage, tOption } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -71,7 +72,7 @@ export function SubscriptionsPage() {
   const createMutation = useMutation({
     mutationFn: createSubscription,
     onSuccess: async () => {
-      message.success("subscription_created");
+      message.success(tMessage("subscription_created"));
       setCreateOpen(false);
       form.resetFields();
       await query.refetch();
@@ -80,7 +81,7 @@ export function SubscriptionsPage() {
   const cancelMutation = useMutation({
     mutationFn: cancelSubscription,
     onSuccess: async (data) => {
-      message.success(`subscription_cancelled:${data.revoked_sessions}`);
+      message.success(tMessage(`subscription_cancelled:${data.revoked_sessions}`));
       await query.refetch();
     }
   });
@@ -183,7 +184,7 @@ export function SubscriptionsPage() {
         <Space>
           <Input.Search
             allowClear
-            placeholder="keyword"
+            placeholder="关键词"
             onSearch={(value) => {
               setPage(1);
               setKeyword(value);
@@ -192,14 +193,14 @@ export function SubscriptionsPage() {
           />
           <Select
             allowClear
-            placeholder="status"
+            placeholder="状态"
             className="table-filter"
             options={[
-              { value: "active", label: "active" },
-              { value: "trialing", label: "trialing" },
-              { value: "past_due", label: "past_due" },
-              { value: "cancelled", label: "cancelled" },
-              { value: "expired", label: "expired" }
+              tOption("active"),
+              tOption("trialing"),
+              tOption("past_due"),
+              tOption("cancelled"),
+              tOption("expired")
             ]}
             onChange={(value) => {
               setPage(1);
@@ -222,13 +223,13 @@ export function SubscriptionsPage() {
         </Space>
       </div>
       {query.error ? (
-        <Alert type="error" message="subscriptions_load_failed" />
+        <Alert type="error" message={tMessage("subscriptions_load_failed")} />
       ) : null}
       {createMutation.error ? (
-        <Alert type="error" message="subscription_create_failed" />
+        <Alert type="error" message={tMessage("subscription_create_failed")} />
       ) : null}
       {cancelMutation.error ? (
-        <Alert type="error" message="subscription_cancel_failed" />
+        <Alert type="error" message={tMessage("subscription_cancel_failed")} />
       ) : null}
       <Table
         rowKey="id"
