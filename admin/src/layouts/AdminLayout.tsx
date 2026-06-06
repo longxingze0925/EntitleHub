@@ -52,8 +52,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         className="admin-sider"
       >
         <div className="brand-mark">
-          <span>UA</span>
-          {!collapsed ? <strong>用户管理后台</strong> : null}
+          <span>EH</span>
+          {!collapsed ? <strong>EntitleHub</strong> : null}
         </div>
         <Menu
           mode="inline"

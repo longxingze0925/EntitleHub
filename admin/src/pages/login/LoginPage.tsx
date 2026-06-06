@@ -47,7 +47,7 @@ export function LoginPage() {
     <main className="login-screen">
       <section className="login-panel">
         <div className="login-brand">
-          <Typography.Title level={1}>用户管理后台</Typography.Title>
+          <Typography.Title level={1}>EntitleHub</Typography.Title>
           <Typography.Text type="secondary">
             安全管理团队、客户、授权、设备和分发内容
           </Typography.Text>
