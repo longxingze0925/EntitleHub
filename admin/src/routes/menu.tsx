@@ -119,7 +119,7 @@ export const menuRoutes: MenuRoute[] = [
   {
     key: "outbox",
     path: "/outbox",
-    label: "异步事件",
+    label: "任务队列",
     permission: "security:view_events",
     icon: <Inbox size={18} />
   },

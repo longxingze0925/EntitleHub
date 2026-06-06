@@ -23,6 +23,7 @@ const statusText: Record<string, string> = {
   pagerduty: "PagerDuty",
   past_due: "逾期",
   pending: "待处理",
+  processing: "处理中",
   processed: "已处理",
   published: "已发布",
   revoked: "已吊销",
@@ -112,9 +113,9 @@ const messageText: Record<string, string> = {
   notification_channel_test_passed: "通知渠道配置校验通过",
   notification_channel_test_sent: "测试消息已发送",
   notification_channels_load_failed: "通知渠道加载失败",
-  outbox_event_retry_failed: "事件重试失败",
-  outbox_event_retry_scheduled: "事件已安排重试",
-  outbox_events_load_failed: "异步事件加载失败",
+  outbox_event_retry_failed: "任务重试失败",
+  outbox_event_retry_scheduled: "任务已安排重试",
+  outbox_events_load_failed: "任务队列加载失败",
   password_changed: "密码已修改，已撤销 {count} 个会话",
   password_reset_confirmed: "密码已重置",
   password_reset_requested: "重置邮件已发送，请查看邮箱",
@@ -273,7 +274,7 @@ const permissionText: Record<string, string> = {
   "script:revoke": "撤销脚本",
   "script:update": "更新脚本",
   "security:read": "查看安全设置",
-  "security:retry_event": "重试异步事件",
+  "security:retry_event": "重试任务",
   "security:revoke_session": "撤销会话",
   "security:rotate_key": "轮换安全密钥",
   "security:view_events": "查看安全事件",
@@ -287,6 +288,14 @@ const permissionText: Record<string, string> = {
   "tenant:delete": "删除租户",
   "tenant:read": "查看租户",
   "tenant:update": "更新租户"
+};
+
+const outboxEventTypeText: Record<string, string> = {
+  "email.admin_password_reset": "管理员密码重置邮件",
+  "email.customer_email_verify": "客户邮箱验证邮件",
+  "email.customer_password_reset": "客户密码重置邮件",
+  "email.team_invite": "团队邀请邮件",
+  "email.team_member_email_verify": "管理员邮箱验证邮件"
 };
 
 interface RoleLabelInput {
@@ -387,4 +396,16 @@ export function tPermissionLabel(
 ): string {
   const name = tPermissionName(permission);
   return options.includeCode ? `${name}（${permission.code}）` : name;
+}
+
+export function tOutboxEventType(
+  value?: string | null,
+  options: { includeCode?: boolean } = {}
+): string {
+  if (!value) {
+    return "-";
+  }
+
+  const label = outboxEventTypeText[value] ?? value;
+  return options.includeCode && label !== value ? `${label}（${value}）` : label;
 }

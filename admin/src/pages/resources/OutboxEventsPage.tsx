@@ -23,7 +23,7 @@ import {
 import { SimplePager } from "../../components/SimplePager";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
-import { tMessage, tStatus } from "../../utils/i18n";
+import { tMessage, tOutboxEventType, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -57,12 +57,12 @@ export function OutboxEventsPage() {
 
   const columns: ColumnsType<OutboxEventSummary> = [
     {
-      title: "事件",
+      title: "任务",
       dataIndex: "event_type",
       key: "event_type",
       render: (value: string, record) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{value}</Typography.Text>
+          <Typography.Text>{tOutboxEventType(value)}</Typography.Text>
           <Typography.Text type="secondary">{shortId(record.id)}</Typography.Text>
         </Space>
       )
@@ -109,7 +109,7 @@ export function OutboxEventsPage() {
         <Space size={6}>
           <Button size="small" icon={<Eye size={14} />} onClick={() => setSelected(record)} />
           <Popconfirm
-            title="重试事件"
+            title="重试任务"
             okText="重试"
             cancelText="取消"
             disabled={!canRetry || record.status !== "failed"}
@@ -131,8 +131,8 @@ export function OutboxEventsPage() {
     <section className="workspace-page">
       <div className="page-heading">
         <div>
-          <Typography.Title level={2}>异步事件</Typography.Title>
-          <Typography.Text type="secondary">异步任务事件</Typography.Text>
+          <Typography.Title level={2}>任务队列</Typography.Title>
+          <Typography.Text type="secondary">后台任务、执行状态和重试记录</Typography.Text>
         </div>
         <Space>
           <Input.Search
@@ -146,7 +146,7 @@ export function OutboxEventsPage() {
           />
           <Input.Search
             allowClear
-            placeholder="事件类型"
+            placeholder="任务类型编码"
             onSearch={(value) => {
               setPage(1);
               setEventType(value);
@@ -181,7 +181,7 @@ export function OutboxEventsPage() {
       />
 
       <Modal
-        title="异步事件详情"
+        title="任务详情"
         open={Boolean(selected)}
         onCancel={() => setSelected(null)}
         onOk={() => setSelected(null)}
@@ -210,7 +210,9 @@ function OutboxEventDetail({ event }: { event: OutboxEventSummary }) {
   return (
     <Space direction="vertical" size={12} className="audit-detail">
       <Space wrap>
-        <Typography.Text strong>{event.event_type}</Typography.Text>
+        <Typography.Text strong>
+          {tOutboxEventType(event.event_type, { includeCode: true })}
+        </Typography.Text>
         <StatusTag status={event.status} />
         <Typography.Text type="secondary">{shortId(event.id)}</Typography.Text>
       </Space>
