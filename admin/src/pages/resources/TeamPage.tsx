@@ -31,7 +31,7 @@ import {
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
-import { tMessage } from "../../utils/i18n";
+import { tMessage, tRoleLabel, tRoleName } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 export function TeamPage() {
@@ -113,7 +113,9 @@ export function TeamPage() {
       key: "roles",
       render: (roles: TeamMember["roles"]) =>
         roles.length > 0
-          ? roles.map((role) => <Tag key={role.code}>{role.code}</Tag>)
+          ? roles.map((role) => (
+              <Tag key={role.code}>{tRoleName(role.code, role.name)}</Tag>
+            ))
           : "-"
     },
     {
@@ -168,7 +170,7 @@ export function TeamPage() {
   const roleOptions =
     rolesQuery.data?.items.map((role) => ({
       value: role.code,
-      label: role.code
+      label: tRoleLabel(role, { includeCode: true })
     })) ?? [];
 
   const submitInvite = (values: InviteTeamMemberPayload) => {
@@ -266,6 +268,7 @@ export function TeamPage() {
           >
             <Select
               mode="multiple"
+              optionFilterProp="label"
               options={roleOptions}
               loading={rolesQuery.isLoading}
             />
@@ -299,6 +302,7 @@ export function TeamPage() {
           >
             <Select
               mode="multiple"
+              optionFilterProp="label"
               options={roleOptions}
               loading={rolesQuery.isLoading}
             />

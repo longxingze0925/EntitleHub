@@ -130,8 +130,8 @@ pub async fn initialize_owner(
         owner_role_id,
         tenant_id,
         "owner",
-        "Owner",
-        "Tenant owner with all permissions",
+        "所有者",
+        "拥有租户全部权限",
     )
     .await?;
     insert_builtin_role(
@@ -139,8 +139,8 @@ pub async fn initialize_owner(
         admin_role_id,
         tenant_id,
         "admin",
-        "Admin",
-        "Administrator with broad management permissions",
+        "管理员",
+        "拥有大部分管理权限",
     )
     .await?;
     insert_builtin_role(
@@ -148,8 +148,8 @@ pub async fn initialize_owner(
         developer_role_id,
         tenant_id,
         "developer",
-        "Developer",
-        "Developer focused on applications, releases, scripts, and devices",
+        "开发者",
+        "负责应用、版本、脚本和设备相关操作",
     )
     .await?;
     insert_builtin_role(
@@ -157,8 +157,8 @@ pub async fn initialize_owner(
         viewer_role_id,
         tenant_id,
         "viewer",
-        "Viewer",
-        "Read-only tenant viewer",
+        "查看者",
+        "只读查看租户数据",
     )
     .await?;
 

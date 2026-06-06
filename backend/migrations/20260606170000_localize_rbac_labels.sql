@@ -1,0 +1,91 @@
+update permissions as p
+set name = v.name
+from (
+  values
+    ('tenant:read', '查看租户'),
+    ('tenant:update', '更新租户'),
+    ('tenant:delete', '删除租户'),
+    ('member:read', '查看团队成员'),
+    ('member:invite', '邀请团队成员'),
+    ('member:update', '更新团队成员'),
+    ('member:disable', '禁用团队成员'),
+    ('member:enable', '启用团队成员'),
+    ('member:delete', '删除团队成员'),
+    ('member:reset_password', '重置团队成员密码'),
+    ('role:read', '查看角色'),
+    ('role:create', '创建角色'),
+    ('role:update', '更新角色'),
+    ('role:delete', '删除角色'),
+    ('permission:read', '查看权限'),
+    ('customer:read', '查看客户'),
+    ('customer:create', '创建客户'),
+    ('customer:update', '更新客户'),
+    ('customer:disable', '禁用客户'),
+    ('customer:enable', '启用客户'),
+    ('customer:delete', '删除客户'),
+    ('customer:reset_password', '重置客户密码'),
+    ('app:read', '查看应用'),
+    ('app:create', '创建应用'),
+    ('app:update', '更新应用'),
+    ('app:delete', '删除应用'),
+    ('app:rotate_key', '轮换应用密钥'),
+    ('app:read_key', '查看应用公钥'),
+    ('license:read', '查看授权'),
+    ('license:create', '创建授权'),
+    ('license:update', '更新授权'),
+    ('license:revoke', '吊销授权'),
+    ('license:suspend', '暂停授权'),
+    ('license:renew', '续期授权'),
+    ('license:reset_device', '重置授权设备'),
+    ('subscription:read', '查看订阅'),
+    ('subscription:create', '创建订阅'),
+    ('subscription:update', '更新订阅'),
+    ('subscription:cancel', '取消订阅'),
+    ('subscription:renew', '续期订阅'),
+    ('device:read', '查看设备'),
+    ('device:update', '更新设备'),
+    ('device:unbind', '解绑设备'),
+    ('device:blacklist', '拉黑设备'),
+    ('device:unblacklist', '解除设备拉黑'),
+    ('device:revoke_session', '撤销设备会话'),
+    ('release:read', '查看版本'),
+    ('release:upload', '上传版本文件'),
+    ('release:create', '创建版本'),
+    ('release:update', '更新版本'),
+    ('release:publish', '发布版本'),
+    ('release:deprecate', '废弃版本'),
+    ('release:delete', '删除版本'),
+    ('script:read', '查看脚本'),
+    ('script:create', '创建脚本'),
+    ('script:update', '更新脚本'),
+    ('script:publish', '发布脚本'),
+    ('script:deprecate', '废弃脚本'),
+    ('script:revoke', '撤销脚本'),
+    ('script:delete', '删除脚本'),
+    ('audit:read', '查看审计日志'),
+    ('audit:export', '导出审计日志'),
+    ('system:read', '查看系统配置'),
+    ('system:update', '更新系统配置'),
+    ('security:read', '查看安全设置'),
+    ('security:revoke_session', '撤销会话'),
+    ('security:rotate_key', '轮换安全密钥'),
+    ('security:view_events', '查看安全事件'),
+    ('security:retry_event', '重试异步事件'),
+    ('notification:read', '查看通知渠道'),
+    ('notification:update', '更新通知渠道')
+) as v(code, name)
+where p.code = v.code;
+
+update roles as r
+set
+  name = v.name,
+  description = v.description
+from (
+  values
+    ('owner', '所有者', '拥有租户全部权限'),
+    ('admin', '管理员', '拥有大部分管理权限'),
+    ('developer', '开发者', '负责应用、版本、脚本和设备相关操作'),
+    ('viewer', '查看者', '只读查看租户数据')
+) as v(code, name, description)
+where r.builtin = true
+  and r.code = v.code;

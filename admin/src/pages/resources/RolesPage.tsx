@@ -30,7 +30,14 @@ import {
 } from "../../api/admin";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
-import { tMessage, tStatus } from "../../utils/i18n";
+import {
+  tMessage,
+  tPermissionLabel,
+  tResource,
+  tRoleDescription,
+  tRoleName,
+  tStatus
+} from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface RoleFormValues {
@@ -147,10 +154,12 @@ export function RolesPage() {
       width: 220,
       render: (value: string, record) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text copyable strong>
-            {value}
+          <Typography.Text copyable={{ text: value }} strong>
+            {tRoleName(value, record.name)}（{value}）
           </Typography.Text>
-          <Typography.Text type="secondary">{record.name}</Typography.Text>
+          <Typography.Text type="secondary">
+            {tRoleDescription(value, record.description)}
+          </Typography.Text>
         </Space>
       )
     },
@@ -314,10 +323,10 @@ function buildPermissionOptions(permissions: PermissionSummary[]) {
   });
 
   return Array.from(groups.entries()).map(([resource, items]) => ({
-    label: resource,
+    label: tResource(resource),
     options: items.map((permission) => ({
       value: permission.code,
-      label: `${permission.code} - ${permission.name}`
+      label: tPermissionLabel(permission, { includeCode: true })
     }))
   }));
 }
@@ -331,7 +340,7 @@ function renderPermissionCodes(codes: string[]) {
   return (
     <Space size={[4, 4]} wrap>
       {visibleCodes.map((code) => (
-        <Tag key={code}>{code}</Tag>
+        <Tag key={code}>{tPermissionLabel({ code }, { includeCode: true })}</Tag>
       ))}
       {codes.length > visibleCodes.length ? (
         <Tag>+{codes.length - visibleCodes.length}</Tag>
