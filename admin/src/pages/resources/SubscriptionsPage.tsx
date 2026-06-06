@@ -32,7 +32,7 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
-import { tMessage, tOption } from "../../utils/i18n";
+import { effectiveTemporalStatus, tMessage, tOption } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -117,7 +117,9 @@ export function SubscriptionsPage() {
       dataIndex: "status",
       key: "status",
       width: 120,
-      render: (value) => <StatusTag value={value} />
+      render: (_, record) => (
+        <StatusTag value={effectiveTemporalStatus(record)} />
+      )
     },
     {
       title: "设备上限",
@@ -141,8 +143,12 @@ export function SubscriptionsPage() {
       title: "操作",
       key: "actions",
       width: 120,
-      render: (_, record) =>
-        canCancel && record.status !== "cancelled" && record.status !== "expired" ? (
+      render: (_, record) => {
+        const effectiveStatus = effectiveTemporalStatus(record);
+
+        return canCancel &&
+          record.status !== "cancelled" &&
+          effectiveStatus !== "expired" ? (
           <Popconfirm
             title="取消订阅"
             onConfirm={() => cancelMutation.mutate(record.id)}
@@ -155,7 +161,8 @@ export function SubscriptionsPage() {
               取消
             </Button>
           </Popconfirm>
-        ) : null
+        ) : null;
+      }
     }
   ];
 

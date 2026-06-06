@@ -20,6 +20,7 @@ const statusText: Record<string, string> = {
   license: "授权码",
   missing: "未配置",
   normal: "普通",
+  not_started: "未开始",
   pagerduty: "PagerDuty",
   past_due: "逾期",
   pending: "待处理",
@@ -346,6 +347,47 @@ export function tOption(value: string) {
     value,
     label: tStatus(value)
   };
+}
+
+interface TemporalStatusInput {
+  status?: string | null;
+  starts_at?: string | null;
+  expires_at?: string | null;
+}
+
+const temporalActiveStatuses = new Set(["active", "trialing"]);
+
+export function effectiveTemporalStatus(
+  input: TemporalStatusInput,
+  now: Date = new Date()
+): string | null | undefined {
+  const { status } = input;
+
+  if (!status || !temporalActiveStatuses.has(status)) {
+    return status;
+  }
+
+  const nowMs = now.getTime();
+  const startsAtMs = parseDateMs(input.starts_at);
+  if (startsAtMs !== undefined && startsAtMs > nowMs) {
+    return "not_started";
+  }
+
+  const expiresAtMs = parseDateMs(input.expires_at);
+  if (expiresAtMs !== undefined && expiresAtMs <= nowMs) {
+    return "expired";
+  }
+
+  return status;
+}
+
+function parseDateMs(value?: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 export function tRoleName(

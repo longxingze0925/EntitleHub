@@ -36,7 +36,12 @@ import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime, shortId } from "../../utils/format";
-import { tMessage, tOption, tStatus } from "../../utils/i18n";
+import {
+  effectiveTemporalStatus,
+  tMessage,
+  tOption,
+  tStatus
+} from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 const pageSize = 20;
@@ -163,7 +168,9 @@ export function LicensesPage() {
       dataIndex: "status",
       key: "status",
       width: 110,
-      render: (value) => <StatusTag value={value} />
+      render: (_, record) => (
+        <StatusTag value={effectiveTemporalStatus(record)} />
+      )
     },
     {
       title: "设备上限",
@@ -181,56 +188,60 @@ export function LicensesPage() {
       title: "操作",
       key: "actions",
       width: 330,
-      render: (_, record) => (
-        <Space wrap>
-          {canRevoke && record.status !== "revoked" ? (
-            <Popconfirm
-              title="吊销授权"
-              onConfirm={() => revokeMutation.mutate(record.id)}
-            >
+      render: (_, record) => {
+        const effectiveStatus = effectiveTemporalStatus(record);
+
+        return (
+          <Space wrap>
+            {canRevoke && record.status !== "revoked" ? (
+              <Popconfirm
+                title="吊销授权"
+                onConfirm={() => revokeMutation.mutate(record.id)}
+              >
+                <Button
+                  size="small"
+                  icon={<Ban size={14} />}
+                  loading={revokeMutation.isPending}
+                >
+                  吊销
+                </Button>
+              </Popconfirm>
+            ) : null}
+            {canSuspend && effectiveStatus === "active" ? (
+              <Popconfirm
+                title="暂停授权"
+                onConfirm={() => suspendMutation.mutate(record.id)}
+              >
+                <Button
+                  size="small"
+                  icon={<Pause size={14} />}
+                  loading={suspendMutation.isPending}
+                >
+                  暂停
+                </Button>
+              </Popconfirm>
+            ) : null}
+            {canRenew && record.status !== "revoked" ? (
               <Button
                 size="small"
-                icon={<Ban size={14} />}
-                loading={revokeMutation.isPending}
+                icon={<CalendarPlus size={14} />}
+                onClick={() => setRenewTarget(record)}
               >
-                吊销
+                续期
               </Button>
-            </Popconfirm>
-          ) : null}
-          {canSuspend && record.status === "active" ? (
-            <Popconfirm
-              title="暂停授权"
-              onConfirm={() => suspendMutation.mutate(record.id)}
-            >
+            ) : null}
+            {canResetDevice && record.status !== "revoked" ? (
               <Button
                 size="small"
-                icon={<Pause size={14} />}
-                loading={suspendMutation.isPending}
+                icon={<RotateCcw size={14} />}
+                onClick={() => setResetDevicesTarget(record)}
               >
-                暂停
+                重置设备
               </Button>
-            </Popconfirm>
-          ) : null}
-          {canRenew && record.status !== "revoked" ? (
-            <Button
-              size="small"
-              icon={<CalendarPlus size={14} />}
-              onClick={() => setRenewTarget(record)}
-            >
-              续期
-            </Button>
-          ) : null}
-          {canResetDevice && record.status !== "revoked" ? (
-            <Button
-              size="small"
-              icon={<RotateCcw size={14} />}
-              onClick={() => setResetDevicesTarget(record)}
-            >
-              重置设备
-            </Button>
-          ) : null}
-        </Space>
-      )
+            ) : null}
+          </Space>
+        );
+      }
     }
   ];
 

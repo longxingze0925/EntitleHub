@@ -6,6 +6,7 @@ const colors: Record<string, string> = {
   active: "green",
   archived: "default",
   disabled: "default",
+  not_started: "default",
   trialing: "cyan",
   past_due: "orange",
   cancelled: "red",

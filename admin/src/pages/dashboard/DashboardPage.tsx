@@ -2,6 +2,7 @@ import { Col, Row, Table, Tag, Typography } from "antd";
 import { Activity, FileClock, ShieldCheck, Users } from "lucide-react";
 
 import { useAuthStore } from "../../stores/authStore";
+import { tPermissionLabel, tRoleLabel } from "../../utils/i18n";
 
 const metrics = [
   {
@@ -28,6 +29,7 @@ const metrics = [
 
 export function DashboardPage() {
   const { user, tenant, roles, permissions } = useAuthStore();
+  const roleLabels = roles.map((code) => tRoleLabel({ code }, { includeCode: true }));
   const rows = [
     {
       key: "user",
@@ -42,7 +44,7 @@ export function DashboardPage() {
     {
       key: "roles",
       item: "角色",
-      value: roles.length > 0 ? roles.join(", ") : "-"
+      value: roleLabels.length > 0 ? roleLabels.join(", ") : "-"
     }
   ];
 
@@ -92,7 +94,9 @@ export function DashboardPage() {
 
       <div className="permission-strip">
         {permissions.slice(0, 18).map((permission) => (
-          <Tag key={permission}>{permission}</Tag>
+          <Tag key={permission}>
+            {tPermissionLabel({ code: permission }, { includeCode: true })}
+          </Tag>
         ))}
       </div>
     </section>
