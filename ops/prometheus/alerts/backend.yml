@@ -1,0 +1,155 @@
+groups:
+  - name: user-admin-backend
+    rules:
+      - alert: BackendMetricsDown
+        expr: up{job="user-admin-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backend metrics endpoint is down
+          description: Prometheus cannot scrape the backend /metrics endpoint.
+
+      - alert: BackendHigh5xxRate
+        expr: sum(increase(http_server_errors_total[5m])) / clamp_min(sum(increase(http_requests_total[5m])), 1) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backend 5xx error rate is above 1%
+          description: More than 1% of observed backend responses returned status >= 500 over 5 minutes.
+
+      - alert: BackendHighP95Latency
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backend P95 latency is above 1 second
+          description: The backend HTTP P95 latency stayed above 1 second for 10 minutes.
+
+      - alert: BackendRateLimitSpike
+        expr: sum(increase(rate_limited_total[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backend rate limiting increased
+          description: More than 20 requests were rejected by rate limiting over 5 minutes.
+
+      - alert: BackendLoginFailureSpike
+        expr: sum(increase(login_failures_total[10m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Login failures increased
+          description: More than 20 admin or client login attempts failed over 10 minutes.
+
+      - alert: ClientRefreshFailureSpike
+        expr: sum(increase(client_refresh_failures_total[10m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Client refresh failures increased
+          description: More than 20 client refresh attempts failed over 10 minutes.
+
+      - alert: NonceReplayDetected
+        expr: sum(increase(nonce_replay_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Device signature nonce replay detected
+          description: At least one duplicate device signature nonce was rejected.
+
+      - alert: RedisErrorsDetected
+        expr: sum(increase(redis_errors_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis errors detected
+          description: The backend observed Redis operation failures.
+
+      - alert: NotificationDeliveryFailures
+        expr: sum(increase(notification_delivery_failures_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Notification delivery failures detected
+          description: At least one Alertmanager notification channel delivery failed over 10 minutes.
+
+      - alert: DatabasePoolExhausted
+        expr: db_pool_idle_connections == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Database pool has no idle connections
+          description: The backend database pool reported zero idle connections for 5 minutes.
+
+      - alert: PostgresExporterDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL exporter is down
+          description: Prometheus cannot scrape the PostgreSQL exporter.
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL is down
+          description: The PostgreSQL exporter reports that PostgreSQL is unavailable.
+
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL connections are high
+          description: PostgreSQL active connections exceeded 80% of max_connections for 10 minutes.
+
+      - alert: RedisExporterDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis exporter is down
+          description: Prometheus cannot scrape the Redis exporter.
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis is down
+          description: The Redis exporter reports that Redis is unavailable.
+
+      - alert: RedisConnectedClientsHigh
+        expr: redis_connected_clients > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Redis connected clients are high
+          description: Redis connected clients stayed above 100 for 10 minutes.
+
+      - alert: WorkerJobsFailed
+        expr: sum(increase(worker_jobs_failed_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker jobs failed
+          description: At least one worker job was marked failed.

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python validation dependencies
+        run: python -m pip install --upgrade pip pyyaml
+
+      - name: Install Admin dependencies
+        run: npm ci --prefix admin
+
+      - name: Run repository validation
+        shell: pwsh
+        run: ./ops/validate-ci.ps1
+
+      - name: Prometheus semantic validation
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD:/work" prom/prometheus:latest check config /work/ops/prometheus/prometheus.yml
+          docker run --rm --entrypoint promtool -v "$PWD:/work" prom/prometheus:latest check rules /work/ops/prometheus/alerts/backend.yml
+
+      - name: Alertmanager semantic validation
+        run: |
+          for file in ops/alertmanager/*.yml; do
+            docker run --rm --entrypoint amtool -v "$PWD:/work" prom/alertmanager:latest check-config "/work/$file"
+          done

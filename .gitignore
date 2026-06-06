@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+!.env.compose.example
+backups/
+.tools/
+node_modules/
+admin/node_modules/
+admin/dist/
+backend/target/
+client-sdk/target/
+target/

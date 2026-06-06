@@ -1,0 +1,4791 @@
+openapi: 3.0.3
+info:
+  title: User Administration Platform API
+  version: 0.1.0
+  description: |
+    Route-level OpenAPI contract for the backend service.
+
+    This file tracks registered paths, HTTP methods, authentication schemes,
+    common response envelopes, and path/query parameters. Field-level request
+    and response details remain documented in ../API接口文档.md.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local development backend
+tags:
+  - name: platform
+  - name: jwks
+  - name: internal
+  - name: admin-auth
+  - name: admin
+  - name: client-auth
+  - name: client
+paths:
+  /health:
+    get:
+      tags: [platform]
+      summary: Health check
+      responses:
+        "200":
+          $ref: "#/components/responses/Health"
+  /healthz:
+    get:
+      tags: [platform]
+      summary: Health check alias
+      responses:
+        "200":
+          $ref: "#/components/responses/Health"
+  /readyz:
+    get:
+      tags: [platform]
+      summary: Readiness check
+      responses:
+        "200":
+          $ref: "#/components/responses/Health"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /metrics:
+    get:
+      tags: [platform]
+      summary: Prometheus metrics
+      responses:
+        "200":
+          $ref: "#/components/responses/MetricsText"
+  /.well-known/jwks.json:
+    get:
+      tags: [jwks]
+      summary: Global JWT signing JWKS
+      responses:
+        "200":
+          $ref: "#/components/responses/Jwks"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/apps/{app_key}/jwks:
+    parameters:
+      - $ref: "#/components/parameters/AppKeyPath"
+    get:
+      tags: [jwks]
+      summary: Application signing JWKS
+      responses:
+        "200":
+          $ref: "#/components/responses/Jwks"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/internal/alertmanager/webhook:
+    post:
+      tags: [internal]
+      summary: Receive Alertmanager webhook and deliver configured notification channels
+      security:
+        - AlertmanagerBearer: []
+      requestBody:
+        $ref: "#/components/requestBodies/AlertmanagerWebhook"
+      responses:
+        "200":
+          $ref: "#/components/responses/AlertDelivery"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/auth/login:
+    post:
+      tags: [admin-auth]
+      summary: Admin login
+      requestBody:
+        $ref: "#/components/requestBodies/AdminLogin"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminAuth"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/refresh:
+    post:
+      tags: [admin-auth]
+      summary: Refresh admin session
+      security:
+        - AdminRefresh: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminAuth"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/logout:
+    post:
+      tags: [admin-auth]
+      summary: Admin logout
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminAuth"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/me:
+    get:
+      tags: [admin-auth]
+      summary: Current admin profile
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminAuth"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/password:
+    put:
+      tags: [admin-auth]
+      summary: Change admin password
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/AdminChangePassword"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminChangePassword"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/password/reset/request:
+    post:
+      tags: [admin-auth]
+      summary: Request admin password reset
+      requestBody:
+        $ref: "#/components/requestBodies/AdminPasswordResetRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/password/reset/confirm:
+    post:
+      tags: [admin-auth]
+      summary: Confirm admin password reset
+      requestBody:
+        $ref: "#/components/requestBodies/AdminPasswordResetConfirm"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminPasswordResetConfirm"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/email/verify/request:
+    post:
+      tags: [admin-auth]
+      summary: Request admin email verification
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminEmailVerifyRequest"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/email/verify/confirm:
+    post:
+      tags: [admin-auth]
+      summary: Confirm admin email verification
+      requestBody:
+        $ref: "#/components/requestBodies/AdminEmailVerifyConfirm"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminEmailVerifyConfirm"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/mfa/setup:
+    post:
+      tags: [admin-auth]
+      summary: Set up admin MFA
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminMfaSetup"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/mfa/enable:
+    post:
+      tags: [admin-auth]
+      summary: Enable admin MFA
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/AdminMfaEnable"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/mfa/disable:
+    post:
+      tags: [admin-auth]
+      summary: Disable admin MFA
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/AdminMfaDisable"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/auth/mfa/recovery-codes/regenerate:
+    post:
+      tags: [admin-auth]
+      summary: Regenerate admin MFA recovery codes
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/AdminMfaRegenerateRecoveryCodes"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminMfaRecoveryCodes"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/tenant:
+    get:
+      tags: [admin]
+      summary: Get tenant
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Tenant"
+        default:
+          $ref: "#/components/responses/ApiError"
+    put:
+      tags: [admin]
+      summary: Update tenant
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/TenantUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/Tenant"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [admin]
+      summary: Delete tenant
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/TenantDelete"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantDelete"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/team/members:
+    get:
+      tags: [admin]
+      summary: List team members
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/TeamMemberList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/team/invitations:
+    post:
+      tags: [admin]
+      summary: Invite team member
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/TeamInvite"
+      responses:
+        "200":
+          $ref: "#/components/responses/TeamInvite"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/team/invitations/accept:
+    post:
+      tags: [admin-auth]
+      summary: Accept team invitation
+      requestBody:
+        $ref: "#/components/requestBodies/TeamInvitationAccept"
+      responses:
+        "200":
+          $ref: "#/components/responses/TeamInvitationAccept"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/team/members/{id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update team member roles
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/TeamMemberRoles"
+      responses:
+        "200":
+          $ref: "#/components/responses/TeamMemberRoles"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/team/members/{id}/disable:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Disable team member
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/TeamMemberDisable"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/admin/roles:
+    get:
+      tags: [admin]
+      summary: List roles
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/RoleList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create role
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/RoleCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/RoleMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/roles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update role
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/RoleUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/RoleMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [admin]
+      summary: Delete role
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/RoleDelete"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/permissions:
+    get:
+      tags: [admin]
+      summary: List permissions
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PermissionList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/notification-channels:
+    get:
+      tags: [admin]
+      summary: List notification channels
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/NotificationChannelList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create notification channel
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/NotificationChannelCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/NotificationChannel"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/notification-channels/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update notification channel
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/NotificationChannelUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/NotificationChannel"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/notification-channels/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Test notification channel
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/NotificationChannelTest"
+      responses:
+        "200":
+          $ref: "#/components/responses/NotificationChannel"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/customers:
+    get:
+      tags: [admin]
+      summary: List customers
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create customer
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/CustomerCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/customers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update customer
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/CustomerUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/customers/{id}/disable:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Disable customer
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/customers/{id}/reset-password:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Reset customer password
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerPasswordReset"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/admin/apps:
+    get:
+      tags: [admin]
+      summary: List applications
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create application
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/ApplicationCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationCreate"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: Get application
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationDetail"
+        default:
+          $ref: "#/components/responses/ApiError"
+    put:
+      tags: [admin]
+      summary: Update application
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/ApplicationUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationUpdate"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/rotate-keys:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Rotate application keys
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationRotateKeys"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/signing-keys:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: List application signing keys
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SigningKeyList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/release-files:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Register release file
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/ReleaseFileRegister"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseFileRegistration"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/release-files/upload:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+      - $ref: "#/components/parameters/FileNameQuery"
+    post:
+      tags: [admin]
+      summary: Upload release file
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/BinaryFile"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseFileRegistration"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/releases:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: List releases
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create release
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/ReleaseCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/Release"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/releases/{id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Publish release
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Release"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/releases/{id}/deprecate:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Deprecate release
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Release"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/apps/{id}/secure-scripts:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: List secure scripts
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SecureScriptList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create secure script
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SecureScriptCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SecureScript"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/secure-scripts/{id}/content:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Update secure script content
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SecureScriptContentUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SecureScript"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/secure-scripts/{id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Publish secure script
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SecureScript"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/secure-scripts/{id}/deprecate:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Deprecate secure script
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SecureScript"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/admin/audit-logs:
+    get:
+      tags: [admin]
+      summary: List audit logs
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AuditLogList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/audit-logs/export:
+    get:
+      tags: [admin]
+      summary: Export audit logs
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AuditLogExport"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/audit-logs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: Get audit log
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/AuditLogDetail"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/system/settings:
+    get:
+      tags: [admin]
+      summary: List system settings
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemSettingList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/system/settings/{key}:
+    parameters:
+      - $ref: "#/components/parameters/SettingKeyPath"
+    put:
+      tags: [admin]
+      summary: Update system setting
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SystemSettingUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemSetting"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/security/jwt-signing-keys:
+    get:
+      tags: [admin]
+      summary: List global JWT signing keys
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SigningKeyList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/security/jwt-signing-keys/rotate:
+    post:
+      tags: [admin]
+      summary: Rotate global JWT signing key
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/GlobalJwtSigningKeyRotate"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/outbox-events:
+    get:
+      tags: [admin]
+      summary: List outbox events
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/OutboxEventList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/outbox-events/{id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Retry outbox event
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/OutboxEventMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/admin/licenses:
+    get:
+      tags: [admin]
+      summary: List licenses
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create license
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/LicenseCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseCreate"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/licenses/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Revoke license
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/licenses/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Suspend license
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/licenses/{id}/renew:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Renew license
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/LicenseRenew"
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/licenses/{id}/reset-devices:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Reset license devices
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/LicenseResetDevices"
+      responses:
+        "200":
+          $ref: "#/components/responses/LicenseMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions:
+    get:
+      tags: [admin]
+      summary: List subscriptions
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionList"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create subscription
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionCreate"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Cancel subscription
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/devices:
+    get:
+      tags: [admin]
+      summary: List devices
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/devices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: Get device
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceDetail"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [admin]
+      summary: Unbind device
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/devices/{id}/blacklist:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Blacklist device
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/DeviceBlacklist"
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/devices/{id}/unblacklist:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Remove device blacklist
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/client/auth/activate:
+    post:
+      tags: [client-auth]
+      summary: Activate client with license
+      requestBody:
+        $ref: "#/components/requestBodies/ClientActivate"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientSession"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/login:
+    post:
+      tags: [client-auth]
+      summary: Customer client login
+      requestBody:
+        $ref: "#/components/requestBodies/ClientLogin"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientLogin"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/refresh:
+    post:
+      tags: [client-auth]
+      summary: Refresh client session
+      requestBody:
+        $ref: "#/components/requestBodies/ClientRefresh"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientSession"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/email/verify/request:
+    post:
+      tags: [client-auth]
+      summary: Request client email verification
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientEmailVerifyRequest"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/email/verify/confirm:
+    post:
+      tags: [client-auth]
+      summary: Confirm client email verification
+      requestBody:
+        $ref: "#/components/requestBodies/ClientEmailVerifyConfirm"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientEmailVerifyConfirm"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/password/reset/confirm:
+    post:
+      tags: [client-auth]
+      summary: Confirm client password reset
+      requestBody:
+        $ref: "#/components/requestBodies/ClientPasswordResetConfirm"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientPasswordResetConfirm"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/heartbeat:
+    post:
+      tags: [client]
+      summary: Client heartbeat
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      requestBody:
+        $ref: "#/components/requestBodies/ClientHeartbeat"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientHeartbeat"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/verify:
+    post:
+      tags: [client]
+      summary: Verify client license/session state
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientVerify"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/auth/logout:
+    post:
+      tags: [client]
+      summary: Client logout
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientLogout"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/devices/self:
+    delete:
+      tags: [client]
+      summary: Unbind current client device
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceSelfUnbind"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/devices/self/rotate-key:
+    post:
+      tags: [client]
+      summary: Rotate current client device key
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      requestBody:
+        $ref: "#/components/requestBodies/DeviceSelfRotateKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/DeviceSelfRotateKey"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/releases/latest:
+    get:
+      tags: [client]
+      summary: Get latest client release
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientLatestRelease"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/releases/download/{file_name}:
+    parameters:
+      - $ref: "#/components/parameters/FileNamePath"
+      - $ref: "#/components/parameters/TokenQuery"
+    get:
+      tags: [client]
+      summary: Download client release file
+      responses:
+        "200":
+          description: Binary release file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/secure-scripts/versions:
+    get:
+      tags: [client]
+      summary: List available secure script versions
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientSecureScriptVersionList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/secure-scripts/fetch:
+    post:
+      tags: [client]
+      summary: Fetch secure script content
+      security:
+        - ClientBearer: []
+          DeviceId: []
+          DeviceKeyId: []
+          DeviceTimestamp: []
+          DeviceNonce: []
+          DeviceBodySha256: []
+          DeviceSignature: []
+      requestBody:
+        $ref: "#/components/requestBodies/ClientSecureScriptFetch"
+      responses:
+        "200":
+          $ref: "#/components/responses/ClientSecureScriptFetch"
+        default:
+          $ref: "#/components/responses/ApiError"
+components:
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: admin_session
+    AdminRefresh:
+      type: apiKey
+      in: cookie
+      name: admin_refresh
+    AdminCsrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+    ClientBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    DeviceId:
+      type: apiKey
+      in: header
+      name: X-Device-Id
+    DeviceKeyId:
+      type: apiKey
+      in: header
+      name: X-Device-Key-Id
+    DeviceTimestamp:
+      type: apiKey
+      in: header
+      name: X-Timestamp
+    DeviceNonce:
+      type: apiKey
+      in: header
+      name: X-Nonce
+    DeviceBodySha256:
+      type: apiKey
+      in: header
+      name: X-Body-SHA256
+    DeviceSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+    AlertmanagerBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: ALERTMANAGER_WEBHOOK_TOKEN
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AppKeyPath:
+      name: app_key
+      in: path
+      required: true
+      schema:
+        type: string
+    FileNamePath:
+      name: file_name
+      in: path
+      required: true
+      schema:
+        type: string
+    SettingKeyPath:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+    FileNameQuery:
+      name: file_name
+      in: query
+      required: false
+      schema:
+        type: string
+    TokenQuery:
+      name: token
+      in: query
+      required: true
+      schema:
+        type: string
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeQuery:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  requestBodies:
+    AdminChangePassword:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminChangePasswordRequest"
+    AdminLogin:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminLoginRequest"
+    AdminPasswordResetRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminPasswordResetRequest"
+    AdminPasswordResetConfirm:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminPasswordResetConfirmRequest"
+    AdminEmailVerifyConfirm:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminTokenConfirmRequest"
+    AdminMfaEnable:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminMfaEnableRequest"
+    AdminMfaDisable:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminMfaPasswordCodeRequest"
+    AdminMfaRegenerateRecoveryCodes:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminMfaPasswordCodeRequest"
+    ClientActivate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientActivateRequest"
+    ClientLogin:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientLoginRequest"
+    ClientRefresh:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientRefreshRequest"
+    ClientEmailVerifyConfirm:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientEmailVerifyConfirmRequest"
+    ClientPasswordResetConfirm:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientPasswordResetConfirmRequest"
+    ClientHeartbeat:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientHeartbeatRequest"
+    TenantUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TenantUpdateRequest"
+    TenantDelete:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TenantDeleteRequest"
+    TeamInvite:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TeamInviteRequest"
+    TeamInvitationAccept:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TeamInvitationAcceptRequest"
+    TeamMemberRoles:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TeamMemberRolesRequest"
+    RoleCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RoleCreateRequest"
+    RoleUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RoleUpdateRequest"
+    ApplicationCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApplicationCreateRequest"
+    ApplicationUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApplicationUpdateRequest"
+    ReleaseFileRegister:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseFileRegisterRequest"
+    ReleaseCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseCreateRequest"
+    SecureScriptCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SecureScriptCreateRequest"
+    SecureScriptContentUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SecureScriptContentUpdateRequest"
+    ClientSecureScriptFetch:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ClientSecureScriptFetchRequest"
+    SystemSettingUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SystemSettingUpdateRequest"
+    NotificationChannelCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotificationChannelCreateRequest"
+    NotificationChannelUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotificationChannelUpdateRequest"
+    NotificationChannelTest:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotificationChannelTestRequest"
+    AlertmanagerWebhook:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AlertmanagerWebhookRequest"
+    DeviceSelfRotateKey:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeviceSelfRotateKeyRequest"
+    LicenseCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LicenseCreateRequest"
+    LicenseRenew:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LicenseRenewRequest"
+    LicenseResetDevices:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LicenseResetDevicesRequest"
+    SubscriptionCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionCreateRequest"
+    CustomerCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CustomerCreateRequest"
+    CustomerUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CustomerUpdateRequest"
+    DeviceBlacklist:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeviceBlacklistRequest"
+    JsonObject:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+    BinaryFile:
+      required: true
+      content:
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
+  responses:
+    Health:
+      description: Health or readiness response
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+    MetricsText:
+      description: Prometheus text exposition format for HTTP, dependency, worker, and notification delivery metrics
+      content:
+        text/plain:
+          schema:
+            type: string
+    AdminAuth:
+      description: Wrapped admin authentication profile response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminAuthData"
+    ClientSession:
+      description: Wrapped client session token response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientSessionData"
+    ClientLogin:
+      description: Wrapped client subscription login response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientLoginData"
+    ClientEmailVerifyRequest:
+      description: Wrapped client email verification request response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientEmailVerifyRequestData"
+    ClientEmailVerifyConfirm:
+      description: Wrapped client email verification confirmation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientEmailVerifyConfirmData"
+    ClientPasswordResetConfirm:
+      description: Wrapped client password reset confirmation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientPasswordResetConfirmData"
+    ClientHeartbeat:
+      description: Wrapped client heartbeat response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientHeartbeatData"
+    ClientVerify:
+      description: Wrapped client verification response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientVerifyData"
+    ClientLogout:
+      description: Wrapped client logout response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientLogoutData"
+    Tenant:
+      description: Wrapped tenant response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TenantData"
+    TenantDelete:
+      description: Wrapped tenant deletion response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TenantDeleteData"
+    TeamMemberList:
+      description: Wrapped team member list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TeamMemberListData"
+    TeamInvite:
+      description: Wrapped team invitation creation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TeamInviteData"
+    TeamInvitationAccept:
+      description: Wrapped team invitation acceptance response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TeamInvitationAcceptData"
+    TeamMemberRoles:
+      description: Wrapped team member role update response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TeamMemberMutationData"
+    TeamMemberDisable:
+      description: Wrapped team member disable response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TeamMemberDisableData"
+    RoleList:
+      description: Wrapped role list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RoleListData"
+    RoleMutation:
+      description: Wrapped role mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RoleMutationData"
+    RoleDelete:
+      description: Wrapped role deletion response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RoleDeleteData"
+    PermissionList:
+      description: Wrapped permission list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PermissionListData"
+    ApplicationList:
+      description: Wrapped application list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ApplicationListData"
+    ApplicationDetail:
+      description: Wrapped application detail response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ApplicationDetailData"
+    ApplicationCreate:
+      description: Wrapped application creation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ApplicationCreateData"
+    ApplicationUpdate:
+      description: Wrapped application update response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ApplicationUpdateData"
+    ApplicationRotateKeys:
+      description: Wrapped application key rotation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ApplicationRotateKeysData"
+    SigningKeyList:
+      description: Wrapped signing key list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SigningKeyListData"
+    GlobalJwtSigningKeyRotate:
+      description: Wrapped global JWT signing key rotation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/GlobalJwtSigningKeyRotateData"
+    ReleaseFileRegistration:
+      description: Wrapped release file registration response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReleaseFileRegistrationData"
+    ReleaseList:
+      description: Wrapped release list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReleaseListData"
+    Release:
+      description: Wrapped release response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReleaseData"
+    SecureScriptList:
+      description: Wrapped secure script list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SecureScriptListData"
+    SecureScript:
+      description: Wrapped secure script response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SecureScriptData"
+    ClientLatestRelease:
+      description: Wrapped client latest release response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientLatestReleaseData"
+    ClientSecureScriptVersionList:
+      description: Wrapped client secure script version list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientSecureScriptVersionListData"
+    ClientSecureScriptFetch:
+      description: Wrapped client secure script fetch response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ClientSecureScriptFetchData"
+    AuditLogList:
+      description: Wrapped audit log list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AuditLogListData"
+    AuditLogDetail:
+      description: Wrapped audit log detail response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AuditLogDetailData"
+    AuditLogExport:
+      description: Wrapped audit log export response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AuditLogExportData"
+    SystemSettingList:
+      description: Wrapped system setting list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SystemSettingListData"
+    SystemSetting:
+      description: Wrapped system setting response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SystemSettingData"
+    NotificationChannelList:
+      description: Wrapped notification channel list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannelListData"
+    NotificationChannel:
+      description: Wrapped notification channel response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannelData"
+    AlertDelivery:
+      description: Wrapped Alertmanager notification delivery response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AlertDeliveryData"
+    OutboxEventList:
+      description: Wrapped outbox event list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/OutboxEventListData"
+    OutboxEventMutation:
+      description: Wrapped outbox event mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/OutboxEventMutationData"
+    DeviceSelfUnbind:
+      description: Wrapped client self device unbind response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSelfUnbindData"
+    DeviceSelfRotateKey:
+      description: Wrapped client self device key rotation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSelfRotateKeyData"
+    LicenseList:
+      description: Wrapped license list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/LicenseListData"
+    LicenseCreate:
+      description: Wrapped license creation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/LicenseCreateData"
+    LicenseMutation:
+      description: Wrapped license mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/LicenseMutationData"
+    SubscriptionList:
+      description: Wrapped subscription list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SubscriptionListData"
+    SubscriptionCreate:
+      description: Wrapped subscription creation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SubscriptionCreateData"
+    SubscriptionMutation:
+      description: Wrapped subscription mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SubscriptionMutationData"
+    CustomerList:
+      description: Wrapped customer list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CustomerListData"
+    CustomerMutation:
+      description: Wrapped customer mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CustomerMutationData"
+    CustomerPasswordReset:
+      description: Wrapped customer password reset token response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CustomerPasswordResetData"
+    DeviceList:
+      description: Wrapped device list response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceListData"
+    DeviceDetail:
+      description: Wrapped device detail response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceDetailData"
+    DeviceMutation:
+      description: Wrapped device mutation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceMutationData"
+    Ok:
+      description: Wrapped boolean ok response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/OkData"
+    AdminChangePassword:
+      description: Wrapped admin password change response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminPasswordRevocationData"
+    AdminPasswordResetConfirm:
+      description: Wrapped admin password reset confirmation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminPasswordRevocationData"
+    AdminEmailVerifyRequest:
+      description: Wrapped admin email verification request response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminEmailVerifyRequestData"
+    AdminEmailVerifyConfirm:
+      description: Wrapped admin email verification confirmation response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminEmailVerifyConfirmData"
+    AdminMfaSetup:
+      description: Wrapped admin MFA setup response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminMfaSetupData"
+    AdminMfaRecoveryCodes:
+      description: Wrapped admin MFA recovery codes response
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ApiEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminMfaRecoveryCodesData"
+    Jwks:
+      description: JSON Web Key Set
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [keys]
+            properties:
+              keys:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Jwk"
+    ApiSuccess:
+      description: Wrapped successful API response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiEnvelope"
+    ApiError:
+      description: Wrapped error API response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiEnvelope"
+  schemas:
+    ApiEnvelope:
+      type: object
+      required: [code, message, data, request_id]
+      properties:
+        code:
+          type: integer
+          format: int32
+          example: 0
+        message:
+          type: string
+          example: ok
+        data:
+          nullable: true
+          description: Endpoint-specific payload. See ../API接口文档.md.
+        request_id:
+          type: string
+          example: req_01HX0000000000000000000000
+    AdminLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        mfa_code:
+          type: string
+          nullable: true
+    AdminAuthData:
+      type: object
+      required: [user, tenant, roles, permissions]
+      properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
+        tenant:
+          $ref: "#/components/schemas/AdminTenant"
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    AdminUser:
+      type: object
+      required: [id, email, name, email_verified, mfa_enabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        email_verified:
+          type: boolean
+        mfa_enabled:
+          type: boolean
+    AdminTenant:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    AdminChangePasswordRequest:
+      type: object
+      required: [old_password, new_password]
+      properties:
+        old_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+    AdminPasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    AdminPasswordResetConfirmRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+          format: password
+    AdminTokenConfirmRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    OkData:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+    AdminPasswordRevocationData:
+      type: object
+      required: [ok, revoked_sessions]
+      properties:
+        ok:
+          type: boolean
+        revoked_sessions:
+          type: integer
+          format: int64
+    AdminEmailVerifyRequestData:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+    AdminEmailVerifyConfirmData:
+      type: object
+      required: [team_member_id, email_verified]
+      properties:
+        team_member_id:
+          type: string
+          format: uuid
+        email_verified:
+          type: boolean
+    AdminMfaEnableRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+    AdminMfaPasswordCodeRequest:
+      type: object
+      required: [password, code]
+      properties:
+        password:
+          type: string
+          format: password
+        code:
+          type: string
+    AdminMfaSetupData:
+      type: object
+      required: [secret, otpauth_url, recovery_codes]
+      properties:
+        secret:
+          type: string
+        otpauth_url:
+          type: string
+        recovery_codes:
+          type: array
+          items:
+            type: string
+    AdminMfaRecoveryCodesData:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+    ClientActivateRequest:
+      type: object
+      required: [app_key, license_key, machine_id, device_public_key]
+      properties:
+        app_key:
+          type: string
+        license_key:
+          type: string
+        machine_id:
+          type: string
+        device_name:
+          type: string
+          nullable: true
+        os:
+          type: string
+          nullable: true
+        app_version:
+          type: string
+          nullable: true
+        device_public_key:
+          type: string
+          description: Base64url-encoded Ed25519 public key.
+    ClientLoginRequest:
+      type: object
+      required: [app_key, email, password, machine_id, device_public_key]
+      properties:
+        app_key:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        machine_id:
+          type: string
+        device_name:
+          type: string
+          nullable: true
+        os:
+          type: string
+          nullable: true
+        app_version:
+          type: string
+          nullable: true
+        device_public_key:
+          type: string
+          description: Base64url-encoded Ed25519 public key.
+    ClientRefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    ClientSessionData:
+      type: object
+      required:
+        [
+          access_token,
+          refresh_token,
+          token_type,
+          expires_in,
+          refresh_expires_in,
+          session_id,
+          device_id,
+          device_key_id,
+          features,
+        ]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          format: int64
+        refresh_expires_in:
+          type: integer
+          format: int64
+        session_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        device_key_id:
+          type: string
+          format: uuid
+          nullable: true
+        features:
+          type: array
+          items:
+            type: string
+    ClientLoginData:
+      allOf:
+        - $ref: "#/components/schemas/ClientSessionData"
+        - type: object
+          required: [subscription_id]
+          properties:
+            subscription_id:
+              type: string
+              format: uuid
+    ClientEmailVerifyConfirmRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    ClientEmailVerifyRequestData:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+    ClientEmailVerifyConfirmData:
+      type: object
+      required: [customer_id, email_verified]
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        email_verified:
+          type: boolean
+    ClientPasswordResetConfirmRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+          format: password
+    ClientPasswordResetConfirmData:
+      type: object
+      required: [ok, revoked_sessions, revoked_refresh_tokens]
+      properties:
+        ok:
+          type: boolean
+        revoked_sessions:
+          type: integer
+          format: int64
+        revoked_refresh_tokens:
+          type: integer
+          format: int64
+    ClientHeartbeatRequest:
+      type: object
+      properties:
+        app_version:
+          type: string
+          nullable: true
+    ClientHeartbeatData:
+      type: object
+      required: [status, server_time, license_status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        server_time:
+          type: integer
+          format: int64
+          description: Unix timestamp in seconds.
+        license_status:
+          type: string
+    ClientVerifyData:
+      type: object
+      required: [valid, features, expires_at]
+      properties:
+        valid:
+          type: boolean
+        features:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    ClientLogoutData:
+      type: object
+      required: [revoked]
+      properties:
+        revoked:
+          type: boolean
+    TenantUpdateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    TenantDeleteRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: string
+          enum: [DELETE]
+    TenantData:
+      type: object
+      required: [tenant]
+      properties:
+        tenant:
+          $ref: "#/components/schemas/TenantRecord"
+    TenantRecord:
+      type: object
+      required:
+        [
+          id,
+          name,
+          slug,
+          status,
+          plan,
+          max_applications,
+          max_team_members,
+          max_customers,
+          metadata,
+          created_at,
+          updated_at,
+          deleted_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          type: string
+        plan:
+          type: string
+        max_applications:
+          type: integer
+          format: int32
+        max_team_members:
+          type: integer
+          format: int32
+        max_customers:
+          type: integer
+          format: int32
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+    TenantDeleteData:
+      type: object
+      required: [deleted, tenant_id]
+      properties:
+        deleted:
+          type: boolean
+        tenant_id:
+          type: string
+          format: uuid
+    RoleSummary:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    RoleDetail:
+      type: object
+      required:
+        [id, code, name, description, builtin, permission_codes, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        builtin:
+          type: boolean
+        permission_codes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PermissionSummary:
+      type: object
+      required: [code, name, resource, action]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        resource:
+          type: string
+        action:
+          type: string
+    TeamMember:
+      type: object
+      required:
+        [
+          id,
+          email,
+          name,
+          phone,
+          avatar,
+          status,
+          email_verified,
+          mfa_enabled,
+          roles,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        avatar:
+          type: string
+          nullable: true
+        status:
+          type: string
+        email_verified:
+          type: boolean
+        mfa_enabled:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleSummary"
+    TeamMemberListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+    TeamInviteRequest:
+      type: object
+      required: [email, role_codes]
+      properties:
+        email:
+          type: string
+          format: email
+        role_codes:
+          type: array
+          items:
+            type: string
+    TeamInviteData:
+      type: object
+      required: [member, invitation]
+      properties:
+        member:
+          $ref: "#/components/schemas/TeamMember"
+        invitation:
+          $ref: "#/components/schemas/TeamInvitation"
+    TeamInvitation:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    TeamInvitationAcceptRequest:
+      type: object
+      required: [token, name, password]
+      properties:
+        token:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+    TeamInvitationAcceptData:
+      type: object
+      required: [member]
+      properties:
+        member:
+          $ref: "#/components/schemas/AcceptedTeamMember"
+    AcceptedTeamMember:
+      type: object
+      required: [id, tenant_id, email, name, status, email_verified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        status:
+          type: string
+        email_verified:
+          type: boolean
+    TeamMemberRolesRequest:
+      type: object
+      required: [role_codes]
+      properties:
+        role_codes:
+          type: array
+          items:
+            type: string
+    TeamMemberMutationData:
+      type: object
+      required: [member]
+      properties:
+        member:
+          $ref: "#/components/schemas/TeamMember"
+    TeamMemberDisableData:
+      type: object
+      required: [member, revoked_sessions]
+      properties:
+        member:
+          $ref: "#/components/schemas/TeamMember"
+        revoked_sessions:
+          type: integer
+          format: int64
+    RoleListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleDetail"
+    RoleMutationData:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/RoleDetail"
+    RoleDeleteData:
+      type: object
+      required: [deleted, role_id]
+      properties:
+        deleted:
+          type: boolean
+        role_id:
+          type: string
+          format: uuid
+    PermissionListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PermissionSummary"
+    RoleCreateRequest:
+      type: object
+      required: [code, name, permission_codes]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        permission_codes:
+          type: array
+          items:
+            type: string
+    RoleUpdateRequest:
+      type: object
+      required: [name, permission_codes]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        permission_codes:
+          type: array
+          items:
+            type: string
+    ApplicationSummary:
+      type: object
+      required:
+        [
+          id,
+          name,
+          slug,
+          app_key,
+          auth_mode,
+          status,
+          heartbeat_interval_seconds,
+          offline_tolerance_seconds,
+          max_devices_default,
+          metadata,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        app_key:
+          type: string
+        auth_mode:
+          type: string
+          enum: [license, subscription, both]
+        status:
+          type: string
+          enum: [active, disabled, archived]
+        heartbeat_interval_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+        offline_tolerance_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+        max_devices_default:
+          type: integer
+          format: int32
+          minimum: 0
+        metadata:
+          type: object
+          additionalProperties: true
+    SigningKey:
+      type: object
+      required:
+        [
+          id,
+          kid,
+          key_scope,
+          alg,
+          public_key_pem,
+          status,
+          not_before,
+          not_after,
+          created_at,
+          activated_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kid:
+          type: string
+        key_scope:
+          type: string
+          enum: [app_request, release_file, secure_script, jwt_access_token]
+        alg:
+          type: string
+          enum: [EdDSA]
+        public_key_pem:
+          type: string
+        status:
+          type: string
+          enum: [active, retiring, retired, revoked]
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: string
+          format: date-time
+          nullable: true
+    ApplicationListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApplicationSummary"
+        meta:
+          $ref: "#/components/schemas/ApplicationListMeta"
+    ApplicationListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    ApplicationDetailData:
+      type: object
+      required: [application]
+      properties:
+        application:
+          $ref: "#/components/schemas/ApplicationSummary"
+    ApplicationCreateData:
+      type: object
+      required: [id, app_key, app_secret, signing_key, application]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_key:
+          type: string
+        app_secret:
+          type: string
+        signing_key:
+          $ref: "#/components/schemas/SigningKey"
+        application:
+          $ref: "#/components/schemas/ApplicationSummary"
+    ApplicationUpdateData:
+      type: object
+      required: [application]
+      properties:
+        application:
+          $ref: "#/components/schemas/ApplicationSummary"
+    ApplicationRotateKeysData:
+      type: object
+      required: [id, app_key, app_secret, signing_key]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_key:
+          type: string
+        app_secret:
+          type: string
+        signing_key:
+          $ref: "#/components/schemas/SigningKey"
+    SigningKeyListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SigningKey"
+    GlobalJwtSigningKeyRotateData:
+      type: object
+      required: [signing_key, retired_key_count]
+      properties:
+        signing_key:
+          $ref: "#/components/schemas/SigningKey"
+        retired_key_count:
+          type: integer
+          format: int64
+    ApplicationCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        auth_mode:
+          type: string
+          nullable: true
+          enum: [license, subscription, both]
+        heartbeat_interval_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        offline_tolerance_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        max_devices_default:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    ApplicationUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        slug:
+          type: string
+          nullable: true
+        auth_mode:
+          type: string
+          nullable: true
+          enum: [license, subscription, both]
+        status:
+          type: string
+          nullable: true
+          enum: [active, disabled, archived]
+        heartbeat_interval_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        offline_tolerance_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        max_devices_default:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    ReleaseFileSummary:
+      type: object
+      required:
+        [
+          id,
+          storage_key,
+          file_name,
+          file_size,
+          sha256,
+          signature_kid,
+          signature,
+          signature_alg,
+          metadata,
+          created_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        storage_key:
+          type: string
+        file_name:
+          type: string
+          maxLength: 255
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    ReleaseSummary:
+      type: object
+      required:
+        [
+          id,
+          app_id,
+          file_id,
+          version,
+          version_code,
+          status,
+          changelog,
+          force_update,
+          published_at,
+          deprecated_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        file_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+          maxLength: 128
+        version_code:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum: [draft, published, deprecated, revoked]
+        changelog:
+          type: string
+          nullable: true
+        force_update:
+          type: boolean
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        deprecated_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ReleaseFileRegistrationData:
+      type: object
+      required:
+        [
+          file_id,
+          file_name,
+          file_size,
+          sha256,
+          signature_kid,
+          signature,
+          signature_alg,
+          file,
+        ]
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        file_name:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        file:
+          $ref: "#/components/schemas/ReleaseFileSummary"
+    ReleaseListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseSummary"
+        meta:
+          $ref: "#/components/schemas/ReleaseListMeta"
+    ReleaseListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    ReleaseData:
+      type: object
+      required: [release]
+      properties:
+        release:
+          $ref: "#/components/schemas/ReleaseSummary"
+    ReleaseFileRegisterRequest:
+      type: object
+      required: [file_name, file_size, sha256]
+      properties:
+        storage_key:
+          type: string
+          nullable: true
+        file_name:
+          type: string
+          maxLength: 255
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    ReleaseCreateRequest:
+      type: object
+      required: [file_id, version, version_code]
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+          maxLength: 128
+        version_code:
+          type: integer
+          format: int64
+          minimum: 1
+        changelog:
+          type: string
+          nullable: true
+        force_update:
+          type: boolean
+          nullable: true
+    ClientLatestReleaseData:
+      type: object
+      required:
+        [
+          app_id,
+          version,
+          version_code,
+          download_url,
+          file_size,
+          sha256,
+          published_at_unix,
+          signature_kid,
+          signature,
+          signature_alg,
+          force_update,
+        ]
+      properties:
+        app_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        version_code:
+          type: integer
+          format: int64
+        download_url:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        published_at_unix:
+          type: integer
+          format: int64
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        force_update:
+          type: boolean
+    SecureScriptSummary:
+      type: object
+      required:
+        [
+          id,
+          app_id,
+          name,
+          version,
+          version_code,
+          status,
+          content_sha256,
+          signature_kid,
+          signature,
+          signature_alg,
+          required_features,
+          expires_at,
+          published_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: string
+        version_code:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+        content_sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        required_features:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+    SecureScriptListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecureScriptSummary"
+        meta:
+          $ref: "#/components/schemas/SecureScriptListMeta"
+    SecureScriptListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    SecureScriptData:
+      type: object
+      required: [script]
+      properties:
+        script:
+          $ref: "#/components/schemas/SecureScriptSummary"
+    SecureScriptCreateRequest:
+      type: object
+      required: [name, version, version_code]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        version_code:
+          type: integer
+          format: int64
+          minimum: 1
+        required_features:
+          type: array
+          nullable: true
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    SecureScriptContentUpdateRequest:
+      type: object
+      required: [content_base64]
+      properties:
+        content_base64:
+          type: string
+        version:
+          type: string
+          nullable: true
+        version_code:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+    ClientSecureScriptVersion:
+      type: object
+      required:
+        [
+          script_id,
+          name,
+          version,
+          version_code,
+          sha256,
+          signature_kid,
+          signature,
+          signature_alg,
+          expires_at,
+        ]
+      properties:
+        script_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: string
+        version_code:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    ClientSecureScriptVersionListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientSecureScriptVersion"
+    ClientSecureScriptFetchRequest:
+      type: object
+      required: [script_id]
+      properties:
+        script_id:
+          type: string
+          format: uuid
+    ClientSecureScriptFetchData:
+      type: object
+      required:
+        [
+          script_id,
+          version,
+          version_code,
+          content_base64,
+          sha256,
+          signature_kid,
+          signature,
+          signature_alg,
+          expires_at,
+        ]
+      properties:
+        script_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        version_code:
+          type: integer
+          format: int64
+        content_base64:
+          type: string
+        sha256:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+        signature_kid:
+          type: string
+        signature:
+          type: string
+        signature_alg:
+          type: string
+          enum: [Ed25519]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    AuditLogSummary:
+      type: object
+      required:
+        [
+          id,
+          actor_type,
+          actor_id,
+          action,
+          resource_type,
+          resource_id,
+          ip,
+          user_agent,
+          request_id,
+          created_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+          format: uuid
+          nullable: true
+        ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    AuditLogDetailRecord:
+      allOf:
+        - $ref: "#/components/schemas/AuditLogSummary"
+        - type: object
+          required: [before_json, after_json, metadata_json]
+          properties:
+            before_json:
+              type: object
+              nullable: true
+              additionalProperties: true
+            after_json:
+              type: object
+              nullable: true
+              additionalProperties: true
+            metadata_json:
+              type: object
+              additionalProperties: true
+    AuditLogListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogSummary"
+        meta:
+          $ref: "#/components/schemas/AuditLogListMeta"
+    AuditLogListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    AuditLogDetailData:
+      type: object
+      required: [audit_log]
+      properties:
+        audit_log:
+          $ref: "#/components/schemas/AuditLogDetailRecord"
+    AuditLogExportData:
+      type: object
+      required: [items, exported_at, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogDetailRecord"
+        exported_at:
+          type: string
+          format: date-time
+        limit:
+          type: integer
+          format: int32
+    SystemSettingRecord:
+      type: object
+      required: [key, value, updated_at]
+      properties:
+        key:
+          type: string
+          maxLength: 128
+        value:
+          description: Arbitrary non-null JSON value.
+        updated_at:
+          type: string
+          format: date-time
+    SystemSettingListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemSettingRecord"
+    SystemSettingData:
+      type: object
+      required: [setting]
+      properties:
+        setting:
+          $ref: "#/components/schemas/SystemSettingRecord"
+    SystemSettingUpdateRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          description: Arbitrary non-null JSON value.
+    NotificationChannelRecord:
+      type: object
+      required:
+        [
+          id,
+          name,
+          kind,
+          enabled,
+          config,
+          secret_configured,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 128
+        kind:
+          type: string
+          enum: [webhook, email, pagerduty]
+        enabled:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        secret_configured:
+          type: boolean
+        last_test_status:
+          type: string
+          enum: [success, failed]
+          nullable: true
+        last_test_error:
+          type: string
+          nullable: true
+        last_test_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationChannelListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationChannelRecord"
+    NotificationChannelData:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          $ref: "#/components/schemas/NotificationChannelRecord"
+    NotificationChannelCreateRequest:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        kind:
+          type: string
+          enum: [webhook, email, pagerduty]
+        enabled:
+          type: boolean
+          default: true
+        config:
+          type: object
+          additionalProperties: true
+        secret:
+          type: object
+          additionalProperties: true
+          writeOnly: true
+    NotificationChannelUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        secret:
+          type: object
+          additionalProperties: true
+          writeOnly: true
+        clear_secret:
+          type: boolean
+          default: false
+    NotificationChannelTestRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [dry_run, delivery]
+          default: dry_run
+        confirm_delivery:
+          type: boolean
+          default: false
+          description: Must be true when mode is delivery.
+    AlertmanagerWebhookRequest:
+      type: object
+      required: [status]
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+          enum: [firing, resolved]
+        receiver:
+          type: string
+          nullable: true
+        groupKey:
+          type: string
+          nullable: true
+        commonLabels:
+          type: object
+          additionalProperties: true
+        commonAnnotations:
+          type: object
+          additionalProperties: true
+        externalURL:
+          type: string
+          nullable: true
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertmanagerAlert"
+    AlertmanagerAlert:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+          enum: [firing, resolved]
+        labels:
+          type: object
+          additionalProperties: true
+        annotations:
+          type: object
+          additionalProperties: true
+        startsAt:
+          type: string
+          nullable: true
+        endsAt:
+          type: string
+          nullable: true
+        generatorURL:
+          type: string
+          nullable: true
+        fingerprint:
+          type: string
+          nullable: true
+    AlertDeliveryData:
+      type: object
+      required: [accepted, channel_count, delivered, failed, failures]
+      properties:
+        accepted:
+          type: boolean
+        channel_count:
+          type: integer
+          minimum: 0
+        delivered:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertDeliveryFailure"
+    AlertDeliveryFailure:
+      type: object
+      required: [channel_id, channel_name, kind, error]
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        channel_name:
+          type: string
+        kind:
+          type: string
+          enum: [webhook, email, pagerduty]
+        error:
+          type: string
+    OutboxEvent:
+      type: object
+      required:
+        [
+          id,
+          tenant_id,
+          event_type,
+          payload,
+          status,
+          attempts,
+          next_run_at,
+          last_error,
+          created_at,
+          processed_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+        attempts:
+          type: integer
+          format: int32
+        next_run_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+    OutboxEventListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutboxEvent"
+        meta:
+          $ref: "#/components/schemas/OutboxEventListMeta"
+    OutboxEventListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    OutboxEventMutationData:
+      type: object
+      required: [event]
+      properties:
+        event:
+          $ref: "#/components/schemas/OutboxEvent"
+    DeviceSelfUnbindData:
+      type: object
+      required: [device, revoked_sessions]
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceSummary"
+        revoked_sessions:
+          type: integer
+          format: int64
+    DeviceSelfRotateKeyRequest:
+      type: object
+      required: [device_public_key]
+      properties:
+        device_public_key:
+          type: string
+          description: Base64url-encoded Ed25519 public key.
+    DeviceSelfRotateKeyData:
+      type: object
+      required:
+        [
+          device_key_id,
+          device_public_key,
+          algorithm,
+          status,
+          rotated_device_key_ids,
+        ]
+      properties:
+        device_key_id:
+          type: string
+          format: uuid
+        device_public_key:
+          type: string
+          description: Base64url-encoded Ed25519 public key.
+        algorithm:
+          type: string
+        status:
+          type: string
+        rotated_device_key_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    LicenseSummary:
+      type: object
+      required:
+        [
+          id,
+          app_id,
+          customer_id,
+          type,
+          status,
+          max_devices,
+          features,
+          starts_at,
+          expires_at,
+          revoked_at,
+          metadata,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          type: string
+          enum: [standard, trial, enterprise]
+        status:
+          type: string
+          enum: [active, suspended, revoked, expired]
+        max_devices:
+          type: integer
+          format: int32
+          minimum: 0
+        features:
+          type: array
+          items:
+            type: string
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+    LicenseListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LicenseSummary"
+        meta:
+          $ref: "#/components/schemas/LicenseListMeta"
+    LicenseListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    LicenseCreateData:
+      type: object
+      required: [license_key, license]
+      properties:
+        license_key:
+          type: string
+        license:
+          $ref: "#/components/schemas/LicenseSummary"
+    LicenseMutationData:
+      type: object
+      required: [license, revoked_sessions]
+      properties:
+        license:
+          $ref: "#/components/schemas/LicenseSummary"
+        revoked_sessions:
+          type: integer
+          format: int64
+    LicenseCreateRequest:
+      type: object
+      required: [app_id]
+      properties:
+        app_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          type: string
+          nullable: true
+          enum: [standard, trial, enterprise]
+        max_devices:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+        features:
+          type: array
+          nullable: true
+          items:
+            type: string
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    LicenseRenewRequest:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+    LicenseResetDevicesRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    SubscriptionSummary:
+      type: object
+      required:
+        [
+          id,
+          app_id,
+          customer_id,
+          plan,
+          status,
+          max_devices,
+          features,
+          starts_at,
+          expires_at,
+          cancelled_at,
+          metadata,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        plan:
+          type: string
+        status:
+          type: string
+          enum: [active, trialing, past_due, cancelled, expired]
+        max_devices:
+          type: integer
+          format: int32
+          minimum: 0
+        features:
+          type: array
+          items:
+            type: string
+        starts_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+    SubscriptionListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubscriptionSummary"
+        meta:
+          $ref: "#/components/schemas/SubscriptionListMeta"
+    SubscriptionListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    SubscriptionCreateData:
+      type: object
+      required: [subscription]
+      properties:
+        subscription:
+          $ref: "#/components/schemas/SubscriptionSummary"
+    SubscriptionMutationData:
+      type: object
+      required: [subscription, revoked_sessions]
+      properties:
+        subscription:
+          $ref: "#/components/schemas/SubscriptionSummary"
+        revoked_sessions:
+          type: integer
+          format: int64
+    SubscriptionCreateRequest:
+      type: object
+      required: [app_id, customer_id, plan]
+      properties:
+        app_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        plan:
+          type: string
+        max_devices:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        features:
+          type: array
+          nullable: true
+          items:
+            type: string
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    Customer:
+      type: object
+      required:
+        [
+          id,
+          email,
+          name,
+          phone,
+          company,
+          status,
+          email_verified,
+          metadata,
+          remark,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        status:
+          type: string
+        email_verified:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+        remark:
+          type: string
+          nullable: true
+    CustomerListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+        meta:
+          $ref: "#/components/schemas/CustomerListMeta"
+    CustomerListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    CustomerCreateRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        remark:
+          type: string
+          nullable: true
+    CustomerUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        remark:
+          type: string
+          nullable: true
+    CustomerMutationData:
+      type: object
+      required: [customer]
+      properties:
+        customer:
+          $ref: "#/components/schemas/Customer"
+        revoked_sessions:
+          type: integer
+          format: int64
+    CustomerPasswordResetData:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+    DeviceSummary:
+      type: object
+      required:
+        [
+          id,
+          app_id,
+          customer_id,
+          license_id,
+          subscription_id,
+          machine_id,
+          device_name,
+          os,
+          app_version,
+          status,
+          first_seen_at,
+          last_seen_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+          nullable: true
+        license_id:
+          type: string
+          format: uuid
+          nullable: true
+        subscription_id:
+          type: string
+          format: uuid
+          nullable: true
+        machine_id:
+          type: string
+        device_name:
+          type: string
+          nullable: true
+        os:
+          type: string
+          nullable: true
+        app_version:
+          type: string
+          nullable: true
+        status:
+          type: string
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DeviceListData:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceSummary"
+        meta:
+          $ref: "#/components/schemas/DeviceListMeta"
+    DeviceListMeta:
+      type: object
+      required: [page, page_size]
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+        page_size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+    DeviceDetailData:
+      type: object
+      required: [device]
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceSummary"
+    DeviceMutationData:
+      type: object
+      required: [device, revoked_sessions]
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceSummary"
+        revoked_sessions:
+          type: integer
+          format: int64
+    DeviceBlacklistRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+    Jwk:
+      type: object
+      required: [kid, kty, crv, alg, use, x]
+      properties:
+        kid:
+          type: string
+        kty:
+          type: string
+          example: OKP
+        crv:
+          type: string
+          example: Ed25519
+        alg:
+          type: string
+          example: EdDSA
+        use:
+          type: string
+          example: sig
+        x:
+          type: string
+          description: Base64url-encoded Ed25519 public key.
