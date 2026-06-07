@@ -185,16 +185,31 @@ fn normalize_setting_key(key: &str) -> Result<String, AppError> {
     {
         return Err(AppError::validation_failed("setting key is invalid"));
     }
-    if ["secret", "password", "token"]
-        .iter()
-        .any(|part| key.contains(part))
-    {
+    if contains_sensitive_setting_key_part(&key) {
         return Err(AppError::validation_failed(
             "sensitive settings must stay in environment variables",
         ));
     }
 
     Ok(key)
+}
+
+fn contains_sensitive_setting_key_part(key: &str) -> bool {
+    const SENSITIVE_PARTS: &[&str] = &[
+        "secret",
+        "password",
+        "token",
+        "key",
+        "private",
+        "credential",
+        "credentials",
+        "cert",
+        "certificate",
+    ];
+
+    key.split(['.', '_', '-', ':'])
+        .filter(|part| !part.is_empty())
+        .any(|part| SENSITIVE_PARTS.contains(&part))
 }
 
 fn validate_setting_value(value: &Value) -> Result<(), AppError> {
@@ -246,6 +261,11 @@ mod tests {
             "billing.mode"
         );
         assert!(normalize_setting_key("smtp.password").is_err());
+        assert!(normalize_setting_key("master_key").is_err());
+        assert!(normalize_setting_key("jwt.signing_key").is_err());
+        assert!(normalize_setting_key("private-key").is_err());
+        assert!(normalize_setting_key("api.credential").is_err());
+        assert!(normalize_setting_key("monkey.mode").is_ok());
         assert!(normalize_setting_key("bad key").is_err());
     }
 

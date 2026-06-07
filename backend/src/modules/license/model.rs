@@ -106,7 +106,8 @@ impl NewLicense {
         let max_devices = input.max_devices.unwrap_or(1);
         validate_max_devices(max_devices)?;
         let features = normalize_features(input.features)?;
-        validate_license_window(input.starts_at, input.expires_at)?;
+        let starts_at = input.starts_at.or_else(|| Some(Utc::now()));
+        validate_license_window(starts_at, input.expires_at)?;
 
         Ok(Self {
             id: Uuid::new_v4(),
@@ -117,7 +118,7 @@ impl NewLicense {
             license_type,
             max_devices,
             features,
-            starts_at: input.starts_at.or_else(|| Some(Utc::now())),
+            starts_at,
             expires_at: input.expires_at,
             metadata: input.metadata.unwrap_or_else(|| serde_json::json!({})),
         })
@@ -296,6 +297,26 @@ mod tests {
                 features: None,
                 starts_at: Some(now),
                 expires_at: Some(now - Duration::seconds(1)),
+                metadata: None,
+            },
+            "hash".to_owned(),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn new_license_rejects_past_expiry_without_explicit_start() {
+        let result = NewLicense::from_input(
+            Uuid::nil(),
+            CreateLicenseInput {
+                app_id: Uuid::nil(),
+                customer_id: None,
+                license_type: None,
+                max_devices: None,
+                features: None,
+                starts_at: None,
+                expires_at: Some(Utc::now() - Duration::seconds(1)),
                 metadata: None,
             },
             "hash".to_owned(),
