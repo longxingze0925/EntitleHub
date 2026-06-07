@@ -6,7 +6,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -29,6 +28,7 @@ import {
   updateSecureScriptContent,
   type SecureScriptSummary
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -258,32 +258,32 @@ export function ScriptsPage() {
             </Button>
           ) : null}
           {canPublish && record.status === "draft" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="发布脚本"
+              description="发布后客户端可能拉取并执行该脚本，必须确认内容和签名无误。"
+              buttonProps={{
+                size: "small",
+                icon: <Rocket size={14} />
+              }}
+              loading={publishMutation.isPending}
               onConfirm={() => publishMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Rocket size={14} />}
-                loading={publishMutation.isPending}
-              >
-                发布
-              </Button>
-            </Popconfirm>
+              发布
+            </ConfirmActionButton>
           ) : null}
           {canDeprecate && record.status === "published" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="废弃脚本"
+              description="废弃后客户端不会继续把该脚本作为可用脚本拉取。"
+              buttonProps={{
+                size: "small",
+                icon: <Archive size={14} />
+              }}
+              loading={deprecateMutation.isPending}
               onConfirm={() => deprecateMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Archive size={14} />}
-                loading={deprecateMutation.isPending}
-              >
-                废弃
-              </Button>
-            </Popconfirm>
+              废弃
+            </ConfirmActionButton>
           ) : null}
         </Space>
       )

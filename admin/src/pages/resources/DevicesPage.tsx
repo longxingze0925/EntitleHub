@@ -23,6 +23,7 @@ import {
   unblacklistDevice,
   type DeviceSummary
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -139,18 +140,18 @@ export function DevicesPage() {
       render: (_, record) => (
         <Space>
           {canUnbind && record.status !== "unbound" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="解绑设备"
+              description="解绑会撤销该设备相关会话，客户端需要重新绑定或重新激活。"
+              buttonProps={{
+                size: "small",
+                icon: <Unlink size={14} />
+              }}
+              loading={unbindMutation.isPending}
               onConfirm={() => unbindMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Unlink size={14} />}
-                loading={unbindMutation.isPending}
-              >
-                解绑
-              </Button>
-            </Popconfirm>
+              解绑
+            </ConfirmActionButton>
           ) : null}
           {canBlacklist && record.status !== "blacklisted" && record.status !== "unbound" ? (
             <Button

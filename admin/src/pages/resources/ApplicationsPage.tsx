@@ -30,6 +30,7 @@ import {
   type SigningKeySummary,
   type UpdateApplicationPayload
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -204,20 +205,19 @@ export function ApplicationsPage() {
             </Popconfirm>
           ) : null}
           {canUpdate && record.status !== "archived" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="归档应用"
               description="归档后默认列表不再显示该应用。"
+              buttonProps={{
+                danger: true,
+                size: "small",
+                icon: <Archive size={14} />
+              }}
+              loading={updateMutation.isPending}
               onConfirm={() => updateApplicationStatus(record, "archived")}
             >
-              <Button
-                danger
-                size="small"
-                icon={<Archive size={14} />}
-                loading={updateMutation.isPending}
-              >
-                归档
-              </Button>
-            </Popconfirm>
+              归档
+            </ConfirmActionButton>
           ) : null}
           {canReadKey ? (
             <Button size="small" icon={<List size={14} />} onClick={() => setKeyTarget(record)}>
@@ -225,18 +225,18 @@ export function ApplicationsPage() {
             </Button>
           ) : null}
           {canRotateKey ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="轮换密钥"
+              description="轮换后会生成新的应用密钥和签名密钥，旧密钥进入历史状态。"
+              buttonProps={{
+                size: "small",
+                icon: <KeyRound size={14} />
+              }}
+              loading={rotateMutation.isPending}
               onConfirm={() => rotateMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<KeyRound size={14} />}
-                loading={rotateMutation.isPending}
-              >
-                轮换
-              </Button>
-            </Popconfirm>
+              轮换
+            </ConfirmActionButton>
           ) : null}
         </Space>
       )

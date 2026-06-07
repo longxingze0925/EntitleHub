@@ -5,7 +5,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Switch,
@@ -37,6 +36,7 @@ import {
   type NotificationChannel,
   type NotificationChannelKind
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
@@ -286,21 +286,20 @@ export function NotificationChannelsPage() {
             />
           </Tooltip>
           {record.enabled ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="删除通知渠道"
               description="该渠道会被停用并默认隐藏，历史记录保留。"
+              buttonProps={{
+                danger: true,
+                size: "small",
+                icon: <Trash2 size={14} />,
+                disabled: !canUpdate
+              }}
+              loading={statusMutation.isPending && statusMutation.variables?.id === record.id}
               onConfirm={() => statusMutation.mutate({ id: record.id, enabled: false })}
             >
-              <Button
-                danger
-                size="small"
-                icon={<Trash2 size={14} />}
-                disabled={!canUpdate}
-                loading={statusMutation.isPending && statusMutation.variables?.id === record.id}
-              >
-                删除
-              </Button>
-            </Popconfirm>
+              删除
+            </ConfirmActionButton>
           ) : (
             <Button
               size="small"

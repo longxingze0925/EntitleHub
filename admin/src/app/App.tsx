@@ -37,10 +37,11 @@ import { TeamPage } from "../pages/resources/TeamPage";
 import { menuRoutes } from "../routes/menu";
 import { useAuthStore } from "../stores/authStore";
 import { hasPermission } from "../utils/permissions";
+import { requiresMfaForRole } from "../utils/security";
 
 function ProtectedRoutes() {
   const location = useLocation();
-  const { user, permissions, clear, setProfile } = useAuthStore();
+  const { user, roles, permissions, clear, setProfile } = useAuthStore();
   const profileQuery = useQuery({
     queryKey: ["auth", "me"],
     queryFn: me,
@@ -76,6 +77,15 @@ function ProtectedRoutes() {
     );
   }
 
+  if (
+    user &&
+    !user.mfa_enabled &&
+    requiresMfaForRole(roles) &&
+    location.pathname !== "/security"
+  ) {
+    return <Navigate to="/security" replace />;
+  }
+
   const currentRoute = menuRoutes.find(
     (route) => route.path === location.pathname
   );
@@ -105,7 +115,12 @@ function ProtectedRoutes() {
 
 export function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_relativeSplatPath: true,
+        v7_startTransition: true
+      }}
+    >
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin/password-reset" element={<PasswordResetPage />} />

@@ -203,6 +203,7 @@ pub async fn login(
         candidate.tenant_id,
         candidate.team_member_id,
         user_agent.clone(),
+        Some(ip.as_str()),
         expires_at,
     )
     .await?;

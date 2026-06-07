@@ -339,6 +339,10 @@ body {
   font-size: 16px;
 }
 
+.settings-panel-title-split {
+  justify-content: space-between;
+}
+
 .settings-stack,
 .settings-stack .ant-space-item {
   width: 100%;
@@ -348,6 +352,25 @@ body {
   display: grid;
   grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
   gap: 8px 12px;
+}
+
+.mfa-setup-grid {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mfa-qr-panel {
+  min-height: 220px;
+  padding: 12px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 
 .secret-list .ant-typography,
@@ -415,7 +438,16 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .mfa-setup-grid {
+    grid-template-columns: 1fr;
+  }
+
   .secret-list {
     grid-template-columns: 1fr;
+  }
+
+  .settings-panel-title-split {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

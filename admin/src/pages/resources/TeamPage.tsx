@@ -4,7 +4,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -28,6 +27,7 @@ import {
   type TeamMember,
   type UpdateTeamMemberRolesPayload
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -152,18 +152,18 @@ export function TeamPage() {
             </Button>
           ) : null}
           {canDisable && record.status !== "disabled" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="禁用成员"
+              description="禁用后会撤销该成员的后台登录会话。"
+              buttonProps={{
+                size: "small",
+                icon: <Ban size={14} />
+              }}
+              loading={disableMutation.isPending}
               onConfirm={() => disableMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Ban size={14} />}
-                loading={disableMutation.isPending}
-              >
-                禁用
-              </Button>
-            </Popconfirm>
+              禁用
+            </ConfirmActionButton>
           ) : null}
         </Space>
       )

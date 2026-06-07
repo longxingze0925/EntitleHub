@@ -250,7 +250,66 @@ GET /api/auth/me
 }
 ```
 
-### 2.5 修改密码
+### 2.5 后台会话列表
+
+```http
+GET /api/auth/sessions
+```
+
+认证：后台 session。
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "current": true,
+      "status": "active",
+      "ip": "127.0.0.1",
+      "user_agent": "Mozilla/5.0 ...",
+      "created_at": "2026-06-07T12:00:00Z",
+      "last_seen_at": "2026-06-07T12:30:00Z",
+      "expires_at": "2026-06-08T12:00:00Z",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+要求：
+
+- 只返回当前管理员自己的后台会话，最多返回最近 50 条。
+- `current=true` 表示当前浏览器正在使用的会话。
+- `status` 可为 `active`、`expired`、`revoked`。
+
+### 2.6 撤销后台会话
+
+```http
+POST /api/auth/sessions/{id}/revoke
+```
+
+认证：后台 session + CSRF。
+
+响应：
+
+```json
+{
+  "revoked": true,
+  "session_id": "uuid",
+  "revoked_refresh_tokens": 1
+}
+```
+
+要求：
+
+- 只能撤销当前管理员自己的其它会话。
+- 不能通过该接口撤销当前会话；当前会话应使用登出接口。
+- 成功后同时撤销该会话未使用的 refresh token。
+- 写审计日志。
+
+### 2.7 修改密码
 
 ```http
 PUT /api/auth/password
@@ -271,7 +330,7 @@ PUT /api/auth/password
 - 新密码符合策略。
 - 修改成功后撤销其他 session。
 
-### 2.5.1 请求密码重置
+### 2.7.1 请求密码重置
 
 ```http
 POST /api/auth/password/reset/request
@@ -300,7 +359,7 @@ POST /api/auth/password/reset/request
 - token 明文只能通过邮件发送，数据库只保存 hash。
 - 同一邮箱、同一 IP 必须限流。
 
-### 2.5.2 确认密码重置
+### 2.7.2 确认密码重置
 
 ```http
 POST /api/auth/password/reset/confirm
@@ -323,7 +382,7 @@ POST /api/auth/password/reset/confirm
 - 成功后撤销该管理员所有已有 session 和 refresh token。
 - 写审计日志。
 
-### 2.5.3 请求邮箱验证
+### 2.7.3 请求邮箱验证
 
 ```http
 POST /api/auth/email/verify/request
@@ -337,7 +396,7 @@ POST /api/auth/email/verify/request
 - token 明文只通过邮件发送，数据库只保存 hash。
 - 同一账号必须限流。
 
-### 2.5.4 确认邮箱验证
+### 2.7.4 确认邮箱验证
 
 ```http
 POST /api/auth/email/verify/confirm
@@ -358,7 +417,7 @@ POST /api/auth/email/verify/confirm
 - 成功后写入 `consumed_at`。
 - 写审计日志。
 
-### 2.6 MFA 初始化
+### 2.8 MFA 初始化
 
 ```http
 POST /api/auth/mfa/setup
@@ -379,7 +438,7 @@ POST /api/auth/mfa/setup
 - secret 只能在初始化时返回。
 - recovery code 只能展示一次。
 
-### 2.7 MFA 确认启用
+### 2.9 MFA 确认启用
 
 ```http
 POST /api/auth/mfa/enable
@@ -393,7 +452,7 @@ POST /api/auth/mfa/enable
 }
 ```
 
-### 2.8 MFA 关闭
+### 2.10 MFA 关闭
 
 ```http
 POST /api/auth/mfa/disable
@@ -408,7 +467,7 @@ POST /api/auth/mfa/disable
 }
 ```
 
-### 2.9 重新生成 MFA 恢复码
+### 2.11 重新生成 MFA 恢复码
 
 ```http
 POST /api/auth/mfa/recovery-codes/regenerate

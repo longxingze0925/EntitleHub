@@ -4,7 +4,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -28,6 +27,7 @@ import {
   type RoleDetail,
   type UpdateRolePayload
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
 import {
@@ -196,21 +196,21 @@ export function RolesPage() {
             disabled={record.builtin || !canUpdate}
             onClick={() => openEdit(record)}
           />
-          <Popconfirm
+          <ConfirmActionButton
             title="删除角色"
+            description="删除角色会影响已分配该角色的团队成员权限。"
             okText="删除"
-            cancelText="取消"
-            disabled={record.builtin || !canDelete}
+            buttonProps={{
+              danger: true,
+              size: "small",
+              icon: <Trash2 size={14} />,
+              disabled: record.builtin || !canDelete
+            }}
+            loading={deleteMutation.isPending}
             onConfirm={() => deleteMutation.mutate(record.id)}
           >
-            <Button
-              danger
-              size="small"
-              icon={<Trash2 size={14} />}
-              disabled={record.builtin || !canDelete}
-              loading={deleteMutation.isPending}
-            />
-          </Popconfirm>
+            删除
+          </ConfirmActionButton>
         </Space>
       )
     }

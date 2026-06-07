@@ -5,7 +5,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Switch,
@@ -29,6 +28,7 @@ import {
   type RegisterReleaseFileResult,
   type ReleaseSummary
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -200,32 +200,32 @@ export function ReleasesPage() {
       render: (_, record) => (
         <Space>
           {canPublish && record.status === "draft" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="发布版本"
+              description="发布后客户端可能检查到该版本并开始下载更新。"
+              buttonProps={{
+                size: "small",
+                icon: <Rocket size={14} />
+              }}
+              loading={publishMutation.isPending}
               onConfirm={() => publishMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Rocket size={14} />}
-                loading={publishMutation.isPending}
-              >
-                发布
-              </Button>
-            </Popconfirm>
+              发布
+            </ConfirmActionButton>
           ) : null}
           {canDeprecate && record.status === "published" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="废弃版本"
+              description="废弃后该版本不会继续作为可用更新分发。"
+              buttonProps={{
+                size: "small",
+                icon: <Archive size={14} />
+              }}
+              loading={deprecateMutation.isPending}
               onConfirm={() => deprecateMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Archive size={14} />}
-                loading={deprecateMutation.isPending}
-              >
-                废弃
-              </Button>
-            </Popconfirm>
+              废弃
+            </ConfirmActionButton>
           ) : null}
         </Space>
       )

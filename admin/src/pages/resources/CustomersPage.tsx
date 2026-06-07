@@ -4,7 +4,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -26,6 +25,7 @@ import {
   type Customer,
   type UpdateCustomerPayload
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -146,32 +146,32 @@ export function CustomersPage() {
             </Button>
           ) : null}
           {canDisable && record.status !== "disabled" ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="禁用客户"
+              description="禁用后会撤销该客户相关客户端会话，客户将无法继续登录使用。"
+              buttonProps={{
+                size: "small",
+                icon: <Ban size={14} />
+              }}
+              loading={disableMutation.isPending}
               onConfirm={() => disableMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<Ban size={14} />}
-                loading={disableMutation.isPending}
-              >
-                禁用
-              </Button>
-            </Popconfirm>
+              禁用
+            </ConfirmActionButton>
           ) : null}
           {canResetPassword ? (
-            <Popconfirm
+            <ConfirmActionButton
               title="重置密码"
+              description="系统会向客户邮箱发送密码重置邮件，已有会话可能在重置后失效。"
+              buttonProps={{
+                size: "small",
+                icon: <KeyRound size={14} />
+              }}
+              loading={resetPasswordMutation.isPending}
               onConfirm={() => resetPasswordMutation.mutate(record.id)}
             >
-              <Button
-                size="small"
-                icon={<KeyRound size={14} />}
-                loading={resetPasswordMutation.isPending}
-              >
-                重置
-              </Button>
-            </Popconfirm>
+              重置
+            </ConfirmActionButton>
           ) : null}
         </Space>
       )

@@ -6,7 +6,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -32,6 +31,7 @@ import {
   type CreateLicenseResult,
   type LicenseSummary
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -203,32 +203,32 @@ export function LicensesPage() {
         return (
           <Space wrap>
             {canRevoke && record.status !== "revoked" ? (
-              <Popconfirm
+              <ConfirmActionButton
                 title="吊销授权"
+                description="吊销后该授权不可继续使用，并会撤销相关客户端会话。"
+                buttonProps={{
+                  size: "small",
+                  icon: <Ban size={14} />
+                }}
+                loading={revokeMutation.isPending}
                 onConfirm={() => revokeMutation.mutate(record.id)}
               >
-                <Button
-                  size="small"
-                  icon={<Ban size={14} />}
-                  loading={revokeMutation.isPending}
-                >
-                  吊销
-                </Button>
-              </Popconfirm>
+                吊销
+              </ConfirmActionButton>
             ) : null}
             {canSuspend && effectiveStatus === "active" ? (
-              <Popconfirm
+              <ConfirmActionButton
                 title="暂停授权"
+                description="暂停后客户端会立即失去该授权的可用状态，并撤销相关会话。"
+                buttonProps={{
+                  size: "small",
+                  icon: <Pause size={14} />
+                }}
+                loading={suspendMutation.isPending}
                 onConfirm={() => suspendMutation.mutate(record.id)}
               >
-                <Button
-                  size="small"
-                  icon={<Pause size={14} />}
-                  loading={suspendMutation.isPending}
-                >
-                  暂停
-                </Button>
-              </Popconfirm>
+                暂停
+              </ConfirmActionButton>
             ) : null}
             {canRenew && record.status !== "revoked" ? (
               <Button

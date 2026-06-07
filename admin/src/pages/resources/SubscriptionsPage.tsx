@@ -6,7 +6,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -28,6 +27,7 @@ import {
   type CreateSubscriptionPayload,
   type SubscriptionSummary
 } from "../../api/admin";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
@@ -157,18 +157,18 @@ export function SubscriptionsPage() {
         return canCancel &&
           record.status !== "cancelled" &&
           effectiveStatus !== "expired" ? (
-          <Popconfirm
+          <ConfirmActionButton
             title="取消订阅"
+            description="取消后订阅不再继续生效，并会撤销相关客户端会话。"
+            buttonProps={{
+              size: "small",
+              icon: <Ban size={14} />
+            }}
+            loading={cancelMutation.isPending}
             onConfirm={() => cancelMutation.mutate(record.id)}
           >
-            <Button
-              size="small"
-              icon={<Ban size={14} />}
-              loading={cancelMutation.isPending}
-            >
-              取消
-            </Button>
-          </Popconfirm>
+            取消
+          </ConfirmActionButton>
         ) : null;
       }
     }

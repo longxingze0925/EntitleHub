@@ -4,7 +4,8 @@ import {
   Divider,
   Form,
   Input,
-  Popconfirm,
+  QRCode,
+  Segmented,
   Space,
   Table,
   Tag,
@@ -12,13 +13,23 @@ import {
   message
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { KeyRound, MailCheck, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  KeyRound,
+  LogOut,
+  MailCheck,
+  MonitorCheck,
+  RefreshCw,
+  ShieldCheck
+} from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
+  listAdminSessions,
   listGlobalJwtSigningKeys,
+  revokeAdminSession,
   rotateGlobalJwtSigningKey,
+  type AdminSessionSummary,
   type SigningKeySummary
 } from "../../api/admin";
 import {
@@ -30,11 +41,13 @@ import {
   setupMfa,
   type MfaSetupResult
 } from "../../api/auth";
+import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
 import { tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
+import { requiresMfaForRole } from "../../utils/security";
 
 interface PasswordFormValues {
   old_password: string;
@@ -50,6 +63,30 @@ interface MfaProtectedFormValues {
   code: string;
 }
 
+type SessionStatusFilter = "active" | "all" | "expired" | "revoked";
+
+const sessionStatusColor: Record<string, string> = {
+  active: "green",
+  expired: "default",
+  revoked: "red"
+};
+
+const sessionStatusText: Record<string, string> = {
+  active: "有效",
+  expired: "已过期",
+  revoked: "已撤销"
+};
+
+const sessionStatusFilterOptions: Array<{
+  label: string;
+  value: SessionStatusFilter;
+}> = [
+  { label: "有效", value: "active" },
+  { label: "全部", value: "all" },
+  { label: "已过期", value: "expired" },
+  { label: "已撤销", value: "revoked" }
+];
+
 export function SecurityPage() {
   const { user, tenant, roles, permissions, setProfile } = useAuthStore();
   const [passwordForm] = Form.useForm<PasswordFormValues>();
@@ -58,14 +95,34 @@ export function SecurityPage() {
   const [regenerateForm] = Form.useForm<MfaProtectedFormValues>();
   const [setupResult, setSetupResult] = useState<MfaSetupResult | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(
+    null
+  );
+  const [sessionStatusFilter, setSessionStatusFilter] =
+    useState<SessionStatusFilter>("active");
   const canReadSecurity = hasPermission(permissions, "security:read");
   const canRotateSecurityKey = hasPermission(permissions, "security:rotate_key");
+  const mfaRequired = requiresMfaForRole(roles);
 
   const jwtKeysQuery = useQuery({
     queryKey: ["admin", "global-jwt-signing-keys"],
     queryFn: listGlobalJwtSigningKeys,
     enabled: canReadSecurity
   });
+
+  const adminSessionsQuery = useQuery({
+    queryKey: ["admin", "sessions"],
+    queryFn: listAdminSessions,
+    enabled: Boolean(user)
+  });
+  const filteredAdminSessions = useMemo(() => {
+    const items = adminSessionsQuery.data?.items ?? [];
+    if (sessionStatusFilter === "all") {
+      return items;
+    }
+
+    return items.filter((session) => session.status === sessionStatusFilter);
+  }, [adminSessionsQuery.data?.items, sessionStatusFilter]);
 
   const updateCurrentUser = (patch: Partial<NonNullable<typeof user>>) => {
     if (!user || !tenant) {
@@ -148,6 +205,92 @@ export function SecurityPage() {
     }
   });
 
+  const revokeSessionMutation = useMutation({
+    mutationFn: revokeAdminSession,
+    onMutate: (id) => {
+      setRevokingSessionId(id);
+    },
+    onSuccess: async (data) => {
+      message.success(
+        `后台会话已撤销，已撤销 ${data.revoked_refresh_tokens} 个刷新令牌`
+      );
+      await adminSessionsQuery.refetch();
+    },
+    onSettled: () => {
+      setRevokingSessionId(null);
+    }
+  });
+
+  const adminSessionColumns: ColumnsType<AdminSessionSummary> = [
+    {
+      title: "状态",
+      dataIndex: "status",
+      key: "status",
+      width: 130,
+      render: (value: string, record) => (
+        <Space size={6} wrap>
+          <Tag color={sessionStatusColor[value] ?? "blue"}>
+            {sessionStatusText[value] ?? value}
+          </Tag>
+          {record.current ? <Tag color="blue">当前</Tag> : null}
+        </Space>
+      )
+    },
+    {
+      title: "IP",
+      dataIndex: "ip",
+      key: "ip",
+      width: 150,
+      render: (value?: string | null) => value ?? "-"
+    },
+    {
+      title: "设备信息",
+      dataIndex: "user_agent",
+      key: "user_agent",
+      ellipsis: true,
+      render: (value?: string | null) => value ?? "-"
+    },
+    {
+      title: "最近活动",
+      dataIndex: "last_seen_at",
+      key: "last_seen_at",
+      width: 180,
+      render: (value: string | null | undefined, record) =>
+        dateTime(value ?? record.created_at)
+    },
+    {
+      title: "过期时间",
+      dataIndex: "expires_at",
+      key: "expires_at",
+      width: 180,
+      render: (value: string) => dateTime(value)
+    },
+    {
+      title: "操作",
+      key: "actions",
+      fixed: "right",
+      width: 120,
+      render: (_, record) =>
+        !record.current && record.status === "active" ? (
+          <ConfirmActionButton
+            title="撤销后台会话"
+            description="该会话会立即失效，对应浏览器需要重新登录。"
+            buttonProps={{
+              danger: true,
+              size: "small",
+              icon: <LogOut size={14} />
+            }}
+            loading={revokingSessionId === record.id}
+            onConfirm={() => revokeSessionMutation.mutate(record.id)}
+          >
+            踢下线
+          </ConfirmActionButton>
+        ) : (
+          "-"
+        )
+    }
+  ];
+
   const jwtKeyColumns: ColumnsType<SigningKeySummary> = [
     {
       title: "KID",
@@ -202,6 +345,15 @@ export function SecurityPage() {
           </Tag>
         </Space>
       </div>
+
+      {mfaRequired && !user?.mfa_enabled ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="当前管理员角色需要启用多因素认证"
+          description="完成绑定后才能继续访问其他后台页面。"
+        />
+      ) : null}
 
       <div className="settings-grid">
         <section className="settings-panel">
@@ -278,11 +430,23 @@ export function SecurityPage() {
                     message={tMessage("recovery_codes_only_shown_once")}
                     showIcon
                   />
-                  <div className="secret-list">
-                    <Typography.Text strong>密钥</Typography.Text>
-                    <Typography.Text copyable>{setupResult.secret}</Typography.Text>
-                    <Typography.Text strong>OTPAuth 地址</Typography.Text>
-                    <Typography.Text copyable>{setupResult.otpauth_url}</Typography.Text>
+                  <div className="mfa-setup-grid">
+                    <div className="mfa-qr-panel">
+                      <QRCode
+                        value={setupResult.otpauth_url}
+                        size={176}
+                        bordered={false}
+                      />
+                      <Typography.Text type="secondary">
+                        使用身份验证器扫描
+                      </Typography.Text>
+                    </div>
+                    <div className="secret-list">
+                      <Typography.Text strong>密钥</Typography.Text>
+                      <Typography.Text copyable>{setupResult.secret}</Typography.Text>
+                      <Typography.Text strong>OTPAuth 地址</Typography.Text>
+                      <Typography.Text copyable>{setupResult.otpauth_url}</Typography.Text>
+                    </div>
                   </div>
                   <RecoveryCodes codes={recoveryCodes} />
                   <Divider />
@@ -374,6 +538,34 @@ export function SecurityPage() {
           ) : null}
         </section>
 
+        <section className="settings-panel settings-panel-wide">
+          <div className="settings-panel-title settings-panel-title-split">
+            <Space size={8}>
+              <MonitorCheck size={18} />
+              <Typography.Title level={3}>后台会话</Typography.Title>
+            </Space>
+            <Segmented<SessionStatusFilter>
+              size="small"
+              value={sessionStatusFilter}
+              options={sessionStatusFilterOptions}
+              onChange={setSessionStatusFilter}
+            />
+          </div>
+          <Table<AdminSessionSummary>
+            key={sessionStatusFilter}
+            rowKey="id"
+            size="small"
+            columns={adminSessionColumns}
+            dataSource={filteredAdminSessions}
+            loading={adminSessionsQuery.isLoading}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false
+            }}
+            scroll={{ x: 900 }}
+          />
+        </section>
+
         {canReadSecurity ? (
           <section className="settings-panel settings-panel-wide">
             <div
@@ -385,17 +577,17 @@ export function SecurityPage() {
                 <Typography.Title level={3}>JWT 密钥</Typography.Title>
               </Space>
               {canRotateSecurityKey ? (
-                <Popconfirm
+                <ConfirmActionButton
                   title="轮换 JWT 密钥"
+                  description="新的客户端 access token 会使用新密钥签发，旧密钥进入历史校验窗口。"
+                  buttonProps={{
+                    icon: <RefreshCw size={16} />
+                  }}
+                  loading={rotateJwtKeyMutation.isPending}
                   onConfirm={() => rotateJwtKeyMutation.mutate()}
                 >
-                  <Button
-                    icon={<RefreshCw size={16} />}
-                    loading={rotateJwtKeyMutation.isPending}
-                  >
-                    轮换
-                  </Button>
-                </Popconfirm>
+                  轮换
+                </ConfirmActionButton>
               ) : null}
             </div>
             <Table<SigningKeySummary>

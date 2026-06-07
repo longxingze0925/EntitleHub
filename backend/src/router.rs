@@ -60,6 +60,14 @@ pub fn build(state: AppState) -> Router {
         .route("/api/auth/me", get(auth::me::me))
         .route("/api/auth/logout", post(auth::logout::logout))
         .route(
+            "/api/auth/sessions",
+            get(auth::admin_sessions::list_sessions),
+        )
+        .route(
+            "/api/auth/sessions/{id}/revoke",
+            post(auth::admin_sessions::revoke_session),
+        )
+        .route(
             "/api/auth/password",
             axum::routing::put(auth::password::change_password),
         )

@@ -183,6 +183,24 @@ export interface RotateGlobalJwtSigningKeyResult {
   retired_key_count: number;
 }
 
+export interface AdminSessionSummary {
+  id: string;
+  current: boolean;
+  status: string;
+  ip?: string | null;
+  user_agent?: string | null;
+  created_at: string;
+  last_seen_at?: string | null;
+  expires_at: string;
+  revoked_at?: string | null;
+}
+
+export interface AdminSessionRevokeResult {
+  revoked: boolean;
+  session_id: string;
+  revoked_refresh_tokens: number;
+}
+
 export interface LicenseSummary {
   id: string;
   app_id: string;
@@ -663,6 +681,21 @@ export function listGlobalJwtSigningKeys(): Promise<{
 export function rotateGlobalJwtSigningKey(): Promise<RotateGlobalJwtSigningKeyResult> {
   return apiRequest<RotateGlobalJwtSigningKeyResult>(
     "/api/admin/security/jwt-signing-keys/rotate",
+    {
+      method: "POST"
+    }
+  );
+}
+
+export function listAdminSessions(): Promise<{ items: AdminSessionSummary[] }> {
+  return apiRequest<{ items: AdminSessionSummary[] }>("/api/auth/sessions");
+}
+
+export function revokeAdminSession(
+  id: string
+): Promise<AdminSessionRevokeResult> {
+  return apiRequest<AdminSessionRevokeResult>(
+    `/api/auth/sessions/${id}/revoke`,
     {
       method: "POST"
     }
