@@ -181,7 +181,9 @@ pwsh -File ops/check-compose-image-pins.ps1 -RequireDigest
 
 The stricter `-RequireDigest` mode is intended for production release review after image architecture and registry policy are known.
 
-Generate a production digest override from the current compose image set:
+The one-command installer automatically generates `compose.digests.yaml` during install, update, and certificate mode changes. It pulls the current tag-based image set first, writes immutable `@sha256:` overrides, and then starts the stack with `compose.yaml` plus `compose.digests.yaml`. Set `USER_ADMIN_PIN_DIGESTS=0` only for emergency registry troubleshooting.
+
+For manual production review, generate the same digest override from the current compose image set:
 
 ```powershell
 pwsh -File ops/pin-compose-digests.ps1 -EnvFile .env.compose.example -OutputFile compose.digests.yaml -Pull
