@@ -311,7 +311,13 @@ write_env_file() {
   set_env_value "$env_path" GRAFANA_ADMIN_PASSWORD "$grafana_password"
   set_env_value "$env_path" DATABASE_URL "postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}"
   set_env_value "$env_path" REDIS_URL "redis://:${redis_password}@redis:6379"
+  if [[ "$cookie_secure" == "true" ]]; then
+    set_env_value "$env_path" APP_ENV "production"
+  else
+    set_env_value "$env_path" APP_ENV "development"
+  fi
   set_env_value "$env_path" APP_BASE_URL "$public_url"
+  set_env_value "$env_path" APP_LOG_LEVEL "info"
   set_env_value "$env_path" ALLOWED_ORIGINS "$public_url"
   set_env_value "$env_path" JWT_ISSUER "$backend_public_url"
   set_env_value "$env_path" COOKIE_SECURE "$cookie_secure"
@@ -523,7 +529,39 @@ start_stack() {
 init_owner() {
   log "按需初始化管理员"
   in_install_dir
-  compose_base run --rm backend user-admin-backend init-owner || true
+  local public_url domain owner_email owner_name owner_password credentials_path
+  public_url="$(get_env_value PUBLIC_URL "$STATE_FILE" || true)"
+  domain="$(get_env_value DOMAIN "$STATE_FILE" || true)"
+  if [[ -n "$domain" ]]; then
+    owner_email="admin@${domain}"
+  else
+    owner_email="admin@entitlehub.local"
+  fi
+  owner_name="${APP_NAME} Owner"
+  owner_password="$(random_urlsafe)"
+  credentials_path="$INSTALL_DIR/owner-credentials.txt"
+
+  if compose_base run --rm \
+    -e INIT_TENANT_NAME="$APP_NAME" \
+    -e INIT_TENANT_SLUG="entitlehub" \
+    -e INIT_OWNER_EMAIL="$owner_email" \
+    -e INIT_OWNER_NAME="$owner_name" \
+    -e INIT_OWNER_PASSWORD="$owner_password" \
+    backend user-admin-backend init-owner; then
+    (
+      umask 077
+      cat > "$credentials_path" <<EOF
+EntitleHub owner credentials
+URL=${public_url}
+TENANT=${APP_NAME}
+EMAIL=${owner_email}
+PASSWORD=${owner_password}
+EOF
+    )
+    printf '初始管理员凭据已保存：%s\n' "$credentials_path"
+  else
+    warn "初始管理员未创建。若数据库已存在租户可忽略，否则请检查日志后手动运行 init-owner。"
+  fi
 }
 
 run_smoke() {
