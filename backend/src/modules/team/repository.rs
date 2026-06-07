@@ -60,7 +60,11 @@ impl TeamMemberRepository {
         .map_err(map_db_error)
     }
 
-    pub async fn list_by_tenant(&self, tenant_id: Uuid) -> Result<Vec<TeamMember>, AppError> {
+    pub async fn list_by_tenant(
+        &self,
+        tenant_id: Uuid,
+        include_history: bool,
+    ) -> Result<Vec<TeamMember>, AppError> {
         sqlx::query_as::<_, TeamMember>(
             r#"
             select
@@ -83,10 +87,12 @@ impl TeamMemberRepository {
             from team_members
             where tenant_id = $1
               and deleted_at is null
+              and ($2::bool or status <> 'disabled')
             order by created_at desc, id
             "#,
         )
         .bind(tenant_id)
+        .bind(include_history)
         .fetch_all(&self.pool)
         .await
         .map_err(map_db_error)

@@ -23,6 +23,7 @@ import {
   unblacklistDevice,
   type DeviceSummary
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -39,6 +40,7 @@ interface BlacklistFormValues {
 export function DevicesPage() {
   const [machineId, setMachineId] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [blacklistTarget, setBlacklistTarget] = useState<DeviceSummary | null>(null);
   const [form] = Form.useForm<BlacklistFormValues>();
@@ -47,9 +49,15 @@ export function DevicesPage() {
   const canBlacklist = hasPermission(permissions, "device:blacklist");
   const canUnblacklist = hasPermission(permissions, "device:unblacklist");
   const query = useQuery({
-    queryKey: ["admin", "devices", machineId, status, page],
+    queryKey: ["admin", "devices", machineId, status, includeHistory, page],
     queryFn: () =>
-      listDevices({ machine_id: machineId, status, page, page_size: pageSize })
+      listDevices({
+        machine_id: machineId,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      })
   });
   const unbindMutation = useMutation({
     mutationFn: unbindDevice,
@@ -205,6 +213,7 @@ export function DevicesPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[
               tOption("active"),
               tOption("disabled"),
@@ -214,6 +223,13 @@ export function DevicesPage() {
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />

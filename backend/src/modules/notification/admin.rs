@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Extension, Json,
 };
 use chrono::{DateTime, Utc};
@@ -49,6 +49,11 @@ pub struct NotificationChannel {
 #[derive(Debug, Serialize)]
 pub struct NotificationChannelListResponse {
     pub items: Vec<NotificationChannel>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotificationChannelListQuery {
+    pub include_history: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,14 +145,19 @@ pub async fn list_notification_channels(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminContext>,
     Extension(request_id): Extension<RequestId>,
+    Query(query): Query<NotificationChannelListQuery>,
 ) -> Result<Json<ApiResponse<NotificationChannelListResponse>>, AppError> {
     ensure_admin_permission(&admin, "notification:read")?;
 
-    let items = list_channels(&state, admin.tenant_id)
-        .await?
-        .into_iter()
-        .map(NotificationChannel::from)
-        .collect();
+    let items = list_channels(
+        &state,
+        admin.tenant_id,
+        query.include_history.unwrap_or(false),
+    )
+    .await?
+    .into_iter()
+    .map(NotificationChannel::from)
+    .collect();
 
     Ok(Json(ApiResponse::ok(
         NotificationChannelListResponse { items },
@@ -328,11 +338,13 @@ async fn find_channel(
 async fn list_channels(
     state: &AppState,
     tenant_id: Uuid,
+    include_history: bool,
 ) -> Result<Vec<NotificationChannelRecord>, AppError> {
     sqlx::query_as::<_, NotificationChannelRecord>(&notification_channel_select_sql(
-        "where tenant_id = $1 order by created_at desc, id desc",
+        "where tenant_id = $1 and ($2::bool or enabled) order by created_at desc, id desc",
     ))
     .bind(tenant_id)
+    .bind(include_history)
     .fetch_all(&state.db)
     .await
     .map_err(map_db_error)

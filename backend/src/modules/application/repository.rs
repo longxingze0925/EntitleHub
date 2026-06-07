@@ -40,6 +40,7 @@ impl ApplicationRepository {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let include_history = query.include_history.unwrap_or(false);
 
         sqlx::query_as::<_, Application>(
             r#"
@@ -63,6 +64,7 @@ impl ApplicationRepository {
             where tenant_id = $1
               and deleted_at is null
               and ($2::text is null or status = $2)
+              and ($2::text is not null or $4::bool or status not in ('disabled', 'archived'))
               and (
                 $3::text is null
                 or lower(name) like $3
@@ -70,12 +72,13 @@ impl ApplicationRepository {
                 or lower(app_key) like $3
               )
             order by created_at desc, id
-            limit $4 offset $5
+            limit $5 offset $6
             "#,
         )
         .bind(tenant_id)
         .bind(status)
         .bind(keyword_pattern)
+        .bind(include_history)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

@@ -444,7 +444,7 @@ export interface UpdateSecureScriptContentPayload {
   version_code?: number;
 }
 
-function query(params: Record<string, string | number | undefined>): string {
+function query(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") {
@@ -456,8 +456,14 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : "";
 }
 
-export function listTeamMembers(): Promise<{ items: TeamMember[] }> {
-  return apiRequest<{ items: TeamMember[] }>("/api/team/members");
+export function listTeamMembers(params: {
+  include_history?: boolean;
+} = {}): Promise<{ items: TeamMember[] }> {
+  return apiRequest<{ items: TeamMember[] }>(
+    `/api/team/members${query({
+      include_history: params.include_history
+    })}`
+  );
 }
 
 export function listRoles(): Promise<{ items: RoleDetail[] }> {
@@ -530,6 +536,7 @@ export function disableTeamMember(id: string): Promise<TeamMemberMutationResult>
 export function listCustomers(params: {
   keyword?: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<Customer>> {
@@ -537,6 +544,7 @@ export function listCustomers(params: {
     `/api/admin/customers${query({
       keyword: params.keyword,
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -588,6 +596,7 @@ export function resetCustomerPassword(
 export function listApplications(params: {
   keyword?: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<ApplicationSummary>> {
@@ -595,6 +604,7 @@ export function listApplications(params: {
     `/api/admin/apps${query({
       keyword: params.keyword,
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -662,6 +672,7 @@ export function rotateGlobalJwtSigningKey(): Promise<RotateGlobalJwtSigningKeyRe
 export function listLicenses(params: {
   keyword?: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<LicenseSummary>> {
@@ -669,6 +680,7 @@ export function listLicenses(params: {
     `/api/admin/licenses${query({
       keyword: params.keyword,
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -731,6 +743,7 @@ export function resetLicenseDevices(params: {
 export function listSubscriptions(params: {
   keyword?: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<SubscriptionSummary>> {
@@ -738,6 +751,7 @@ export function listSubscriptions(params: {
     `/api/admin/subscriptions${query({
       keyword: params.keyword,
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -770,6 +784,7 @@ export function cancelSubscription(
 export function listDevices(params: {
   machine_id?: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<DeviceSummary>> {
@@ -777,6 +792,7 @@ export function listDevices(params: {
     `/api/admin/devices${query({
       machine_id: params.machine_id,
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -866,11 +882,15 @@ export function updateSystemSetting(params: {
   );
 }
 
-export function listNotificationChannels(): Promise<{
+export function listNotificationChannels(params: {
+  include_history?: boolean;
+} = {}): Promise<{
   items: NotificationChannel[];
 }> {
   return apiRequest<{ items: NotificationChannel[] }>(
-    "/api/admin/notification-channels"
+    `/api/admin/notification-channels${query({
+      include_history: params.include_history
+    })}`
   );
 }
 
@@ -940,12 +960,14 @@ export function retryOutboxEvent(id: string): Promise<{ event: OutboxEventSummar
 export function listReleases(params: {
   appId: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<ReleaseSummary>> {
   return apiRequest<ListResponse<ReleaseSummary>>(
     `/api/admin/apps/${params.appId}/releases${query({
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`
@@ -1017,12 +1039,14 @@ export function deprecateRelease(id: string): Promise<{ release: ReleaseSummary 
 export function listSecureScripts(params: {
   appId: string;
   status?: string;
+  include_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<ListResponse<SecureScriptSummary>> {
   return apiRequest<ListResponse<SecureScriptSummary>>(
     `/api/admin/apps/${params.appId}/secure-scripts${query({
       status: params.status,
+      include_history: params.include_history,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`

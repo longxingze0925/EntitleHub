@@ -14,7 +14,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Edit3, KeyRound, List, Plus, RefreshCw } from "lucide-react";
+import { Archive, Edit3, KeyRound, List, Plus, Power, PowerOff, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -30,6 +30,7 @@ import {
   type SigningKeySummary,
   type UpdateApplicationPayload
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -64,6 +65,7 @@ const statusOptions = [
 export function ApplicationsPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<ApplicationSummary | null>(null);
@@ -79,8 +81,15 @@ export function ApplicationsPage() {
   const canReadKey = hasPermission(permissions, "app:read_key");
   const canRotateKey = hasPermission(permissions, "app:rotate_key");
   const query = useQuery({
-    queryKey: ["admin", "apps", keyword, status, page],
-    queryFn: () => listApplications({ keyword, status, page, page_size: pageSize })
+    queryKey: ["admin", "apps", keyword, status, includeHistory, page],
+    queryFn: () =>
+      listApplications({
+        keyword,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      })
   });
   const keysQuery = useQuery({
     queryKey: ["admin", "app-signing-keys", keyTarget?.id],
@@ -158,13 +167,57 @@ export function ApplicationsPage() {
     {
       title: "操作",
       key: "actions",
-      width: 260,
+      width: 430,
       render: (_, record) => (
         <Space>
           {canUpdate ? (
             <Button size="small" icon={<Edit3 size={14} />} onClick={() => openEdit(record)}>
               编辑
             </Button>
+          ) : null}
+          {canUpdate && record.status !== "active" ? (
+            <Popconfirm
+              title="启用应用"
+              onConfirm={() => updateApplicationStatus(record, "active")}
+            >
+              <Button
+                size="small"
+                icon={<Power size={14} />}
+                loading={updateMutation.isPending}
+              >
+                启用
+              </Button>
+            </Popconfirm>
+          ) : null}
+          {canUpdate && record.status === "active" ? (
+            <Popconfirm
+              title="禁用应用"
+              onConfirm={() => updateApplicationStatus(record, "disabled")}
+            >
+              <Button
+                size="small"
+                icon={<PowerOff size={14} />}
+                loading={updateMutation.isPending}
+              >
+                禁用
+              </Button>
+            </Popconfirm>
+          ) : null}
+          {canUpdate && record.status !== "archived" ? (
+            <Popconfirm
+              title="归档应用"
+              description="归档后默认列表不再显示该应用。"
+              onConfirm={() => updateApplicationStatus(record, "archived")}
+            >
+              <Button
+                danger
+                size="small"
+                icon={<Archive size={14} />}
+                loading={updateMutation.isPending}
+              >
+                归档
+              </Button>
+            </Popconfirm>
           ) : null}
           {canReadKey ? (
             <Button size="small" icon={<List size={14} />} onClick={() => setKeyTarget(record)}>
@@ -259,6 +312,15 @@ export function ApplicationsPage() {
     updateMutation.mutate({ id: editingApp.id, payload });
   };
 
+  const updateApplicationStatus = (app: ApplicationSummary, nextStatus: string) => {
+    updateMutation.mutate({
+      id: app.id,
+      payload: {
+        status: nextStatus
+      }
+    });
+  };
+
   return (
     <section className="workspace-page">
       <div className="page-heading">
@@ -280,10 +342,18 @@ export function ApplicationsPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={statusOptions}
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />

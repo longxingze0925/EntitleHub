@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Extension, Json,
 };
 use chrono::{Duration, Utc};
@@ -83,15 +83,21 @@ pub struct DisableMemberResponse {
     pub revoked_sessions: u64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TeamMemberListQuery {
+    pub include_history: Option<bool>,
+}
+
 pub async fn list_members(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminContext>,
     Extension(request_id): Extension<RequestId>,
+    Query(query): Query<TeamMemberListQuery>,
 ) -> Result<Json<ApiResponse<TeamMemberListResponse>>, AppError> {
     ensure_admin_permission(&admin, "member:read")?;
 
     let members = TeamMemberRepository::new(state.db.clone())
-        .list_by_tenant(admin.tenant_id)
+        .list_by_tenant(admin.tenant_id, query.include_history.unwrap_or(false))
         .await?;
     let mut items = Vec::with_capacity(members.len());
 

@@ -36,6 +36,7 @@ impl CustomerRepository {
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty());
+        let include_history = query.include_history.unwrap_or(false);
 
         sqlx::query_as::<_, Customer>(
             r#"
@@ -60,6 +61,7 @@ impl CustomerRepository {
             where tenant_id = $1
               and deleted_at is null
               and ($2::text is null or status = $2)
+              and ($2::text is not null or $4::bool or status not in ('disabled', 'banned'))
               and (
                 $3::text is null
                 or lower(email) like $3
@@ -67,12 +69,13 @@ impl CustomerRepository {
                 or lower(coalesce(company, '')) like $3
               )
             order by created_at desc, id
-            limit $4 offset $5
+            limit $5 offset $6
             "#,
         )
         .bind(tenant_id)
         .bind(status)
         .bind(keyword_pattern)
+        .bind(include_history)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

@@ -26,6 +26,7 @@ import {
   type Customer,
   type UpdateCustomerPayload
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -37,6 +38,7 @@ const pageSize = 20;
 export function CustomersPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -48,8 +50,15 @@ export function CustomersPage() {
   const canDisable = hasPermission(permissions, "customer:disable");
   const canResetPassword = hasPermission(permissions, "customer:reset_password");
   const query = useQuery({
-    queryKey: ["admin", "customers", keyword, status, page],
-    queryFn: () => listCustomers({ keyword, status, page, page_size: pageSize })
+    queryKey: ["admin", "customers", keyword, status, includeHistory, page],
+    queryFn: () =>
+      listCustomers({
+        keyword,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      })
   });
   const createMutation = useMutation({
     mutationFn: createCustomer,
@@ -218,10 +227,18 @@ export function CustomersPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[tOption("active"), tOption("disabled")]}
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />

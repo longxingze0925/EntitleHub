@@ -156,6 +156,7 @@ impl DeviceRepository {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|value| format!("%{value}%"));
+        let include_history = query.include_history.unwrap_or(false);
 
         sqlx::query_as::<_, Device>(
             r#"
@@ -185,9 +186,10 @@ impl DeviceRepository {
               and ($4::uuid is null or license_id = $4)
               and ($5::uuid is null or subscription_id = $5)
               and ($6::text is null or status = $6)
+              and ($6::text is not null or $8::bool or status <> 'unbound')
               and ($7::text is null or machine_id ilike $7)
             order by updated_at desc, id
-            limit $8 offset $9
+            limit $9 offset $10
             "#,
         )
         .bind(tenant_id)
@@ -197,6 +199,7 @@ impl DeviceRepository {
         .bind(query.subscription_id)
         .bind(status)
         .bind(machine_id)
+        .bind(include_history)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

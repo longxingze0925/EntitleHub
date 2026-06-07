@@ -50,6 +50,7 @@ pub struct UpdateCustomer {
 pub struct CustomerListQuery {
     pub keyword: Option<String>,
     pub status: Option<String>,
+    pub include_history: Option<bool>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }

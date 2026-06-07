@@ -28,6 +28,7 @@ import {
   type CreateSubscriptionPayload,
   type SubscriptionSummary
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -50,6 +51,7 @@ interface CreateSubscriptionFormValues {
 export function SubscriptionsPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateSubscriptionFormValues>();
@@ -57,9 +59,15 @@ export function SubscriptionsPage() {
   const canCreate = hasPermission(permissions, "subscription:create");
   const canCancel = hasPermission(permissions, "subscription:cancel");
   const query = useQuery({
-    queryKey: ["admin", "subscriptions", keyword, status, page],
+    queryKey: ["admin", "subscriptions", keyword, status, includeHistory, page],
     queryFn: () =>
-      listSubscriptions({ keyword, status, page, page_size: pageSize })
+      listSubscriptions({
+        keyword,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      })
   });
   const appsQuery = useQuery({
     queryKey: ["admin", "apps", "active-options"],
@@ -202,6 +210,7 @@ export function SubscriptionsPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[
               tOption("active"),
               tOption("trialing"),
@@ -212,6 +221,13 @@ export function SubscriptionsPage() {
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button

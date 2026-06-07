@@ -29,6 +29,7 @@ import {
   updateSecureScriptContent,
   type SecureScriptSummary
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -56,6 +57,7 @@ interface UpdateContentFormValues {
 export function ScriptsPage() {
   const [appId, setAppId] = useState<string>();
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingScript, setEditingScript] = useState<SecureScriptSummary | null>(null);
@@ -68,8 +70,8 @@ export function ScriptsPage() {
   const canPublish = hasPermission(permissions, "script:publish");
   const canDeprecate = hasPermission(permissions, "script:deprecate");
   const appsQuery = useQuery({
-    queryKey: ["admin", "apps", "script-selector"],
-    queryFn: () => listApplications({})
+    queryKey: ["admin", "apps", "script-selector", includeHistory],
+    queryFn: () => listApplications({ include_history: includeHistory })
   });
   const appOptions = useMemo(
     () =>
@@ -81,15 +83,22 @@ export function ScriptsPage() {
   );
 
   useEffect(() => {
-    if (!appId && appOptions.length > 0) {
+    const currentVisible = appOptions.some((option) => option.value === appId);
+    if (appOptions.length > 0 && (!appId || !currentVisible)) {
       setAppId(appOptions[0].value);
     }
   }, [appId, appOptions]);
 
   const scriptsQuery = useQuery({
-    queryKey: ["admin", "secure-scripts", appId, status, page],
+    queryKey: ["admin", "secure-scripts", appId, status, includeHistory, page],
     queryFn: () =>
-      listSecureScripts({ appId: appId!, status, page, page_size: pageSize }),
+      listSecureScripts({
+        appId: appId!,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      }),
     enabled: Boolean(appId)
   });
   const createMutation = useMutation({
@@ -312,6 +321,7 @@ export function ScriptsPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[
               tOption("draft"),
               tOption("published"),
@@ -320,6 +330,13 @@ export function ScriptsPage() {
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => scriptsQuery.refetch()} />

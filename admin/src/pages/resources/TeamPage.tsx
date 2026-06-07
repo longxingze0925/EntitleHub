@@ -28,6 +28,7 @@ import {
   type TeamMember,
   type UpdateTeamMemberRolesPayload
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
@@ -36,6 +37,7 @@ import { hasPermission } from "../../utils/permissions";
 
 export function TeamPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [invitation, setInvitation] = useState<InvitationResult | null>(null);
   const [inviteForm] = Form.useForm<InviteTeamMemberPayload>();
@@ -46,8 +48,8 @@ export function TeamPage() {
   const canUpdate = hasPermission(permissions, "member:update") && canReadRoles;
   const canDisable = hasPermission(permissions, "member:disable");
   const query = useQuery({
-    queryKey: ["admin", "team"],
-    queryFn: listTeamMembers
+    queryKey: ["admin", "team", includeHistory],
+    queryFn: () => listTeamMembers({ include_history: includeHistory })
   });
   const rolesQuery = useQuery({
     queryKey: ["admin", "roles"],
@@ -201,6 +203,10 @@ export function TeamPage() {
           <Typography.Text type="secondary">管理员账号、角色和成员状态</Typography.Text>
         </div>
         <Space>
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={setIncludeHistory}
+          />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />
           {canInvite ? (
             <Button

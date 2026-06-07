@@ -161,6 +161,7 @@ pub struct CreateReleaseInput {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReleaseListQuery {
     pub status: Option<String>,
+    pub include_history: Option<bool>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }

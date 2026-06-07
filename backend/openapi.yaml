@@ -288,6 +288,8 @@ paths:
       summary: List team members
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/TeamMemberList"
@@ -417,6 +419,8 @@ paths:
       summary: List notification channels
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/NotificationChannelList"
@@ -473,6 +477,8 @@ paths:
       summary: List customers
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/CustomerList"
@@ -542,6 +548,8 @@ paths:
       summary: List applications
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/ApplicationList"
@@ -654,6 +662,8 @@ paths:
       summary: List releases
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/ReleaseList"
@@ -708,6 +718,8 @@ paths:
       summary: List secure scripts
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/SecureScriptList"
@@ -888,6 +900,8 @@ paths:
       summary: List licenses
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/LicenseList"
@@ -972,6 +986,8 @@ paths:
       summary: List subscriptions
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionList"
@@ -1010,6 +1026,8 @@ paths:
       summary: List devices
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
       responses:
         "200":
           $ref: "#/components/responses/DeviceList"
@@ -1402,6 +1420,13 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    IncludeHistoryQuery:
+      name: include_history
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
   requestBodies:
     AdminChangePassword:
       required: true

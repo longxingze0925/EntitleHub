@@ -134,6 +134,7 @@ impl SecureScriptRepository {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let include_history = query.include_history.unwrap_or(false);
 
         sqlx::query_as::<_, SecureScript>(
             r#"
@@ -162,13 +163,15 @@ impl SecureScriptRepository {
               and app_id = $2
               and deleted_at is null
               and ($3::text is null or status = $3)
+              and ($3::text is not null or $4::bool or status <> 'deprecated')
             order by version_code desc, updated_at desc, id
-            limit $4 offset $5
+            limit $5 offset $6
             "#,
         )
         .bind(tenant_id)
         .bind(app_id)
         .bind(status)
+        .bind(include_history)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

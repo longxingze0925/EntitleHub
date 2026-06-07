@@ -29,6 +29,7 @@ import {
   type RegisterReleaseFileResult,
   type ReleaseSummary
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -53,6 +54,7 @@ interface CreatedReleaseResult {
 export function ReleasesPage() {
   const [appId, setAppId] = useState<string>();
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -65,8 +67,8 @@ export function ReleasesPage() {
   const canPublish = hasPermission(permissions, "release:publish");
   const canDeprecate = hasPermission(permissions, "release:deprecate");
   const appsQuery = useQuery({
-    queryKey: ["admin", "apps", "release-selector"],
-    queryFn: () => listApplications({})
+    queryKey: ["admin", "apps", "release-selector", includeHistory],
+    queryFn: () => listApplications({ include_history: includeHistory })
   });
   const appOptions = useMemo(
     () =>
@@ -78,14 +80,22 @@ export function ReleasesPage() {
   );
 
   useEffect(() => {
-    if (!appId && appOptions.length > 0) {
+    const currentVisible = appOptions.some((option) => option.value === appId);
+    if (appOptions.length > 0 && (!appId || !currentVisible)) {
       setAppId(appOptions[0].value);
     }
   }, [appId, appOptions]);
 
   const releasesQuery = useQuery({
-    queryKey: ["admin", "releases", appId, status, page],
-    queryFn: () => listReleases({ appId: appId!, status, page, page_size: pageSize }),
+    queryKey: ["admin", "releases", appId, status, includeHistory, page],
+    queryFn: () =>
+      listReleases({
+        appId: appId!,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      }),
     enabled: Boolean(appId)
   });
   const createMutation = useMutation({
@@ -249,6 +259,7 @@ export function ReleasesPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[
               tOption("draft"),
               tOption("published"),
@@ -257,6 +268,13 @@ export function ReleasesPage() {
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => releasesQuery.refetch()} />

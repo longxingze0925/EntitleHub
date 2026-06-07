@@ -57,6 +57,7 @@ pub struct SubscriptionListQuery {
     pub customer_id: Option<Uuid>,
     pub status: Option<String>,
     pub keyword: Option<String>,
+    pub include_history: Option<bool>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }

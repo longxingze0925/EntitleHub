@@ -5,6 +5,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -16,7 +17,16 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, Pencil, Plus, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import {
+  BellRing,
+  Pencil,
+  Plus,
+  Power,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  Trash2
+} from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -27,6 +37,7 @@ import {
   type NotificationChannel,
   type NotificationChannelKind
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
 import { tMessage, tStatus } from "../../utils/i18n";
@@ -59,14 +70,15 @@ export function NotificationChannelsPage() {
   const [form] = Form.useForm<ChannelFormValues>();
   const [editing, setEditing] = useState<NotificationChannel | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [includeHistory, setIncludeHistory] = useState(false);
   const queryClient = useQueryClient();
   const permissions = useAuthStore((state) => state.permissions);
   const canUpdate = hasPermission(permissions, "notification:update");
   const selectedKind = Form.useWatch("kind", form) ?? "webhook";
 
   const query = useQuery({
-    queryKey: ["admin", "notification-channels"],
-    queryFn: listNotificationChannels
+    queryKey: ["admin", "notification-channels", includeHistory],
+    queryFn: () => listNotificationChannels({ include_history: includeHistory })
   });
 
   const saveMutation = useMutation({
@@ -117,6 +129,20 @@ export function NotificationChannelsPage() {
       });
     },
     onError: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "notification-channels"]
+      });
+    }
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      updateNotificationChannel({
+        id,
+        payload: { enabled }
+    }),
+    onSuccess: (_, variables) => {
+      message.success(variables.enabled ? "通知渠道已启用" : "通知渠道已移至历史");
       queryClient.invalidateQueries({
         queryKey: ["admin", "notification-channels"]
       });
@@ -222,7 +248,7 @@ export function NotificationChannelsPage() {
     {
       title: "操作",
       key: "actions",
-      width: 150,
+      width: 240,
       render: (_, record) => (
         <Space size={6}>
           <Tooltip title="编辑">
@@ -259,6 +285,33 @@ export function NotificationChannelsPage() {
               onClick={() => confirmDeliveryTest(record)}
             />
           </Tooltip>
+          {record.enabled ? (
+            <Popconfirm
+              title="删除通知渠道"
+              description="该渠道会被停用并默认隐藏，历史记录保留。"
+              onConfirm={() => statusMutation.mutate({ id: record.id, enabled: false })}
+            >
+              <Button
+                danger
+                size="small"
+                icon={<Trash2 size={14} />}
+                disabled={!canUpdate}
+                loading={statusMutation.isPending && statusMutation.variables?.id === record.id}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          ) : (
+            <Button
+              size="small"
+              icon={<Power size={14} />}
+              disabled={!canUpdate}
+              loading={statusMutation.isPending && statusMutation.variables?.id === record.id}
+              onClick={() => statusMutation.mutate({ id: record.id, enabled: true })}
+            >
+              启用
+            </Button>
+          )}
         </Space>
       )
     }
@@ -272,6 +325,10 @@ export function NotificationChannelsPage() {
           <Typography.Text type="secondary">Webhook / SMTP / PagerDuty</Typography.Text>
         </div>
         <Space>
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={setIncludeHistory}
+          />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />
           <Button
             type="primary"
@@ -292,6 +349,9 @@ export function NotificationChannelsPage() {
       ) : null}
       {testMutation.error ? (
         <Alert type="error" message={tMessage("notification_channel_test_failed")} />
+      ) : null}
+      {statusMutation.error ? (
+        <Alert type="error" message={tMessage("notification_channel_save_failed")} />
       ) : null}
 
       <Table

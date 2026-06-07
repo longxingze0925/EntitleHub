@@ -157,6 +157,11 @@ body {
   font-size: 24px;
 }
 
+.page-heading > .ant-space {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .workspace-page > .ant-alert {
   flex: 0 0 auto;
 }
@@ -193,6 +198,10 @@ body {
 
 .table-filter {
   width: 150px;
+}
+
+.history-toggle {
+  white-space: nowrap;
 }
 
 .table-select {

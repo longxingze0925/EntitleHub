@@ -37,6 +37,7 @@ impl SubscriptionRepository {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let include_history = query.include_history.unwrap_or(false);
 
         sqlx::query_as::<_, Subscription>(
             r#"
@@ -63,12 +64,20 @@ impl SubscriptionRepository {
               and ($3::uuid is null or customer_id = $3)
               and ($4::text is null or status = $4)
               and (
+                $4::text is not null
+                or $6::bool
+                or (
+                  status not in ('cancelled', 'expired')
+                  and (expires_at is null or expires_at > now())
+                )
+              )
+              and (
                 $5::text is null
                 or lower(plan) like $5
                 or id::text like $5
               )
             order by created_at desc, id
-            limit $6 offset $7
+            limit $7 offset $8
             "#,
         )
         .bind(tenant_id)
@@ -76,6 +85,7 @@ impl SubscriptionRepository {
         .bind(query.customer_id)
         .bind(status)
         .bind(keyword_pattern)
+        .bind(include_history)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

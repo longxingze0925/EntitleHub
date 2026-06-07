@@ -32,6 +32,7 @@ import {
   type CreateLicenseResult,
   type LicenseSummary
 } from "../../api/admin";
+import { HistoryToggle } from "../../components/HistoryToggle";
 import { SimplePager } from "../../components/SimplePager";
 import { StatusTag } from "../../components/StatusTag";
 import { useAuthStore } from "../../stores/authStore";
@@ -66,6 +67,7 @@ interface ResetDevicesFormValues {
 export function LicensesPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [renewTarget, setRenewTarget] = useState<LicenseSummary | null>(null);
@@ -83,8 +85,15 @@ export function LicensesPage() {
   const canRenew = hasPermission(permissions, "license:renew");
   const canResetDevice = hasPermission(permissions, "license:reset_device");
   const query = useQuery({
-    queryKey: ["admin", "licenses", keyword, status, page],
-    queryFn: () => listLicenses({ keyword, status, page, page_size: pageSize })
+    queryKey: ["admin", "licenses", keyword, status, includeHistory, page],
+    queryFn: () =>
+      listLicenses({
+        keyword,
+        status,
+        include_history: includeHistory,
+        page,
+        page_size: pageSize
+      })
   });
   const appsQuery = useQuery({
     queryKey: ["admin", "apps", "active-options"],
@@ -301,6 +310,7 @@ export function LicensesPage() {
             allowClear
             placeholder="状态"
             className="table-filter"
+            value={status}
             options={[
               tOption("active"),
               tOption("suspended"),
@@ -310,6 +320,13 @@ export function LicensesPage() {
             onChange={(value) => {
               setPage(1);
               setStatus(value);
+            }}
+          />
+          <HistoryToggle
+            checked={includeHistory}
+            onChange={(checked) => {
+              setPage(1);
+              setIncludeHistory(checked);
             }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />
