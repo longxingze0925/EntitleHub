@@ -78,6 +78,10 @@ body {
   border-right: 1px solid #e5e7eb;
 }
 
+.admin-menu-drawer .ant-drawer-body {
+  overflow: auto;
+}
+
 .brand-mark {
   height: 64px;
   display: flex;
@@ -375,6 +379,10 @@ body {
 
   .admin-content {
     padding: 14px;
+  }
+
+  .admin-sider {
+    display: none;
   }
 
   .page-heading {

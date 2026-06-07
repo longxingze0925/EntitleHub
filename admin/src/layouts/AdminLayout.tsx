@@ -1,6 +1,6 @@
-import { Button, Layout, Menu, Space, Typography } from "antd";
+import { Button, Drawer, Layout, Menu, Space, Typography } from "antd";
 import { LogOut, Menu as MenuIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -17,6 +17,8 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -32,6 +34,28 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const selectedKey =
     visibleRoutes.find((route) => route.path === location.pathname)?.key ??
     "dashboard";
+  const menuItems = useMemo(
+    () =>
+      visibleRoutes.map((route) => ({
+        key: route.key,
+        icon: route.icon,
+        label: <Link to={route.path}>{route.label}</Link>
+      })),
+    [visibleRoutes]
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 720px)");
+    const handleChange = () => setIsMobile(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -58,19 +82,37 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
-          items={visibleRoutes.map((route) => ({
-            key: route.key,
-            icon: route.icon,
-            label: <Link to={route.path}>{route.label}</Link>
-          }))}
+          items={menuItems}
         />
       </Sider>
+      <Drawer
+        className="admin-menu-drawer"
+        placement="left"
+        width={244}
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        closable={false}
+        styles={{ body: { padding: 0 } }}
+      >
+        <div className="brand-mark">
+          <span>EH</span>
+          <strong>EntitleHub</strong>
+        </div>
+        <Menu mode="inline" selectedKeys={[selectedKey]} items={menuItems} />
+      </Drawer>
 
       <Layout>
         <Header className="admin-header">
           <Button
             icon={<MenuIcon size={17} />}
-            onClick={() => setCollapsed((value) => !value)}
+            onClick={() => {
+              if (isMobile) {
+                setMobileMenuOpen(true);
+                return;
+              }
+
+              setCollapsed((value) => !value);
+            }}
           />
           <Space className="header-account" size={14}>
             <div className="header-identity">

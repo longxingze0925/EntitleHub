@@ -15,7 +15,7 @@ React/Vite administration console for the user administration platform.
 ## Prerequisites
 
 - Node.js compatible with the checked-in `package-lock.json`.
-- Backend running at `http://127.0.0.1:8080` for local API proxying.
+- Backend running at `http://127.0.0.1:18080` for local API proxying.
 
 Install dependencies from this directory:
 
@@ -40,7 +40,7 @@ http://127.0.0.1:5173/
 Vite proxies `/api` to the local backend:
 
 ```text
-/api -> http://127.0.0.1:8080
+/api -> http://127.0.0.1:18080
 ```
 
 The admin API client sends cookies with `credentials: "include"`. For unsafe methods, it reads the `admin_csrf` cookie and sends it as `X-CSRF-Token`.
