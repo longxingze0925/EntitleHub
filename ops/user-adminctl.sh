@@ -46,9 +46,9 @@ ask() {
   local default="${2:-}"
   local value
   if [[ -n "$default" ]]; then
-    printf '%s [%s]: ' "$prompt" "$default"
+    printf '%s [%s]: ' "$prompt" "$default" >&2
   else
-    printf '%s: ' "$prompt"
+    printf '%s: ' "$prompt" >&2
   fi
   read -r value
   if [[ -z "$value" ]]; then
