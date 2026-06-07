@@ -10,3 +10,4 @@ admin/dist/
 backend/target/
 client-sdk/target/
 target/
+compose.digests.yaml

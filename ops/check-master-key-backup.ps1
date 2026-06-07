@@ -3,7 +3,8 @@
 param(
     [string]$EnvFile = ".env.compose",
     [string]$BackupKeyFile = "",
-    [string]$FingerprintDir = "backups/master-key-fingerprints"
+    [string]$FingerprintDir = "backups/master-key-fingerprints",
+    [switch]$RequireBackup
 )
 
 Set-StrictMode -Version Latest
@@ -138,5 +139,9 @@ if (-not [string]::IsNullOrWhiteSpace($BackupKeyFile)) {
 
     Write-Host "Backup MASTER_KEY matches current MASTER_KEY."
 } else {
+    if ($RequireBackup) {
+        throw "Backup key file is required when -RequireBackup is set."
+    }
+
     Write-Host "No backup key file was provided; only format and fingerprint were checked."
 }

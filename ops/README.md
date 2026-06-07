@@ -79,6 +79,14 @@ pwsh -File ops/smoke-client-sdk.ps1
 
 The script logs in as the local owner, reuses or creates a `sdk-smoke` application, creates a short-lived test license, and runs the ignored SDK live test against the running backend. It does not print owner credentials or the generated license key.
 
+Run the expiry flow smoke to verify active sessions are rejected after license and subscription expiry:
+
+```powershell
+pwsh -File ops/smoke-expiry-flow.ps1
+```
+
+The script logs in as the local owner, creates a `both`-mode smoke application and a disposable customer, verifies license activation and subscription login before expiry, waits for each entitlement to expire, then verifies client refresh fails with `license_expired` and `subscription_inactive`.
+
 Local URLs:
 
 ```text
@@ -141,9 +149,28 @@ pwsh -File ops/validate-ci.ps1
 
 The script checks OpenAPI refs, YAML/JSON assets, backend tests, Client SDK tests, Admin lint/build, Docker Compose config, and optional Prometheus/Alertmanager semantic checks when `promtool` and `amtool` are installed.
 
+When installed, `cargo-audit` and `cargo-deny` are also run. `cargo-audit` uses `.tools/advisory-db`; `cargo-deny` uses `deny.toml` and checks dependency bans, licenses, and sources for both backend and Client SDK manifests.
+
+Run the stricter release gate before production deployment:
+
+```powershell
+pwsh -File ops/validate-release-strict.ps1
+```
+
+The strict release gate runs `ops/validate-ci.ps1 -StrictExternalTools`, then additionally checks cargo-deny advisories, verifies the registered `RUSTSEC-2023-0071` exception is not present in the backend normal/build dependency tree, and runs full Admin `npm audit` including dev tooling.
+
+Install the Rust audit tools on a workstation:
+
+```powershell
+cargo install cargo-audit --locked
+cargo install cargo-deny --locked
+```
+
 Use `ops/smoke-compose.ps1` for a running compose stack. It checks Backend health/readiness/metrics, Admin, Prometheus, Alertmanager, Grafana, and Prometheus active targets.
 
 Use `ops/smoke-client-sdk.ps1` after `ops/smoke-init-owner.ps1 -RunMigrations` to verify the real SDK activation, refresh, JWKS validation, and heartbeat flow against the compose backend.
+
+Use `ops/smoke-expiry-flow.ps1` against a running compose stack to verify license and subscription expiry behavior through real admin/client APIs.
 
 Use `ops/check-compose-image-pins.ps1` to verify compose service images use explicit tags and do not fall back to `latest`:
 
@@ -153,6 +180,15 @@ pwsh -File ops/check-compose-image-pins.ps1 -RequireDigest
 ```
 
 The stricter `-RequireDigest` mode is intended for production release review after image architecture and registry policy are known.
+
+Generate a production digest override from the current compose image set:
+
+```powershell
+pwsh -File ops/pin-compose-digests.ps1 -EnvFile .env.compose.example -OutputFile compose.digests.yaml -Pull
+docker compose -f compose.yaml -f compose.digests.yaml --env-file .env.compose up -d
+```
+
+The generated `compose.digests.yaml` is ignored by Git and overrides image-based services with immutable `@sha256:` references. Built local services such as Backend and Admin are intentionally skipped.
 
 GitHub Actions runs the same script from `.github/workflows/ci.yml` and adds container-based `promtool`/`amtool` checks for Prometheus and Alertmanager configs.
 
@@ -221,6 +257,7 @@ To verify an offline backup copy, pass a file that contains either the raw key v
 
 ```powershell
 pwsh -File ops/check-master-key-backup.ps1 -BackupKeyFile D:\offline\MASTER_KEY.txt
+pwsh -File ops/check-master-key-backup.ps1 -BackupKeyFile D:\offline\MASTER_KEY.txt -RequireBackup
 ```
 
 The script writes only SHA256 fingerprints to `./backups/master-key-fingerprints`; it does not copy the key material into the backup directory.

@@ -1,7 +1,13 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const adminRoot = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(
+  /^\/([A-Za-z]:\/)/,
+  "$1"
+);
+
 export default defineConfig({
+  root: adminRoot,
   plugins: [react()],
   build: {
     chunkSizeWarningLimit: 1200,

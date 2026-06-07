@@ -125,6 +125,38 @@ Invoke-Step "Client SDK tests" {
     cargo test --manifest-path client-sdk/Cargo.toml
 }
 
+if (Test-Command "cargo-audit") {
+    Invoke-Step "Rust security audit" {
+        $previousCargoHome = $env:CARGO_HOME
+        try {
+            $env:CARGO_HOME = (Join-Path $repoRoot ".tools/cargo-home")
+            New-Item -ItemType Directory -Force -Path $env:CARGO_HOME | Out-Null
+            cargo audit --db .tools/advisory-db --file backend/Cargo.lock --deny warnings --ignore RUSTSEC-2023-0071
+            cargo audit --db .tools/advisory-db --file client-sdk/Cargo.lock --deny warnings --ignore RUSTSEC-2023-0071
+        } finally {
+            $env:CARGO_HOME = $previousCargoHome
+        }
+    }
+} else {
+    Warn-Or-Fail-MissingTool "cargo-audit"
+}
+
+if (Test-Command "cargo-deny") {
+    Invoke-Step "Rust dependency policy" {
+        $previousCargoHome = $env:CARGO_HOME
+        try {
+            $env:CARGO_HOME = (Join-Path $repoRoot ".tools/cargo-home")
+            New-Item -ItemType Directory -Force -Path $env:CARGO_HOME | Out-Null
+            cargo deny --manifest-path backend/Cargo.toml --locked check --config deny.toml -A license-not-encountered bans licenses sources
+            cargo deny --manifest-path client-sdk/Cargo.toml --locked check --config deny.toml -A license-not-encountered bans licenses sources
+        } finally {
+            $env:CARGO_HOME = $previousCargoHome
+        }
+    }
+} else {
+    Warn-Or-Fail-MissingTool "cargo-deny"
+}
+
 if (-not $SkipFrontend) {
     Invoke-Step "Admin lint" {
         npm -C admin run lint

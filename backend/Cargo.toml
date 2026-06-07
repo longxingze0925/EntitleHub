@@ -2,6 +2,7 @@
 name = "user-admin-backend"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 axum = "0.8"
@@ -18,7 +19,7 @@ ring = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "migrate", "uuid", "chrono", "json"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "migrate", "macros", "uuid", "chrono", "json"] }
 subtle = "2.6"
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
