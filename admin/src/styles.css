@@ -5,11 +5,12 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
 }
 
 body {
+  overflow: hidden;
   background: #f4f6f8;
   color: #1f2937;
 }
@@ -21,7 +22,8 @@ body {
 }
 
 .login-screen {
-  min-height: 100vh;
+  height: 100%;
+  overflow: auto;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -60,10 +62,19 @@ body {
 }
 
 .admin-shell {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.admin-shell .ant-layout {
+  min-width: 0;
+  min-height: 0;
 }
 
 .admin-sider {
+  height: 100dvh;
+  overflow: auto;
   border-right: 1px solid #e5e7eb;
 }
 
@@ -94,6 +105,7 @@ body {
 }
 
 .admin-header {
+  flex: 0 0 64px;
   height: 64px;
   padding: 0 20px;
   background: #ffffff;
@@ -101,6 +113,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  z-index: 20;
 }
 
 .header-account {
@@ -115,16 +128,23 @@ body {
 }
 
 .admin-content {
+  height: calc(100dvh - 64px);
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
   padding: 20px;
 }
 
 .workspace-page {
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
 .page-heading {
+  flex: 0 0 auto;
   min-height: 54px;
   display: flex;
   align-items: flex-start;
@@ -135,6 +155,28 @@ body {
 .page-heading h2 {
   margin: 0 0 4px;
   font-size: 24px;
+}
+
+.workspace-page > .ant-alert {
+  flex: 0 0 auto;
+}
+
+.workspace-page > .ant-table-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.workspace-page > .ant-table-wrapper .ant-table {
+  min-width: 760px;
+}
+
+.workspace-page > .ant-table-wrapper .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .permission-strip {
@@ -216,11 +258,13 @@ body {
 }
 
 .simple-pager {
+  flex: 0 0 auto;
   min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
+  padding-top: 2px;
 }
 
 .audit-detail,
