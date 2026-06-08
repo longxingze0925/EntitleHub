@@ -14,6 +14,7 @@ STATE_FILE=".install-state"
 BACKUP_DIR="backups/installer"
 DIGEST_FILE="${USER_ADMIN_DIGEST_FILE:-compose.digests.yaml}"
 PIN_DIGESTS="${USER_ADMIN_PIN_DIGESTS:-1}"
+DEPLOY_MODE="${USER_ADMIN_DEPLOY_MODE:-image}"
 
 LOCAL_SOURCE_ROOT=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
@@ -66,6 +67,10 @@ confirm() {
   [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" || "$answer" == "是" ]]
 }
 
+pin_digests_enabled() {
+  [[ "$PIN_DIGESTS" != "0" && "$PIN_DIGESTS" != "false" && "$PIN_DIGESTS" != "FALSE" ]]
+}
+
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     die "此操作需要 root 权限，请使用 sudo 或 root 重新运行。"
@@ -96,7 +101,7 @@ compose_base() {
   if [[ -f compose.proxy.yml ]]; then
     args+=(-f compose.proxy.yml)
   fi
-  if [[ -f "$DIGEST_FILE" ]]; then
+  if [[ "$DEPLOY_MODE" != "source" && -f "$DIGEST_FILE" ]] && pin_digests_enabled; then
     args+=(-f "$DIGEST_FILE")
   fi
   docker compose "${args[@]}" "$@"
@@ -192,6 +197,10 @@ preflight() {
   require_command curl
   require_command tar
   require_command openssl
+  case "$DEPLOY_MODE" in
+    image | source) ;;
+    *) die "USER_ADMIN_DEPLOY_MODE 只能是 image 或 source。" ;;
+  esac
   install_docker_prompt
   docker version >/dev/null
   docker compose version >/dev/null
@@ -459,12 +468,18 @@ run_migrations() {
   log "执行数据库迁移"
   in_install_dir
   compose_base up -d postgres redis
-  compose_base run --rm --build backend user-admin-backend migrate
+  compose_base run --rm backend user-admin-backend migrate
 }
 
 pin_image_digests() {
-  if [[ "$PIN_DIGESTS" == "0" || "$PIN_DIGESTS" == "false" || "$PIN_DIGESTS" == "FALSE" ]]; then
+  if [[ "$DEPLOY_MODE" == "source" ]]; then
+    warn "源码构建模式已跳过镜像 digest 锁定。"
+    rm -f "$DIGEST_FILE"
+    return
+  fi
+  if ! pin_digests_enabled; then
     warn "已跳过镜像 digest 锁定。"
+    rm -f "$DIGEST_FILE"
     return
   fi
 
@@ -520,10 +535,26 @@ pin_image_digests() {
   printf '镜像版本已锁定：%s\n' "$INSTALL_DIR/$DIGEST_FILE"
 }
 
+prepare_images() {
+  in_install_dir
+  if [[ "$DEPLOY_MODE" == "source" ]]; then
+    log "源码构建服务镜像"
+    rm -f "$DIGEST_FILE"
+    compose_unpinned build --pull
+    return
+  fi
+
+  log "拉取预构建服务镜像"
+  if ! pin_digests_enabled; then
+    compose_unpinned pull
+  fi
+  pin_image_digests
+}
+
 start_stack() {
   log "启动服务"
   in_install_dir
-  compose_base up -d --build
+  compose_base up -d --no-build
 }
 
 init_owner() {
@@ -683,7 +714,7 @@ install_flow() {
 
   write_state "$mode" "$public_url" "${domain:-}"
   install_local_command
-  pin_image_digests
+  prepare_images
   run_migrations
   start_stack
   init_owner
@@ -705,6 +736,7 @@ export USER_ADMIN_PROJECT_NAME="${PROJECT_NAME}"
 export USER_ADMIN_REPO="${USER_ADMIN_REPO}"
 export USER_ADMIN_REF="${USER_ADMIN_REF}"
 export USER_ADMIN_RAW_BASE="${USER_ADMIN_RAW_BASE}"
+export USER_ADMIN_DEPLOY_MODE="\${USER_ADMIN_DEPLOY_MODE:-${DEPLOY_MODE}}"
 bash <(curl -fsSL "\$USER_ADMIN_RAW_BASE/ops/install.sh")
 EOF
     chmod +x /usr/local/bin/entitle-hub
@@ -753,7 +785,7 @@ update_flow() {
   is_installed || die "$APP_NAME 尚未安装。"
 
   printf '\n更新选项：\n'
-  printf '1) 更新到最新稳定源码\n'
+  printf '1) 更新到最新稳定版本\n'
   printf '2) 取消\n'
   printf '请选择：'
   local choice
@@ -761,13 +793,12 @@ update_flow() {
   [[ "$choice" == "1" ]] || return
 
   backup_flow
-  log "刷新源码并重建服务"
+  log "刷新源码并更新服务镜像"
   safe_refresh_source
   in_install_dir
-  pin_image_digests
-  compose_base build --pull
+  prepare_images
   run_migrations
-  compose_base up -d
+  start_stack
   run_smoke
   printf '\n更新完成。\n'
 }

@@ -10,7 +10,16 @@ Linux hosts can use the interactive one-command installer:
 bash <(curl -Ls https://raw.githubusercontent.com/longxingze0925/EntitleHub/main/ops/install.sh)
 ```
 
-The command opens a menu for install, update, uninstall, status, logs, backup, restore, certificate management, and diagnostics. Install mode supports local-only access, server-IP access, domain with automatic HTTPS certificate, domain with a custom certificate, and deployment behind an existing reverse proxy. Updates keep `.env.compose`, certificates, backups, and Docker volumes, then refresh source files, rebuild, migrate, restart, and run smoke checks.
+The command opens a menu for install, update, uninstall, status, logs, backup, restore, certificate management, and diagnostics. Install mode supports local-only access, server-IP access, domain with automatic HTTPS certificate, domain with a custom certificate, and deployment behind an existing reverse proxy. Updates keep `.env.compose`, certificates, backups, and Docker volumes, then refresh source files, pull the latest GHCR images, pin image digests, migrate, restart, and run smoke checks.
+
+By default, the installer pulls prebuilt EntitleHub images:
+
+```text
+ghcr.io/longxingze0925/entitlehub-backend:main
+ghcr.io/longxingze0925/entitlehub-admin:main
+```
+
+Set `USER_ADMIN_DEPLOY_MODE=source` before running the installer only when you need the old server-side source build fallback.
 
 ## Docker Compose
 
@@ -190,7 +199,7 @@ pwsh -File ops/check-compose-image-pins.ps1 -RequireDigest
 
 The stricter `-RequireDigest` mode is intended for production release review after image architecture and registry policy are known.
 
-The one-command installer automatically generates `compose.digests.yaml` during install, update, and certificate mode changes. It pulls the current tag-based image set first, writes immutable `@sha256:` overrides, and then starts the stack with `compose.yaml` plus `compose.digests.yaml`. Set `USER_ADMIN_PIN_DIGESTS=0` only for emergency registry troubleshooting.
+The one-command installer automatically generates `compose.digests.yaml` during install, update, and certificate mode changes. In default image mode it pulls the current tag-based image set first, writes immutable `@sha256:` overrides, and then starts the stack with `compose.yaml` plus `compose.digests.yaml`. Set `USER_ADMIN_PIN_DIGESTS=0` only for emergency registry troubleshooting. Digest pinning is skipped in `USER_ADMIN_DEPLOY_MODE=source`.
 
 For manual production review, generate the same digest override from the current compose image set:
 

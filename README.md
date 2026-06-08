@@ -10,6 +10,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/longxingze0925/EntitleHub/main
 
 运行后会进入交互式菜单，可选择安装、更新、卸载、查看状态、查看日志、备份、恢复、证书管理和健康检测。安装支持不使用域名、服务器 IP、域名自动 HTTPS 证书、自有证书、已有 Nginx/宝塔/负载均衡反代等模式。
 
+一键脚本默认拉取 GHCR 上已经构建好的 `entitlehub-backend` / `entitlehub-admin` 镜像，更新更快；只有设置 `USER_ADMIN_DEPLOY_MODE=source` 时才会在服务器本机从源码重新构建镜像。
+
 ---
 
 ## 开发文档入口
