@@ -132,7 +132,7 @@ function Get-CsrfToken {
 
 function Invoke-AdminJson {
     param(
-        [ValidateSet("GET", "POST")]
+        [ValidateSet("GET", "POST", "PUT")]
         [string]$Method,
         [string]$Path,
         [object]$Body = $null
@@ -144,7 +144,7 @@ function Invoke-AdminJson {
         $response = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec $TimeoutSeconds -WebSession $webSession
     } else {
         $json = if ($null -eq $Body) { "{}" } else { $Body | ConvertTo-Json -Depth 12 -Compress }
-        $response = Invoke-RestMethod -Uri $uri -Method Post -Body $json -ContentType "application/json" -Headers $headers -TimeoutSec $TimeoutSeconds -WebSession $webSession
+        $response = Invoke-RestMethod -Uri $uri -Method $Method -Body $json -ContentType "application/json" -Headers $headers -TimeoutSec $TimeoutSeconds -WebSession $webSession
     }
 
     Assert-ApiEnvelope -Envelope $response -Name $Path
@@ -211,7 +211,7 @@ if (-not $app) {
     $appData = Invoke-AdminJson -Method POST -Path "/api/admin/apps" -Body @{
         name = "SDK Smoke App"
         slug = $SmokeAppSlug
-        auth_mode = "license"
+        auth_mode = "both"
         heartbeat_interval_seconds = 60
         offline_tolerance_seconds = 120
         max_devices_default = 2
@@ -227,6 +227,12 @@ if (-not $app) {
             slug = $SmokeAppSlug
         }
     }
+} elseif ($app.auth_mode -ne "both") {
+    $appData = Invoke-AdminJson -Method PUT -Path "/api/admin/apps/$($app.id)" -Body @{
+        auth_mode = "both"
+        status = "active"
+    }
+    $app = $appData.application
 }
 
 if (-not $app.id -or -not $app.app_key) {
@@ -250,7 +256,51 @@ if (-not $licenseData.license_key) {
     throw "License creation response did not include license_key."
 }
 
-Write-Host "==> Run Client SDK live backend test"
+Write-Host "==> Create SDK AI smoke customers"
+$suffix = [Guid]::NewGuid().ToString("N")
+$noSubscriptionEmail = "sdk-ai-nosub-$suffix@example.test"
+$noSubscriptionPassword = New-StrongSmokePassword
+$subscriptionEmail = "sdk-ai-sub-$suffix@example.test"
+$subscriptionPassword = New-StrongSmokePassword
+
+$noSubscriptionCustomerData = Invoke-AdminJson -Method POST -Path "/api/admin/customers" -Body @{
+    email = $noSubscriptionEmail
+    name = "SDK AI Smoke No Subscription"
+    password = $noSubscriptionPassword
+    metadata = @{
+        smoke = "client-sdk-ai"
+        kind = "no-subscription"
+    }
+}
+$subscriptionCustomerData = Invoke-AdminJson -Method POST -Path "/api/admin/customers" -Body @{
+    email = $subscriptionEmail
+    name = "SDK AI Smoke Subscription"
+    password = $subscriptionPassword
+    metadata = @{
+        smoke = "client-sdk-ai"
+        kind = "subscription"
+    }
+}
+
+if (-not $noSubscriptionCustomerData.customer.id -or -not $subscriptionCustomerData.customer.id) {
+    throw "SDK AI smoke customer creation response did not include customer ids."
+}
+
+Write-Host "==> Create SDK AI smoke subscription"
+$subscriptionExpiresAt = (Get-Date).ToUniversalTime().AddDays(7).ToString("yyyy-MM-ddTHH:mm:ssZ")
+Invoke-AdminJson -Method POST -Path "/api/admin/subscriptions" -Body @{
+    app_id = $app.id
+    customer_id = $subscriptionCustomerData.customer.id
+    plan = "sdk-ai-smoke"
+    max_devices = 2
+    expires_at = $subscriptionExpiresAt
+    features = @("ai")
+    metadata = @{
+        smoke = "client-sdk-ai"
+    }
+} | Out-Null
+
+Write-Host "==> Run Client SDK activation live backend test"
 $envSnapshot = Set-ProcessEnv -Values @{
     SDK_SMOKE_BACKEND_URL = $backendUrl
     SDK_SMOKE_APP_KEY = $app.app_key
@@ -261,9 +311,47 @@ $envSnapshot = Set-ProcessEnv -Values @{
 }
 
 try {
-    & cargo test --manifest-path client-sdk/Cargo.toml --test live_backend -- --ignored --nocapture
+    & cargo test --manifest-path client-sdk/Cargo.toml --test live_backend live_backend_activation_refresh_and_heartbeat -- --ignored --exact --nocapture
     if ($LASTEXITCODE -ne 0) {
-        throw "Client SDK live backend test failed with exit code $LASTEXITCODE."
+        throw "Client SDK activation live backend test failed with exit code $LASTEXITCODE."
+    }
+} finally {
+    Restore-ProcessEnv -Values $envSnapshot
+}
+
+Write-Host "==> Run Client SDK AI subscription gate test without subscription"
+$envSnapshot = Set-ProcessEnv -Values @{
+    SDK_SMOKE_BACKEND_URL = $backendUrl
+    SDK_SMOKE_APP_KEY = $app.app_key
+    SDK_SMOKE_CUSTOMER_EMAIL = $noSubscriptionEmail
+    SDK_SMOKE_CUSTOMER_PASSWORD = $noSubscriptionPassword
+    SDK_SMOKE_AI_EXPECT_SUBSCRIPTION = "false"
+    SDK_SMOKE_MACHINE_ID = "sdk-ai-nosub-$([Guid]::NewGuid().ToString('N'))"
+}
+
+try {
+    & cargo test --manifest-path client-sdk/Cargo.toml --test live_backend live_backend_customer_login_ai_subscription_gate -- --ignored --exact --nocapture
+    if ($LASTEXITCODE -ne 0) {
+        throw "Client SDK AI no-subscription live backend test failed with exit code $LASTEXITCODE."
+    }
+} finally {
+    Restore-ProcessEnv -Values $envSnapshot
+}
+
+Write-Host "==> Run Client SDK AI subscription gate test with active subscription"
+$envSnapshot = Set-ProcessEnv -Values @{
+    SDK_SMOKE_BACKEND_URL = $backendUrl
+    SDK_SMOKE_APP_KEY = $app.app_key
+    SDK_SMOKE_CUSTOMER_EMAIL = $subscriptionEmail
+    SDK_SMOKE_CUSTOMER_PASSWORD = $subscriptionPassword
+    SDK_SMOKE_AI_EXPECT_SUBSCRIPTION = "true"
+    SDK_SMOKE_MACHINE_ID = "sdk-ai-sub-$([Guid]::NewGuid().ToString('N'))"
+}
+
+try {
+    & cargo test --manifest-path client-sdk/Cargo.toml --test live_backend live_backend_customer_login_ai_subscription_gate -- --ignored --exact --nocapture
+    if ($LASTEXITCODE -ne 0) {
+        throw "Client SDK AI subscription live backend test failed with exit code $LASTEXITCODE."
     }
 } finally {
     Restore-ProcessEnv -Values $envSnapshot

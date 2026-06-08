@@ -221,13 +221,13 @@ The executable example in `examples/recommended_flow.rs` demonstrates the same f
 
 ## Live Backend Smoke
 
-The ignored test in `tests/live_backend.rs` verifies the SDK against a running backend. It covers activation, refresh-token rotation, JWKS-backed access-token validation, signed heartbeat headers, and heartbeat response parsing.
+The ignored tests in `tests/live_backend.rs` verify the SDK against a running backend. They cover activation, refresh-token rotation, JWKS-backed access-token validation, signed heartbeat headers, heartbeat response parsing, customer login, and AI subscription gating.
 
-From the repository root, prefer the ops wrapper because it creates a short-lived test license through the Admin API without printing secrets:
+From the repository root, prefer the ops wrapper because it creates short-lived test licenses, customers, and subscriptions through the Admin API without printing secrets:
 
 ```powershell
 pwsh -File ops/smoke-init-owner.ps1 -RunMigrations
 pwsh -File ops/smoke-client-sdk.ps1
 ```
 
-To run the ignored test directly, set `SDK_SMOKE_BACKEND_URL`, `SDK_SMOKE_APP_KEY`, `SDK_SMOKE_LICENSE_KEY`, and `SDK_SMOKE_JWT_ISSUER`. `SDK_SMOKE_MACHINE_ID` and `SDK_SMOKE_JWT_AUDIENCE` are optional.
+To run the activation ignored test directly, set `SDK_SMOKE_BACKEND_URL`, `SDK_SMOKE_APP_KEY`, `SDK_SMOKE_LICENSE_KEY`, and `SDK_SMOKE_JWT_ISSUER`. `SDK_SMOKE_MACHINE_ID` and `SDK_SMOKE_JWT_AUDIENCE` are optional. To run the customer login AI gate test directly, also set `SDK_SMOKE_CUSTOMER_EMAIL`, `SDK_SMOKE_CUSTOMER_PASSWORD`, and `SDK_SMOKE_AI_EXPECT_SUBSCRIPTION`.

@@ -61,6 +61,16 @@ pub struct HeartbeatResponse {
     pub status: String,
     pub server_time: i64,
     pub license_status: String,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_kind: Option<String>,
+    #[serde(default)]
+    pub entitlement_status: Option<String>,
+    #[serde(default)]
+    pub entitlement_active: bool,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -68,6 +78,16 @@ pub struct VerifyResponse {
     pub valid: bool,
     pub features: serde_json::Value,
     pub expires_at: Option<String>,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_kind: Option<String>,
+    #[serde(default)]
+    pub entitlement_status: Option<String>,
+    #[serde(default)]
+    pub entitlement_active: bool,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

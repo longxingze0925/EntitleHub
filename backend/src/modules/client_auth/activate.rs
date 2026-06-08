@@ -53,6 +53,11 @@ pub struct ActivateResponse {
     pub session_id: Uuid,
     pub device_id: Uuid,
     pub device_key_id: Option<Uuid>,
+    pub subscription_id: Option<Uuid>,
+    pub entitlement_id: Option<Uuid>,
+    pub entitlement_kind: Option<String>,
+    pub entitlement_status: String,
+    pub entitlement_active: bool,
     pub features: serde_json::Value,
 }
 
@@ -200,6 +205,11 @@ pub async fn activate(
             session_id: session.id,
             device_id: bind_result.device.id,
             device_key_id,
+            subscription_id: None,
+            entitlement_id: Some(valid_license.license.id),
+            entitlement_kind: Some("license".to_owned()),
+            entitlement_status: valid_license.license.status,
+            entitlement_active: true,
             features: valid_license.license.features,
         },
         request_id.to_string(),

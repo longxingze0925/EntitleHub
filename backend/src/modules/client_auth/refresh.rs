@@ -41,6 +41,11 @@ pub struct RefreshResponse {
     pub refresh_expires_in: i64,
     pub session_id: Uuid,
     pub device_id: Uuid,
+    pub subscription_id: Option<Uuid>,
+    pub entitlement_id: Option<Uuid>,
+    pub entitlement_kind: Option<String>,
+    pub entitlement_status: String,
+    pub entitlement_active: bool,
     pub features: serde_json::Value,
 }
 
@@ -114,6 +119,9 @@ pub async fn refresh(
     }
 
     let entitlement = load_client_entitlement(&state, &session, &device, now).await?;
+    let active_entitlement = entitlement
+        .as_ref()
+        .filter(|entitlement| entitlement.active);
 
     let next_refresh_token = generate_token();
     let next_refresh_token_hash = hash_token(
@@ -158,7 +166,22 @@ pub async fn refresh(
             refresh_expires_in: refresh_ttl,
             session_id: session.id,
             device_id: session.device_id,
-            features: entitlement.features,
+            subscription_id: entitlement
+                .as_ref()
+                .filter(|entitlement| entitlement.kind == "subscription")
+                .map(|entitlement| entitlement.id),
+            entitlement_id: entitlement.as_ref().map(|entitlement| entitlement.id),
+            entitlement_kind: entitlement
+                .as_ref()
+                .map(|entitlement| entitlement.kind.to_owned()),
+            entitlement_status: entitlement
+                .as_ref()
+                .map(|entitlement| entitlement.status.clone())
+                .unwrap_or_else(|| "none".to_owned()),
+            entitlement_active: active_entitlement.is_some(),
+            features: active_entitlement
+                .map(|entitlement| entitlement.features.clone())
+                .unwrap_or_else(|| serde_json::json!([])),
         },
         request_id.to_string(),
     )))

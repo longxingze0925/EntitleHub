@@ -1,6 +1,7 @@
 use axum::{extract::State, Extension, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     error::{ApiResponse, AppError},
@@ -23,6 +24,11 @@ pub struct HeartbeatResponse {
     pub status: &'static str,
     pub server_time: i64,
     pub license_status: String,
+    pub entitlement_id: Option<Uuid>,
+    pub entitlement_kind: Option<String>,
+    pub entitlement_status: String,
+    pub entitlement_active: bool,
+    pub subscription_id: Option<Uuid>,
 }
 
 pub async fn heartbeat(
@@ -56,7 +62,14 @@ pub async fn heartbeat(
         HeartbeatResponse {
             status: "ok",
             server_time: Utc::now().timestamp(),
-            license_status: client.entitlement_status,
+            license_status: client.entitlement_status.clone(),
+            entitlement_id: client.entitlement_id,
+            entitlement_kind: client.entitlement_kind.clone(),
+            entitlement_status: client.entitlement_status.clone(),
+            entitlement_active: client.entitlement_active,
+            subscription_id: (client.entitlement_kind.as_deref() == Some("subscription"))
+                .then_some(client.entitlement_id)
+                .flatten(),
         },
         request_id.to_string(),
     )))

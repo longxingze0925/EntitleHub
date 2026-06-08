@@ -19,7 +19,7 @@ use crate::{
     error::{ApiResponse, AppError},
     http::request_id::RequestId,
     modules::{
-        client_auth::session::ClientContext,
+        client_auth::session::{ensure_active_entitlement, ClientContext},
         release::{
             model::{validate_download_file_name, NewDownloadToken, ReleaseWithFile},
             repository::ReleaseRepository,
@@ -56,6 +56,7 @@ pub async fn latest_release(
 ) -> Result<Json<ApiResponse<LatestReleaseResponse>>, AppError> {
     rate_limit::check_client_action(&state, "latest_release", &client.device_id.to_string())
         .await?;
+    ensure_active_entitlement(&client)?;
 
     let repository = ReleaseRepository::new(state.db.clone());
     let release = repository

@@ -2008,8 +2008,32 @@ POST /api/client/auth/login
 
 - 客户存在且 active。
 - 密码正确。
-- 客户存在有效订阅。
-- 设备数量未超限。
+- 客户无需存在有效订阅也可以登录。
+- 客户存在有效订阅时绑定订阅并返回功能标记。
+- 客户没有有效订阅时仍返回 session，但 `subscription_id=null`、`entitlement_active=false`、`features=[]`。
+- 需要订阅的业务接口继续单独校验订阅状态；AI API 必须存在有效订阅才允许调用。
+- 有效订阅存在时校验设备数量限制；无有效订阅登录只建立客户会话设备绑定。
+
+响应 `data`：
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "Bearer",
+  "expires_in": 900,
+  "refresh_expires_in": 2592000,
+  "session_id": "uuid",
+  "device_id": "uuid",
+  "device_key_id": "uuid",
+  "subscription_id": null,
+  "entitlement_id": null,
+  "entitlement_kind": null,
+  "entitlement_status": "none",
+  "entitlement_active": false,
+  "features": []
+}
+```
 
 ### 14.2.1 请求客户邮箱验证
 

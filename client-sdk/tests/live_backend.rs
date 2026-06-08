@@ -122,6 +122,107 @@ fn live_backend_activation_refresh_and_heartbeat() -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
+#[test]
+#[ignore = "requires a running backend and SDK_SMOKE_* customer login environment variables"]
+fn live_backend_customer_login_ai_subscription_gate() -> Result<(), Box<dyn Error>> {
+    let backend_url = required_env("SDK_SMOKE_BACKEND_URL")?
+        .trim_end_matches('/')
+        .to_owned();
+    let app_key = required_env("SDK_SMOKE_APP_KEY")?;
+    let email = required_env("SDK_SMOKE_CUSTOMER_EMAIL")?;
+    let password = required_env("SDK_SMOKE_CUSTOMER_PASSWORD")?;
+    let expect_subscription = required_env("SDK_SMOKE_AI_EXPECT_SUBSCRIPTION")?
+        .parse::<bool>()
+        .map_err(|_| "SDK_SMOKE_AI_EXPECT_SUBSCRIPTION must be true or false")?;
+    let machine_id = env::var("SDK_SMOKE_MACHINE_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("sdk-ai-smoke-{}", now_unix()));
+
+    let client = Client::builder().build()?;
+    let device = DeviceIdentity::generate(&app_key, &[machine_id.as_str()])?;
+    let bootstrap = ClientBootstrap::new(device.clone())?;
+    let login_payload = bootstrap.customer_login_request(
+        &app_key,
+        &email,
+        &password,
+        Some("SDK AI Smoke Device"),
+        Some(std::env::consts::OS),
+        Some("sdk-ai-smoke"),
+    )?;
+    let login_response = post_json(
+        &client,
+        &backend_url,
+        "/api/client/auth/login",
+        serde_json::to_vec(&login_payload)?,
+        &[],
+    )?;
+    let login = ClientAuthSessionResponse::from_api_response_json(&login_response)?;
+    assert_eq!(login.entitlement_active, expect_subscription);
+    if expect_subscription {
+        assert_eq!(login.entitlement_kind.as_deref(), Some("subscription"));
+        assert!(login.subscription_id.is_some());
+    } else {
+        assert!(!login.entitlement_active);
+        assert!(login.subscription_id.is_none());
+    }
+
+    let device_key_id = login
+        .device_key_id
+        .clone()
+        .ok_or("login response did not include device_key_id")?;
+    let session = bootstrap.apply_auth_response(login, now_unix())?;
+    let cache = SdkCacheEnvelope::new_with_device_key_id(
+        &app_key,
+        device,
+        Some(&device_key_id),
+        Some(session),
+        &JwksCache::default(),
+        now_unix(),
+    )?;
+    let session_manager = cache.session_manager();
+    let ai_path = "/api/client/ai/v1/models";
+    let ai_headers = build_authorized_cached_device_request(
+        &cache,
+        &session_manager,
+        CachedAuthorizedDeviceRequestInput {
+            method: "get",
+            path: ai_path,
+            body: &[],
+            timestamp: now_unix(),
+            nonce: &format!("sdkaismoke{}", now_unix()),
+            refresh_before_seconds: 60,
+        },
+        |_| unreachable!("fresh login access token should not refresh"),
+    )?;
+    let ai_response = get_raw(&client, &backend_url, ai_path, &ai_headers.headers)?;
+
+    if expect_subscription {
+        if ai_response.0 != 200 {
+            return Err(format!(
+                "expected subscribed AI models request to succeed, got HTTP {}: {}",
+                ai_response.0, ai_response.1
+            )
+            .into());
+        }
+    } else {
+        let envelope: serde_json::Value = serde_json::from_str(&ai_response.1)?;
+        if ai_response.0 != 403
+            || envelope.get("code").and_then(|value| value.as_i64()) != Some(40306)
+            || envelope.get("message").and_then(|value| value.as_str())
+                != Some("subscription_inactive")
+        {
+            return Err(format!(
+                "expected unsubscribed AI models request to be subscription_inactive, got HTTP {}: {}",
+                ai_response.0, ai_response.1
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
 fn required_env(name: &str) -> Result<String, Box<dyn Error>> {
     let value = env::var(name)?;
     if value.trim().is_empty() {
@@ -167,6 +268,25 @@ fn get_text(client: &Client, backend_url: &str, path: &str) -> Result<String, Bo
     }
 
     Ok(text)
+}
+
+fn get_raw(
+    client: &Client,
+    backend_url: &str,
+    path: &str,
+    headers: &[(String, String)],
+) -> Result<(u16, String), Box<dyn Error>> {
+    let url = format!("{backend_url}{path}");
+    let mut request = client.get(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let response = request.send()?;
+    let status = response.status().as_u16();
+    let text = response.text()?;
+
+    Ok((status, text))
 }
 
 fn now_unix() -> i64 {

@@ -51,6 +51,16 @@ pub struct ClientAuthSessionResponse {
     pub device_id: String,
     #[serde(default)]
     pub device_key_id: Option<String>,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_kind: Option<String>,
+    #[serde(default)]
+    pub entitlement_status: Option<String>,
+    #[serde(default)]
+    pub entitlement_active: bool,
     pub features: serde_json::Value,
 }
 

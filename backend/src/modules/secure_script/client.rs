@@ -9,7 +9,7 @@ use crate::{
     error::{ApiResponse, AppError},
     http::request_id::RequestId,
     modules::{
-        client_auth::session::ClientContext,
+        client_auth::session::{ensure_active_entitlement, ClientContext},
         secure_script::{
             model::{
                 ensure_required_features, FetchSecureScriptInput, SecureScript,
@@ -45,6 +45,8 @@ pub async fn list_versions(
     Extension(client): Extension<ClientContext>,
     Extension(request_id): Extension<RequestId>,
 ) -> Result<Json<ApiResponse<SecureScriptVersionsResponse>>, AppError> {
+    ensure_active_entitlement(&client)?;
+
     let scripts = SecureScriptRepository::new(state.db.clone())
         .list_published(client.tenant_id, client.app_id)
         .await?;
@@ -69,6 +71,7 @@ pub async fn fetch_script(
     Json(payload): Json<FetchSecureScriptInput>,
 ) -> Result<Json<ApiResponse<FetchSecureScriptResponse>>, AppError> {
     rate_limit::check_client_action(&state, "script_fetch", &client.device_id.to_string()).await?;
+    ensure_active_entitlement(&client)?;
 
     let script = SecureScriptRepository::new(state.db.clone())
         .find_by_id(client.tenant_id, payload.script_id)
@@ -155,9 +158,10 @@ mod tests {
             device_id: Uuid::nil(),
             machine_id: "machine".to_owned(),
             auth_mode: "license".to_owned(),
-            entitlement_id: Uuid::nil(),
-            entitlement_kind: "license".to_owned(),
+            entitlement_id: Some(Uuid::nil()),
+            entitlement_kind: Some("license".to_owned()),
             entitlement_status: "active".to_owned(),
+            entitlement_active: true,
             features,
             entitlement_expires_at: None,
         }

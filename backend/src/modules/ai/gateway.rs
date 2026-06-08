@@ -30,7 +30,7 @@ use crate::{
     metrics::{self, AiGatewayRequestStatus},
     modules::{
         ai::api_keys::{authenticate_api_key, AiApiKeyContext},
-        client_auth::session::ClientContext,
+        client_auth::session::{ensure_active_subscription, ClientContext},
     },
     rate_limit,
     state::AppState,
@@ -166,6 +166,7 @@ pub async fn client_chat_completions(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
+    ensure_active_subscription(&client)?;
     let caller = GatewayCaller::from_client_context(&client)?;
     chat_completions_for_caller(state, request_id, headers, payload, caller).await
 }
@@ -286,6 +287,7 @@ pub async fn client_image_generations(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
+    ensure_active_subscription(&client)?;
     let caller = GatewayCaller::from_client_context(&client)?;
     image_generations_for_caller(state, request_id, headers, payload, caller).await
 }
@@ -426,6 +428,7 @@ pub async fn client_embeddings(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
+    ensure_active_subscription(&client)?;
     let caller = GatewayCaller::from_client_context(&client)?;
     embeddings_for_caller(state, request_id, headers, payload, caller).await
 }
@@ -542,6 +545,7 @@ pub async fn client_list_models(
     Extension(client): Extension<ClientContext>,
 ) -> Result<Response, AppError> {
     let endpoint = "/v1/models";
+    ensure_active_subscription(&client)?;
     let caller = GatewayCaller::from_client_context(&client)?;
     list_models_for_caller(state, endpoint, caller).await
 }
@@ -2399,9 +2403,10 @@ mod tests {
             device_id,
             machine_id: "machine-1".to_owned(),
             auth_mode: "account".to_owned(),
-            entitlement_id: Uuid::new_v4(),
-            entitlement_kind: "subscription".to_owned(),
+            entitlement_id: Some(Uuid::new_v4()),
+            entitlement_kind: Some("subscription".to_owned()),
             entitlement_status: "active".to_owned(),
+            entitlement_active: true,
             features: json!({}),
             entitlement_expires_at: Some(Utc::now()),
         }

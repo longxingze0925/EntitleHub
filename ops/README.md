@@ -199,7 +199,7 @@ cargo install cargo-deny --locked
 
 Use `ops/smoke-compose.ps1` for a running compose stack. It checks Backend health/readiness/metrics, Admin, Prometheus, Alertmanager, Grafana, and Prometheus active targets.
 
-Use `ops/smoke-client-sdk.ps1` after `ops/smoke-init-owner.ps1 -RunMigrations` to verify the real SDK activation, refresh, JWKS validation, and heartbeat flow against the compose backend.
+Use `ops/smoke-client-sdk.ps1` after `ops/smoke-init-owner.ps1 -RunMigrations` to verify the real SDK activation, refresh, JWKS validation, heartbeat flow, customer login, and AI subscription gate against the compose backend.
 
 Use `ops/smoke-expiry-flow.ps1` against a running compose stack to verify license and subscription expiry behavior through real admin/client APIs.
 

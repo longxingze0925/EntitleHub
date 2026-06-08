@@ -244,6 +244,47 @@ impl DeviceService {
             created: true,
         })
     }
+
+    pub async fn bind_for_customer_session_in_transaction(
+        transaction: &mut Transaction<'_, Postgres>,
+        input: DeviceBindInput,
+    ) -> Result<BindDeviceResult, AppError> {
+        let machine_id = normalize_machine_id(&input.machine_id)?;
+        if is_device_blacklisted_in_transaction(
+            transaction,
+            input.tenant_id,
+            input.app_id,
+            &machine_id,
+        )
+        .await?
+        {
+            return Err(AppError::device_blacklisted());
+        }
+
+        if let Some(existing) = find_device_by_machine_id_in_transaction(
+            transaction,
+            input.tenant_id,
+            input.app_id,
+            &machine_id,
+        )
+        .await?
+        {
+            ensure_existing_device_usable(&existing)?;
+
+            return Ok(BindDeviceResult {
+                device: existing,
+                created: false,
+            });
+        }
+
+        let device =
+            create_device_in_transaction(transaction, NewDevice::from_bind_input(input)?).await?;
+
+        Ok(BindDeviceResult {
+            device,
+            created: true,
+        })
+    }
 }
 
 async fn ensure_device_limit_available(

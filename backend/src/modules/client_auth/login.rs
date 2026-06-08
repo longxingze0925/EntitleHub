@@ -21,6 +21,7 @@ use crate::{
             repository::{
                 create_client_refresh_token_in_transaction, create_client_session_in_transaction,
             },
+            session::load_client_entitlement,
         },
         customer::repository::CustomerRepository,
         device::{
@@ -56,7 +57,11 @@ pub struct CustomerLoginResponse {
     pub session_id: Uuid,
     pub device_id: Uuid,
     pub device_key_id: Option<Uuid>,
-    pub subscription_id: Uuid,
+    pub subscription_id: Option<Uuid>,
+    pub entitlement_id: Option<Uuid>,
+    pub entitlement_kind: Option<String>,
+    pub entitlement_status: String,
+    pub entitlement_active: bool,
     pub features: serde_json::Value,
 }
 
@@ -108,11 +113,12 @@ pub async fn login(
     }
 
     let now = Utc::now();
-    let subscription = SubscriptionRepository::new(state.db.clone())
+    let active_subscription = SubscriptionRepository::new(state.db.clone())
         .find_active_for_customer(application.tenant_id, application.id, customer.id, now)
-        .await?
-        .ok_or_else(|| AppError::license_invalid("active subscription not found"))?;
-    validate_subscription_record(&subscription, now)?;
+        .await?;
+    if let Some(subscription) = active_subscription.as_ref() {
+        validate_subscription_record(subscription, now)?;
+    }
 
     let access_ttl = state.config.security.client_access_token_ttl_seconds;
     let refresh_ttl = state.config.security.client_refresh_token_ttl_seconds;
@@ -124,23 +130,31 @@ pub async fn login(
     let access_token_signer = prepare_client_access_token_signer(&state, Some(&request_id)).await?;
 
     let mut transaction = state.db.begin().await.map_err(map_db_error)?;
-    let bind_result = DeviceService::bind_for_subscription_in_transaction(
-        &mut transaction,
-        DeviceBindInput {
-            tenant_id: application.tenant_id,
-            app_id: application.id,
-            customer_id: Some(customer.id),
-            license_id: None,
-            subscription_id: Some(subscription.id),
-            machine_id: payload.machine_id,
-            device_name: payload.device_name,
-            os: payload.os,
-            app_version: payload.app_version,
-            metadata: None,
-        },
-        &subscription,
-    )
-    .await?;
+    let bind_input = DeviceBindInput {
+        tenant_id: application.tenant_id,
+        app_id: application.id,
+        customer_id: Some(customer.id),
+        license_id: None,
+        subscription_id: active_subscription
+            .as_ref()
+            .map(|subscription| subscription.id),
+        machine_id: payload.machine_id,
+        device_name: payload.device_name,
+        os: payload.os,
+        app_version: payload.app_version,
+        metadata: None,
+    };
+    let bind_result = if let Some(subscription) = active_subscription.as_ref() {
+        DeviceService::bind_for_subscription_in_transaction(
+            &mut transaction,
+            bind_input,
+            subscription,
+        )
+        .await?
+    } else {
+        DeviceService::bind_for_customer_session_in_transaction(&mut transaction, bind_input)
+            .await?
+    };
     let device_key_id = if bind_result.created {
         let device_key = create_device_key_in_transaction(
             &mut transaction,
@@ -191,6 +205,10 @@ pub async fn login(
     }
     let access_token =
         access_token_signer.sign(&access_claims(&state, &session, now, access_ttl))?;
+    let entitlement = load_client_entitlement(&state, &session, &bind_result.device, now).await?;
+    let active_entitlement = entitlement
+        .as_ref()
+        .filter(|entitlement| entitlement.active);
     transaction.commit().await.map_err(map_db_error)?;
 
     Ok(Json(ApiResponse::ok(
@@ -203,8 +221,22 @@ pub async fn login(
             session_id: session.id,
             device_id: session.device_id,
             device_key_id,
-            subscription_id: subscription.id,
-            features: subscription.features,
+            subscription_id: entitlement
+                .as_ref()
+                .filter(|entitlement| entitlement.kind == "subscription")
+                .map(|entitlement| entitlement.id),
+            entitlement_id: entitlement.as_ref().map(|entitlement| entitlement.id),
+            entitlement_kind: entitlement
+                .as_ref()
+                .map(|entitlement| entitlement.kind.to_owned()),
+            entitlement_status: entitlement
+                .as_ref()
+                .map(|entitlement| entitlement.status.clone())
+                .unwrap_or_else(|| "none".to_owned()),
+            entitlement_active: active_entitlement.is_some(),
+            features: active_entitlement
+                .map(|entitlement| entitlement.features.clone())
+                .unwrap_or_else(|| serde_json::json!([])),
         },
         request_id.to_string(),
     )))
