@@ -171,6 +171,10 @@ pub fn build(state: AppState) -> Router {
             put(ai::admin::update_ai_wallet_quota),
         )
         .route(
+            "/api/admin/ai/customers/{id}/wallet/access",
+            put(ai::admin::update_ai_wallet_access),
+        )
+        .route(
             "/api/admin/ai/customers/{id}/wallet/ledger",
             get(ai::admin::list_ai_wallet_ledger),
         )

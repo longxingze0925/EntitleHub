@@ -174,6 +174,7 @@ pub struct AiWalletSummary {
     pub balance_minor: i64,
     pub held_minor: i64,
     pub available_minor: i64,
+    pub ai_enabled: bool,
     pub daily_spend_limit_minor: Option<i64>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -205,6 +206,11 @@ pub struct AdjustAiWalletRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateAiWalletQuotaRequest {
     pub daily_spend_limit_minor: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAiWalletAccessRequest {
+    pub ai_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -261,6 +267,7 @@ struct AiWalletRecord {
     currency: String,
     balance_minor: i64,
     held_minor: i64,
+    ai_enabled: bool,
     daily_spend_limit_minor: Option<i64>,
     updated_at: DateTime<Utc>,
 }
@@ -679,6 +686,64 @@ pub async fn update_ai_wallet_quota(
             metadata_json: json!({
                 "customer_id": customer_id,
                 "daily_spend_limit_minor": payload.daily_spend_limit_minor,
+            }),
+        },
+    )
+    .await?;
+    transaction.commit().await.map_err(map_db_error)?;
+
+    let wallet = wallet_summary_by_customer(&state, admin.tenant_id, customer_id).await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiWalletResponse {
+            wallet,
+            ledger_entry: None,
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn update_ai_wallet_access(
+    State(state): State<AppState>,
+    Extension(admin): Extension<AdminContext>,
+    Extension(request_id): Extension<RequestId>,
+    Path(customer_id): Path<Uuid>,
+    Json(payload): Json<UpdateAiWalletAccessRequest>,
+) -> Result<Json<ApiResponse<AiWalletResponse>>, AppError> {
+    ensure_admin_permission(&admin, "ai:wallet:update")?;
+
+    let mut transaction = state.db.begin().await.map_err(map_db_error)?;
+    ensure_customer_exists_in_transaction(&mut transaction, admin.tenant_id, customer_id).await?;
+    ensure_wallet_exists_in_transaction(&mut transaction, admin.tenant_id, customer_id).await?;
+    let before = find_wallet_for_update(&mut transaction, admin.tenant_id, customer_id).await?;
+    let updated = update_wallet_access_in_transaction(
+        &mut transaction,
+        admin.tenant_id,
+        before.id,
+        payload.ai_enabled,
+    )
+    .await?;
+    audit::record(
+        &mut transaction,
+        AuditLogInput {
+            tenant_id: Some(admin.tenant_id),
+            actor_type: "team_member",
+            actor_id: Some(admin.team_member_id),
+            action: if payload.ai_enabled {
+                "ai_wallet.access_enable"
+            } else {
+                "ai_wallet.access_freeze"
+            },
+            resource_type: "ai_wallet",
+            resource_id: Some(updated.id),
+            ip: None,
+            user_agent: None,
+            request_id: Some(request_id.to_string()),
+            before_json: Some(wallet_audit_json(&before)),
+            after_json: Some(wallet_audit_json(&updated)),
+            metadata_json: json!({
+                "customer_id": customer_id,
+                "ai_enabled": payload.ai_enabled,
             }),
         },
     )
@@ -1153,6 +1218,7 @@ async fn list_wallets(
           coalesce(w.balance_minor, 0) as balance_minor,
           coalesce(w.held_minor, 0) as held_minor,
           coalesce(w.balance_minor, 0) - coalesce(w.held_minor, 0) as available_minor,
+          coalesce(w.ai_enabled, true) as ai_enabled,
           w.daily_spend_limit_minor,
           w.updated_at
         from customers c
@@ -1188,6 +1254,7 @@ async fn wallet_summary_by_customer(
           coalesce(w.balance_minor, 0) as balance_minor,
           coalesce(w.held_minor, 0) as held_minor,
           coalesce(w.balance_minor, 0) - coalesce(w.held_minor, 0) as available_minor,
+          coalesce(w.ai_enabled, true) as ai_enabled,
           w.daily_spend_limit_minor,
           w.updated_at
         from customers c
@@ -1297,6 +1364,7 @@ async fn find_wallet_for_update(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor,
           updated_at
         from ai_wallets
@@ -1327,6 +1395,7 @@ async fn update_wallet_balance_in_transaction(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor,
           updated_at
         from ai_wallets
@@ -1364,6 +1433,7 @@ async fn update_wallet_balance_in_transaction(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor,
           updated_at
         "#,
@@ -1396,6 +1466,7 @@ async fn update_wallet_quota_in_transaction(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor,
           updated_at
         "#,
@@ -1403,6 +1474,39 @@ async fn update_wallet_quota_in_transaction(
     .bind(tenant_id)
     .bind(wallet_id)
     .bind(daily_spend_limit_minor)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(map_db_error)
+}
+
+async fn update_wallet_access_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    wallet_id: Uuid,
+    ai_enabled: bool,
+) -> Result<AiWalletRecord, AppError> {
+    sqlx::query_as::<_, AiWalletRecord>(
+        r#"
+        update ai_wallets
+        set
+          ai_enabled = $3,
+          updated_at = now()
+        where tenant_id = $1
+          and id = $2
+        returning
+          id,
+          customer_id,
+          currency,
+          balance_minor,
+          held_minor,
+          ai_enabled,
+          daily_spend_limit_minor,
+          updated_at
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(wallet_id)
+    .bind(ai_enabled)
     .fetch_one(&mut **transaction)
     .await
     .map_err(map_db_error)
@@ -2007,6 +2111,7 @@ fn wallet_audit_json(record: &AiWalletRecord) -> Value {
         "currency": &record.currency,
         "balance_minor": record.balance_minor,
         "held_minor": record.held_minor,
+        "ai_enabled": record.ai_enabled,
         "daily_spend_limit_minor": record.daily_spend_limit_minor,
         "updated_at": &record.updated_at,
     })

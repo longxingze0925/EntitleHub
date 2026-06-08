@@ -882,6 +882,20 @@ paths:
           $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/admin/ai/customers/{id}/wallet/access:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Freeze or restore customer AI access
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/admin/ai/customers/{id}/wallet/ledger:
     parameters:
       - $ref: "#/components/parameters/IdPath"

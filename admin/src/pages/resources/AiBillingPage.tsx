@@ -37,6 +37,7 @@ import {
   updateAiApiKey,
   updateAiModel,
   updateAiProvider,
+  updateAiWalletAccess,
   updateAiWalletQuota,
   type AiAsset,
   type AiAssetStatus,
@@ -341,6 +342,18 @@ export function AiBillingPage() {
       message.success("AI 钱包限额已更新");
       setWalletQuotaModalOpen(false);
       walletQuotaForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ["admin", "ai-wallets"] });
+    }
+  });
+
+  const walletAccessMutation = useMutation({
+    mutationFn: ({ wallet, ai_enabled }: { wallet: AiWallet; ai_enabled: boolean }) =>
+      updateAiWalletAccess({
+        customerId: wallet.customer_id,
+        payload: { ai_enabled }
+      }),
+    onSuccess: (_, variables) => {
+      message.success(variables.ai_enabled ? "AI 权限已恢复" : "AI 权限已冻结");
       queryClient.invalidateQueries({ queryKey: ["admin", "ai-wallets"] });
     }
   });
@@ -686,6 +699,17 @@ export function AiBillingPage() {
       )
     },
     {
+      title: "AI 状态",
+      dataIndex: "ai_enabled",
+      key: "ai_enabled",
+      width: 100,
+      render: (_: boolean | undefined, record) => {
+        const enabled = isAiWalletEnabled(record);
+
+        return <Tag color={enabled ? "success" : "error"}>{enabled ? "可用" : "已冻结"}</Tag>;
+      }
+    },
+    {
       title: "余额",
       dataIndex: "balance_minor",
       key: "balance_minor",
@@ -723,7 +747,7 @@ export function AiBillingPage() {
     {
       title: "操作",
       key: "actions",
-      width: 240,
+      width: 340,
       render: (_, record) => (
         <Space size={6}>
           <Button
@@ -758,6 +782,29 @@ export function AiBillingPage() {
               disabled={!canUpdateWallet}
               onClick={() => openWalletQuota(record)}
             />
+          </Tooltip>
+          <Tooltip
+            title={
+              isAiWalletEnabled(record)
+                ? "立即冻结该客户的 AI 调用权限"
+                : "立即恢复该客户的 AI 调用权限"
+            }
+          >
+            <Button
+              size="small"
+              danger={isAiWalletEnabled(record)}
+              icon={isAiWalletEnabled(record) ? <Ban size={14} /> : <RefreshCw size={14} />}
+              disabled={!canUpdateWallet}
+              loading={walletAccessMutation.isPending}
+              onClick={() =>
+                walletAccessMutation.mutate({
+                  wallet: record,
+                  ai_enabled: !isAiWalletEnabled(record)
+                })
+              }
+            >
+              {isAiWalletEnabled(record) ? "冻结AI" : "恢复AI"}
+            </Button>
           </Tooltip>
         </Space>
       )
@@ -1170,6 +1217,7 @@ export function AiBillingPage() {
       modelMutation.error ||
       walletMutation.error ||
       walletQuotaMutation.error ||
+      walletAccessMutation.error ||
       (showOpenApiKeyManagement && apiKeyMutation.error) ||
       (showOpenApiKeyManagement && updateApiKeyMutation.error) ||
       (showOpenApiKeyManagement && revokeApiKeyMutation.error) ||
@@ -1182,6 +1230,7 @@ export function AiBillingPage() {
                 modelMutation.error ||
                 walletMutation.error ||
                 walletQuotaMutation.error ||
+                walletAccessMutation.error ||
                 (showOpenApiKeyManagement && apiKeyMutation.error) ||
                 (showOpenApiKeyManagement && updateApiKeyMutation.error) ||
                 (showOpenApiKeyManagement && revokeApiKeyMutation.error) ||
@@ -1757,6 +1806,10 @@ function money(value: number, currency: string): string {
 
 function limitText(value: number | null | undefined, currency: string): string {
   return value == null ? "不限" : money(value, currency);
+}
+
+function isAiWalletEnabled(wallet: AiWallet): boolean {
+  return wallet.ai_enabled !== false;
 }
 
 function formatBytes(value?: number | null): string {

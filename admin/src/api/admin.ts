@@ -522,6 +522,7 @@ export interface AiWallet {
   balance_minor: number;
   held_minor: number;
   available_minor: number;
+  ai_enabled?: boolean;
   daily_spend_limit_minor?: number | null;
   updated_at?: string | null;
 }
@@ -549,6 +550,10 @@ export interface AdjustAiWalletPayload {
 
 export interface UpdateAiWalletQuotaPayload {
   daily_spend_limit_minor?: number | null;
+}
+
+export interface UpdateAiWalletAccessPayload {
+  ai_enabled: boolean;
 }
 
 export interface AiApiKey {
@@ -1344,6 +1349,19 @@ export function updateAiWalletQuota(params: {
 }): Promise<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }> {
   return apiRequest<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }>(
     `/api/admin/ai/customers/${params.customerId}/wallet/quota`,
+    {
+      method: "PUT",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function updateAiWalletAccess(params: {
+  customerId: string;
+  payload: UpdateAiWalletAccessPayload;
+}): Promise<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }> {
+  return apiRequest<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }>(
+    `/api/admin/ai/customers/${params.customerId}/wallet/access`,
     {
       method: "PUT",
       body: JSON.stringify(params.payload)

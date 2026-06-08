@@ -76,6 +76,7 @@ struct WalletRecord {
     currency: String,
     balance_minor: i64,
     held_minor: i64,
+    ai_enabled: bool,
     daily_spend_limit_minor: Option<i64>,
 }
 
@@ -830,6 +831,7 @@ async fn reserve_wallet_and_create_usage(
     ensure_wallet_exists(&mut transaction, caller.tenant_id, caller.customer_id).await?;
     let wallet =
         find_wallet_for_update(&mut transaction, caller.tenant_id, caller.customer_id).await?;
+    ensure_wallet_ai_enabled(&wallet)?;
     if wallet.currency != model.currency {
         return Err(AppError::business_rule_failed(
             "ai wallet currency does not match model currency",
@@ -925,6 +927,16 @@ fn ensure_daily_limit_available(
 ) -> Result<(), AppError> {
     if used_minor.saturating_add(hold_minor) > limit_minor {
         return Err(AppError::business_rule_failed(format!("{label} exceeded")));
+    }
+
+    Ok(())
+}
+
+fn ensure_wallet_ai_enabled(wallet: &WalletRecord) -> Result<(), AppError> {
+    if !wallet.ai_enabled {
+        return Err(AppError::business_rule_failed(
+            "customer ai access is frozen",
+        ));
     }
 
     Ok(())
@@ -1147,6 +1159,7 @@ async fn find_wallet_for_update(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor
         from ai_wallets
         where tenant_id = $1
@@ -1174,6 +1187,7 @@ async fn find_wallet_by_id_for_update(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor
         from ai_wallets
         where id = $1
@@ -1206,6 +1220,7 @@ async fn update_wallet_hold(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor
         "#,
     )
@@ -1237,6 +1252,7 @@ async fn update_wallet_capture(
           currency,
           balance_minor,
           held_minor,
+          ai_enabled,
           daily_spend_limit_minor
         "#,
     )
@@ -2095,11 +2111,11 @@ mod tests {
     use super::{
         calculate_actual_charge_minor, calculate_embedding_charge_minor,
         calculate_image_charge_minor, completion_token_budget, decode_base64_image_asset,
-        ensure_daily_limit_available, ensure_provider_asset_url_allowed,
+        ensure_daily_limit_available, ensure_provider_asset_url_allowed, ensure_wallet_ai_enabled,
         estimate_embedding_hold_minor, estimate_hold_minor, estimate_image_hold_minor,
         extension_for_mime, idempotency_key, image_count, normalize_mime_type, provider_payload,
         provider_timeout, token_price_minor, token_usage_from_response, GatewayCaller,
-        GatewayModel,
+        GatewayModel, WalletRecord,
     };
 
     #[test]
@@ -2249,6 +2265,15 @@ mod tests {
     }
 
     #[test]
+    fn frozen_wallet_rejects_ai_gateway_usage() {
+        let mut wallet = fixture_wallet();
+        assert!(ensure_wallet_ai_enabled(&wallet).is_ok());
+
+        wallet.ai_enabled = false;
+        assert!(ensure_wallet_ai_enabled(&wallet).is_err());
+    }
+
+    #[test]
     fn client_context_builds_session_gateway_caller_without_api_key() {
         let tenant_id = Uuid::new_v4();
         let customer_id = Uuid::new_v4();
@@ -2379,6 +2404,19 @@ mod tests {
             entitlement_status: "active".to_owned(),
             features: json!({}),
             entitlement_expires_at: Some(Utc::now()),
+        }
+    }
+
+    fn fixture_wallet() -> WalletRecord {
+        WalletRecord {
+            id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4(),
+            customer_id: Uuid::new_v4(),
+            currency: "CNY".to_owned(),
+            balance_minor: 1000,
+            held_minor: 0,
+            ai_enabled: true,
+            daily_spend_limit_minor: None,
         }
     }
 }
