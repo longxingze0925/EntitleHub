@@ -726,6 +726,8 @@ client-sdk/
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
 
+系统邮件 SMTP 推荐在后台 `系统配置 -> 邮件服务` 中配置；以上 `EMAIL_OUTBOX_*` / `SMTP_*` 环境变量保留为部署兜底。
+
 生产环境必须：
 
 - 开启 HTTPS；

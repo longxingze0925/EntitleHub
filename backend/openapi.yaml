@@ -1240,6 +1240,40 @@ paths:
           $ref: "#/components/responses/SystemSetting"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/admin/system/email-settings:
+    get:
+      tags: [admin]
+      summary: Get email service settings
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Email service settings
+        default:
+          $ref: "#/components/responses/ApiError"
+    put:
+      tags: [admin]
+      summary: Update email service settings
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          description: Email service settings
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/system/email-settings/test:
+    post:
+      tags: [admin]
+      summary: Send email service test message
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          description: Email service settings
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/admin/security/jwt-signing-keys:
     get:
       tags: [admin]

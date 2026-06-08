@@ -261,6 +261,14 @@ pub fn build(state: AppState) -> Router {
             put(system::admin::update_system_setting),
         )
         .route(
+            "/api/admin/system/email-settings",
+            get(system::email::get_email_settings).put(system::email::update_email_settings),
+        )
+        .route(
+            "/api/admin/system/email-settings/test",
+            post(system::email::test_email_settings),
+        )
+        .route(
             "/api/admin/security/jwt-signing-keys",
             get(application::admin::list_global_jwt_signing_keys),
         )

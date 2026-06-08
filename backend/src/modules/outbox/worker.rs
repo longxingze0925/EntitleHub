@@ -1,15 +1,13 @@
-use lettre::{
-    message::Mailbox, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
-    AsyncTransport, Message, Tokio1Executor,
-};
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::{
-    config::EmailConfig,
     crypto::envelope::{decrypt_bytes, PrivateKeyEnvelope},
     metrics,
+    modules::system::email::{
+        load_email_delivery_config, send_email, EmailDeliveryConfig, EmailDeliveryMessage,
+    },
     state::AppState,
 };
 
@@ -18,13 +16,6 @@ struct EmailOutboxJob {
     id: Uuid,
     payload: Value,
     attempts: i32,
-}
-
-#[derive(Debug)]
-struct EmailMessage {
-    to: String,
-    subject: String,
-    body: String,
 }
 
 pub fn spawn_email_outbox_worker(state: AppState) -> tokio::task::JoinHandle<()> {
@@ -44,7 +35,9 @@ async fn run_email_outbox_worker(state: AppState) {
 }
 
 async fn process_pending_email_batch(state: &AppState) -> Result<(), String> {
-    let mailer = build_smtp_transport(&state.config.email)?;
+    let Some(email_config) = load_email_delivery_config(state).await? else {
+        return Ok(());
+    };
     let jobs = claim_pending_email_jobs(state)
         .await
         .map_err(|error| format!("claim email outbox jobs failed: {error}"))?;
@@ -55,7 +48,7 @@ async fn process_pending_email_batch(state: &AppState) -> Result<(), String> {
     for job in jobs {
         let job_id = job.id;
         let attempts = job.attempts;
-        if let Err(error) = process_email_job(state, &mailer, job).await {
+        if let Err(error) = process_email_job(state, &email_config, job).await {
             if let Err(mark_error) = mark_job_failed(state, job_id, attempts, &error).await {
                 tracing::warn!(%mark_error, %job_id, "mark email outbox job failed state failed");
             }
@@ -68,11 +61,11 @@ async fn process_pending_email_batch(state: &AppState) -> Result<(), String> {
 
 async fn process_email_job(
     state: &AppState,
-    mailer: &AsyncSmtpTransport<Tokio1Executor>,
+    email_config: &EmailDeliveryConfig,
     job: EmailOutboxJob,
 ) -> Result<(), String> {
     let message = parse_email_payload(&job.payload, &state.config.security.master_key)?;
-    send_email(&state.config.email, mailer, &message).await?;
+    send_email(email_config, &message).await?;
     mark_job_processed(state, job.id)
         .await
         .map_err(|error| format!("mark email outbox job processed failed: {error}"))
@@ -171,55 +164,10 @@ async fn mark_job_failed(
     }
 }
 
-async fn send_email(
-    config: &EmailConfig,
-    mailer: &AsyncSmtpTransport<Tokio1Executor>,
-    email: &EmailMessage,
-) -> Result<(), String> {
-    let from = config
-        .smtp_from
-        .as_deref()
-        .ok_or_else(|| "SMTP_FROM is not configured".to_owned())?;
-    let from: Mailbox = from
-        .parse()
-        .map_err(|error| format!("SMTP_FROM is invalid: {error}"))?;
-    let to: Mailbox = email
-        .to
-        .parse()
-        .map_err(|error| format!("email recipient is invalid: {error}"))?;
-    let message = Message::builder()
-        .from(from)
-        .to(to)
-        .subject(&email.subject)
-        .body(email.body.clone())
-        .map_err(|error| format!("email message build failed: {error}"))?;
-
-    mailer
-        .send(message)
-        .await
-        .map(|_| ())
-        .map_err(|error| format!("SMTP send failed: {error}"))
-}
-
-fn build_smtp_transport(
-    config: &EmailConfig,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
-    let host = config
-        .smtp_host
-        .as_deref()
-        .ok_or_else(|| "SMTP_HOST is not configured".to_owned())?;
-    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(host)
-        .map_err(|error| format!("SMTP relay config failed: {error}"))?
-        .port(config.smtp_port);
-
-    if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password) {
-        builder = builder.credentials(Credentials::new(user.clone(), password.clone()));
-    }
-
-    Ok(builder.build())
-}
-
-fn parse_email_payload(payload: &Value, master_key: &[u8; 32]) -> Result<EmailMessage, String> {
+fn parse_email_payload(
+    payload: &Value,
+    master_key: &[u8; 32],
+) -> Result<EmailDeliveryMessage, String> {
     let to = required_string(payload, "to")?.to_owned();
     let subject = required_string(payload, "subject")?.to_owned();
     let body_envelope = payload
@@ -232,7 +180,7 @@ fn parse_email_payload(payload: &Value, master_key: &[u8; 32]) -> Result<EmailMe
     let body =
         String::from_utf8(body).map_err(|error| format!("email body is not utf8: {error}"))?;
 
-    Ok(EmailMessage { to, subject, body })
+    Ok(EmailDeliveryMessage { to, subject, body })
 }
 
 fn required_string<'a>(payload: &'a Value, field: &str) -> Result<&'a str, String> {

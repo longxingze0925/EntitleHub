@@ -67,9 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = config.server.socket_addr();
     let state = AppState::connect(config).await?;
     auth::session_cleanup::spawn_admin_session_cleanup_worker(state.clone());
-    if state.config.email.outbox_worker_enabled {
-        outbox::worker::spawn_email_outbox_worker(state.clone());
-    }
+    outbox::worker::spawn_email_outbox_worker(state.clone());
     let app = router::build(state);
 
     tracing::info!(%addr, "starting backend");

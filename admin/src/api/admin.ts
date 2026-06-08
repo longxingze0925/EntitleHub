@@ -328,6 +328,35 @@ export interface UpdateSystemSettingPayload {
   value: unknown;
 }
 
+export interface EmailSettings {
+  enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user?: string | null;
+  smtp_from: string;
+  smtp_password_configured: boolean;
+  source: string;
+  last_test_status?: string | null;
+  last_test_error?: string | null;
+  last_test_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface UpdateEmailSettingsPayload {
+  enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user?: string | null;
+  smtp_from: string;
+  smtp_password?: string;
+  clear_password?: boolean;
+}
+
+export interface TestEmailSettingsPayload {
+  to: string;
+  confirm_delivery: boolean;
+}
+
 export type NotificationChannelKind = "webhook" | "email" | "pagerduty";
 
 export interface NotificationChannel {
@@ -1149,6 +1178,28 @@ export function updateSystemSetting(params: {
       body: JSON.stringify(params.payload)
     }
   );
+}
+
+export function getEmailSettings(): Promise<EmailSettings> {
+  return apiRequest<EmailSettings>("/api/admin/system/email-settings");
+}
+
+export function updateEmailSettings(
+  payload: UpdateEmailSettingsPayload
+): Promise<EmailSettings> {
+  return apiRequest<EmailSettings>("/api/admin/system/email-settings", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function testEmailSettings(
+  payload: TestEmailSettingsPayload
+): Promise<EmailSettings> {
+  return apiRequest<EmailSettings>("/api/admin/system/email-settings/test", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function listNotificationChannels(params: {
