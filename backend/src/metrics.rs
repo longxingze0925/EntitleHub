@@ -17,6 +17,22 @@ use crate::state::AppState;
 const DURATION_BUCKETS_SECONDS: [f64; 10] =
     [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0];
 const NOTIFICATION_KIND_LABELS: [&str; 4] = ["webhook", "email", "pagerduty", "unknown"];
+const AI_GATEWAY_ENDPOINT_LABELS: [&str; 6] = [
+    "chat_completions",
+    "image_generations",
+    "embeddings",
+    "models",
+    "assets",
+    "unknown",
+];
+const AI_GATEWAY_STATUS_LABELS: [&str; 6] = [
+    "success",
+    "provider_error",
+    "client_error",
+    "rate_limited",
+    "error",
+    "replay",
+];
 
 static METRICS: OnceLock<AppMetrics> = OnceLock::new();
 
@@ -37,6 +53,15 @@ pub struct AppMetrics {
     notification_delivery_duration_micros_sum: [AtomicU64; NOTIFICATION_KIND_LABELS.len()],
     notification_delivery_duration_seconds_buckets:
         [[AtomicU64; DURATION_BUCKETS_SECONDS.len()]; NOTIFICATION_KIND_LABELS.len()],
+    ai_gateway_requests_total:
+        [[AtomicU64; AI_GATEWAY_STATUS_LABELS.len()]; AI_GATEWAY_ENDPOINT_LABELS.len()],
+    ai_gateway_charged_minor_total: [AtomicU64; AI_GATEWAY_ENDPOINT_LABELS.len()],
+    ai_gateway_provider_duration_seconds_count: [AtomicU64; AI_GATEWAY_ENDPOINT_LABELS.len()],
+    ai_gateway_provider_duration_micros_sum: [AtomicU64; AI_GATEWAY_ENDPOINT_LABELS.len()],
+    ai_gateway_provider_duration_seconds_buckets:
+        [[AtomicU64; DURATION_BUCKETS_SECONDS.len()]; AI_GATEWAY_ENDPOINT_LABELS.len()],
+    ai_gateway_asset_cache_failures_total: AtomicU64,
+    ai_gateway_idempotency_replays_total: [AtomicU64; AI_GATEWAY_ENDPOINT_LABELS.len()],
     http_request_duration_seconds_count: AtomicU64,
     http_request_duration_micros_sum: AtomicU64,
     http_request_duration_seconds_buckets: [AtomicU64; DURATION_BUCKETS_SECONDS.len()],
@@ -64,6 +89,17 @@ impl Default for AppMetrics {
             notification_delivery_duration_seconds_buckets: std::array::from_fn(|_| {
                 std::array::from_fn(|_| AtomicU64::new(0))
             }),
+            ai_gateway_requests_total: std::array::from_fn(|_| {
+                std::array::from_fn(|_| AtomicU64::new(0))
+            }),
+            ai_gateway_charged_minor_total: std::array::from_fn(|_| AtomicU64::new(0)),
+            ai_gateway_provider_duration_seconds_count: std::array::from_fn(|_| AtomicU64::new(0)),
+            ai_gateway_provider_duration_micros_sum: std::array::from_fn(|_| AtomicU64::new(0)),
+            ai_gateway_provider_duration_seconds_buckets: std::array::from_fn(|_| {
+                std::array::from_fn(|_| AtomicU64::new(0))
+            }),
+            ai_gateway_asset_cache_failures_total: AtomicU64::new(0),
+            ai_gateway_idempotency_replays_total: std::array::from_fn(|_| AtomicU64::new(0)),
             http_request_duration_seconds_count: AtomicU64::new(0),
             http_request_duration_micros_sum: AtomicU64::new(0),
             http_request_duration_seconds_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -144,11 +180,72 @@ impl AppMetrics {
             Ordering::Relaxed,
         );
     }
+
+    fn record_ai_gateway_request(&self, endpoint: &str, status: AiGatewayRequestStatus) {
+        let endpoint_index = ai_gateway_endpoint_index(endpoint);
+        let status_index = status.index();
+        self.ai_gateway_requests_total[endpoint_index][status_index]
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_ai_gateway_charged(&self, endpoint: &str, charged_minor: i64) {
+        if charged_minor <= 0 {
+            return;
+        }
+        let endpoint_index = ai_gateway_endpoint_index(endpoint);
+        self.ai_gateway_charged_minor_total[endpoint_index]
+            .fetch_add(charged_minor as u64, Ordering::Relaxed);
+    }
+
+    fn record_ai_gateway_provider_duration(&self, endpoint: &str, duration: std::time::Duration) {
+        let endpoint_index = ai_gateway_endpoint_index(endpoint);
+        let duration_seconds = duration.as_secs_f64();
+        for (bucket_index, bucket) in DURATION_BUCKETS_SECONDS.iter().enumerate() {
+            if duration_seconds <= *bucket {
+                self.ai_gateway_provider_duration_seconds_buckets[endpoint_index][bucket_index]
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.ai_gateway_provider_duration_seconds_count[endpoint_index]
+            .fetch_add(1, Ordering::Relaxed);
+        self.ai_gateway_provider_duration_micros_sum[endpoint_index].fetch_add(
+            duration.as_micros().min(u128::from(u64::MAX)) as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn record_ai_gateway_idempotency_replay(&self, endpoint: &str) {
+        let endpoint_index = ai_gateway_endpoint_index(endpoint);
+        self.ai_gateway_idempotency_replays_total[endpoint_index].fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub enum NotificationDeliveryStatus {
     Success,
     Failure,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AiGatewayRequestStatus {
+    Success,
+    ProviderError,
+    ClientError,
+    RateLimited,
+    Error,
+    Replay,
+}
+
+impl AiGatewayRequestStatus {
+    fn index(self) -> usize {
+        match self {
+            Self::Success => 0,
+            Self::ProviderError => 1,
+            Self::ClientError => 2,
+            Self::RateLimited => 3,
+            Self::Error => 4,
+            Self::Replay => 5,
+        }
+    }
 }
 
 pub async fn record_http_metrics(request: Request, next: Next) -> Response {
@@ -181,6 +278,28 @@ pub fn record_notification_delivery(
     duration: std::time::Duration,
 ) {
     metrics().record_notification_delivery(kind, status, duration);
+}
+
+pub fn record_ai_gateway_request(endpoint: &str, status: AiGatewayRequestStatus) {
+    metrics().record_ai_gateway_request(endpoint, status);
+}
+
+pub fn record_ai_gateway_charged(endpoint: &str, charged_minor: i64) {
+    metrics().record_ai_gateway_charged(endpoint, charged_minor);
+}
+
+pub fn record_ai_gateway_provider_duration(endpoint: &str, duration: std::time::Duration) {
+    metrics().record_ai_gateway_provider_duration(endpoint, duration);
+}
+
+pub fn record_ai_gateway_asset_cache_failure() {
+    metrics()
+        .ai_gateway_asset_cache_failures_total
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_ai_gateway_idempotency_replay(endpoint: &str) {
+    metrics().record_ai_gateway_idempotency_replay(endpoint);
 }
 
 pub async fn scrape(State(state): State<AppState>) -> impl IntoResponse {
@@ -310,6 +429,78 @@ fn render_prometheus(db_pool: Option<&sqlx::PgPool>) -> String {
             "notification_delivery_duration_seconds_count{{kind=\"{kind_label}\"}} {duration_count}\n"
         ));
     }
+    output.push_str(
+        "# HELP ai_gateway_requests_total Total AI gateway requests by endpoint and status.\n",
+    );
+    output.push_str("# TYPE ai_gateway_requests_total counter\n");
+    for (endpoint_index, endpoint_label) in AI_GATEWAY_ENDPOINT_LABELS.iter().enumerate() {
+        for (status_index, status_label) in AI_GATEWAY_STATUS_LABELS.iter().enumerate() {
+            let value = metrics.ai_gateway_requests_total[endpoint_index][status_index]
+                .load(Ordering::Relaxed);
+            output.push_str(&format!(
+                "ai_gateway_requests_total{{endpoint=\"{endpoint_label}\",status=\"{status_label}\"}} {value}\n"
+            ));
+        }
+    }
+    output.push_str(
+        "# HELP ai_gateway_charged_minor_total Total minor currency units charged by AI gateway endpoint.\n",
+    );
+    output.push_str("# TYPE ai_gateway_charged_minor_total counter\n");
+    for (endpoint_index, endpoint_label) in AI_GATEWAY_ENDPOINT_LABELS.iter().enumerate() {
+        let value = metrics.ai_gateway_charged_minor_total[endpoint_index].load(Ordering::Relaxed);
+        output.push_str(&format!(
+            "ai_gateway_charged_minor_total{{endpoint=\"{endpoint_label}\"}} {value}\n"
+        ));
+    }
+    output.push_str(
+        "# HELP ai_gateway_provider_duration_seconds AI provider request duration histogram by gateway endpoint.\n",
+    );
+    output.push_str("# TYPE ai_gateway_provider_duration_seconds histogram\n");
+    for (endpoint_index, endpoint_label) in AI_GATEWAY_ENDPOINT_LABELS.iter().enumerate() {
+        let duration_count = metrics.ai_gateway_provider_duration_seconds_count[endpoint_index]
+            .load(Ordering::Relaxed);
+        let duration_sum = metrics.ai_gateway_provider_duration_micros_sum[endpoint_index]
+            .load(Ordering::Relaxed) as f64
+            / 1_000_000.0;
+        for (bucket_index, bucket) in DURATION_BUCKETS_SECONDS.iter().enumerate() {
+            let value = metrics.ai_gateway_provider_duration_seconds_buckets[endpoint_index]
+                [bucket_index]
+                .load(Ordering::Relaxed);
+            output.push_str(&format!(
+                "ai_gateway_provider_duration_seconds_bucket{{endpoint=\"{endpoint_label}\",le=\"{bucket}\"}} {value}\n"
+            ));
+        }
+        output.push_str(&format!(
+            "ai_gateway_provider_duration_seconds_bucket{{endpoint=\"{endpoint_label}\",le=\"+Inf\"}} {duration_count}\n"
+        ));
+        output.push_str(&format!(
+            "ai_gateway_provider_duration_seconds_sum{{endpoint=\"{endpoint_label}\"}} {duration_sum:.6}\n"
+        ));
+        output.push_str(&format!(
+            "ai_gateway_provider_duration_seconds_count{{endpoint=\"{endpoint_label}\"}} {duration_count}\n"
+        ));
+    }
+    let asset_cache_failures_total = metrics
+        .ai_gateway_asset_cache_failures_total
+        .load(Ordering::Relaxed);
+    output.push_str(
+        "# HELP ai_gateway_asset_cache_failures_total Total AI generated asset cache failures.\n",
+    );
+    output.push_str("# TYPE ai_gateway_asset_cache_failures_total counter\n");
+    output.push_str(&format!(
+        "ai_gateway_asset_cache_failures_total {asset_cache_failures_total}\n"
+    ));
+    output.push_str(
+        "# HELP ai_gateway_idempotency_replays_total Total AI gateway idempotency replay responses by endpoint.\n",
+    );
+    output.push_str("# TYPE ai_gateway_idempotency_replays_total counter\n");
+    for (endpoint_index, endpoint_label) in AI_GATEWAY_ENDPOINT_LABELS.iter().enumerate() {
+        let value =
+            metrics.ai_gateway_idempotency_replays_total[endpoint_index].load(Ordering::Relaxed);
+        output.push_str(&format!(
+            "ai_gateway_idempotency_replays_total{{endpoint=\"{endpoint_label}\"}} {value}\n"
+        ));
+    }
     if let Some(pool) = db_pool {
         output.push_str("# HELP db_pool_connections Current database pool connections.\n");
         output.push_str("# TYPE db_pool_connections gauge\n");
@@ -353,11 +544,25 @@ fn notification_kind_index(kind: &str) -> usize {
     }
 }
 
+fn ai_gateway_endpoint_index(endpoint: &str) -> usize {
+    match endpoint {
+        "/v1/chat/completions" | "chat_completions" => 0,
+        "/v1/images/generations" | "image_generations" => 1,
+        "/v1/embeddings" | "embeddings" => 2,
+        "/v1/models" | "models" => 3,
+        "/api/ai/assets/{id}" | "assets" => 4,
+        _ => 5,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        metrics, record_nonce_replay, record_notification_delivery, record_redis_error,
-        record_worker_job_failed, render_prometheus, NotificationDeliveryStatus,
+        metrics, record_ai_gateway_asset_cache_failure, record_ai_gateway_charged,
+        record_ai_gateway_idempotency_replay, record_ai_gateway_provider_duration,
+        record_ai_gateway_request, record_nonce_replay, record_notification_delivery,
+        record_redis_error, record_worker_job_failed, render_prometheus, AiGatewayRequestStatus,
+        NotificationDeliveryStatus,
     };
 
     #[test]
@@ -400,6 +605,18 @@ mod tests {
             NotificationDeliveryStatus::Failure,
             std::time::Duration::from_millis(25),
         );
+        record_ai_gateway_request("/v1/chat/completions", AiGatewayRequestStatus::Success);
+        record_ai_gateway_request(
+            "/v1/images/generations",
+            AiGatewayRequestStatus::ProviderError,
+        );
+        record_ai_gateway_charged("/v1/chat/completions", 123);
+        record_ai_gateway_provider_duration(
+            "/v1/chat/completions",
+            std::time::Duration::from_millis(25),
+        );
+        record_ai_gateway_asset_cache_failure();
+        record_ai_gateway_idempotency_replay("/v1/chat/completions");
 
         let rendered = render_prometheus(None);
 
@@ -418,6 +635,14 @@ mod tests {
         assert!(rendered.contains("notification_delivery_duration_seconds_bucket"));
         assert!(rendered.contains("notification_delivery_duration_seconds_sum"));
         assert!(rendered.contains("notification_delivery_duration_seconds_count"));
+        assert!(rendered.contains("ai_gateway_requests_total"));
+        assert!(rendered.contains(
+            "ai_gateway_requests_total{endpoint=\"chat_completions\",status=\"success\"}"
+        ));
+        assert!(rendered.contains("ai_gateway_charged_minor_total"));
+        assert!(rendered.contains("ai_gateway_provider_duration_seconds_bucket"));
+        assert!(rendered.contains("ai_gateway_asset_cache_failures_total"));
+        assert!(rendered.contains("ai_gateway_idempotency_replays_total"));
         assert!(
             rendered.contains("notification_delivery_total{kind=\"webhook\",status=\"success\"}")
         );

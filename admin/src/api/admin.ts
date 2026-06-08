@@ -365,6 +365,224 @@ export interface TestNotificationChannelPayload {
   confirm_delivery?: boolean;
 }
 
+export type AiProviderKind =
+  | "openai_compatible"
+  | "custom_http"
+  | "claude"
+  | "gemini"
+  | "deepseek"
+  | "image"
+  | "video";
+
+export interface AiProvider {
+  id: string;
+  name: string;
+  kind: AiProviderKind;
+  base_url: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  secret_configured: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAiProviderPayload {
+  name: string;
+  kind: AiProviderKind;
+  base_url: string;
+  enabled?: boolean;
+  config: Record<string, unknown>;
+  secret?: Record<string, unknown>;
+}
+
+export interface UpdateAiProviderPayload {
+  name?: string;
+  base_url?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+  secret?: Record<string, unknown>;
+  clear_secret?: boolean;
+}
+
+export type AiModelModality =
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "embedding"
+  | "multimodal";
+
+export interface AiModel {
+  id: string;
+  code: string;
+  name: string;
+  modality: AiModelModality;
+  provider_id?: string | null;
+  provider_name?: string | null;
+  provider_model?: string | null;
+  enabled: boolean;
+  currency: string;
+  input_1k_price_minor: number;
+  output_1k_price_minor: number;
+  request_price_minor: number;
+  image_price_minor: number;
+  second_price_minor: number;
+  daily_spend_limit_minor?: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAiModelPayload {
+  code: string;
+  name: string;
+  modality: AiModelModality;
+  provider_id?: string;
+  provider_model?: string;
+  enabled?: boolean;
+  currency?: string;
+  input_1k_price_minor?: number;
+  output_1k_price_minor?: number;
+  request_price_minor?: number;
+  image_price_minor?: number;
+  second_price_minor?: number;
+  daily_spend_limit_minor?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateAiModelPayload {
+  name?: string;
+  modality?: AiModelModality;
+  provider_id?: string | null;
+  provider_model?: string | null;
+  enabled?: boolean;
+  currency?: string;
+  input_1k_price_minor?: number;
+  output_1k_price_minor?: number;
+  request_price_minor?: number;
+  image_price_minor?: number;
+  second_price_minor?: number;
+  daily_spend_limit_minor?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AiWallet {
+  customer_id: string;
+  customer_email: string;
+  customer_name?: string | null;
+  wallet_id?: string | null;
+  currency: string;
+  balance_minor: number;
+  held_minor: number;
+  available_minor: number;
+  daily_spend_limit_minor?: number | null;
+  updated_at?: string | null;
+}
+
+export interface AiWalletLedgerEntry {
+  id: string;
+  customer_id: string;
+  entry_type: string;
+  amount_minor: number;
+  balance_after_minor: number;
+  held_after_minor: number;
+  reason: string;
+  reference_type?: string | null;
+  reference_id?: string | null;
+  metadata: Record<string, unknown>;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface AdjustAiWalletPayload {
+  amount_minor: number;
+  reason: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateAiWalletQuotaPayload {
+  daily_spend_limit_minor?: number | null;
+}
+
+export interface AiApiKey {
+  id: string;
+  customer_id: string;
+  customer_email: string;
+  customer_name?: string | null;
+  name: string;
+  key_prefix: string;
+  status: string;
+  expires_at?: string | null;
+  daily_spend_limit_minor?: number | null;
+  last_used_at?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+}
+
+export interface CreateAiApiKeyPayload {
+  name: string;
+  expires_at?: string | null;
+  daily_spend_limit_minor?: number | null;
+}
+
+export interface UpdateAiApiKeyPayload {
+  name?: string;
+  expires_at?: string | null;
+  daily_spend_limit_minor?: number | null;
+}
+
+export interface CreateAiApiKeyResult {
+  api_key: AiApiKey;
+  plain_key: string;
+}
+
+export type AiAssetType = "image" | "video" | "audio" | "file";
+export type AiAssetStatus = "caching" | "ready" | "failed" | "deleted";
+
+export interface AiAsset {
+  id: string;
+  usage_id?: string | null;
+  customer_id?: string | null;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  provider_name?: string | null;
+  model_code?: string | null;
+  asset_type: AiAssetType;
+  status: AiAssetStatus;
+  public_url?: string | null;
+  mime_type?: string | null;
+  file_size?: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
+export interface AiUsageRecord {
+  id: string;
+  customer_id?: string | null;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  provider_name?: string | null;
+  model_code?: string | null;
+  request_id?: string | null;
+  endpoint: string;
+  status: string;
+  provider_status?: string | null;
+  provider_request_id?: string | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  charged_minor: number;
+  refunded_minor: number;
+  provider_cost_minor?: number | null;
+  currency: string;
+  price_snapshot: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  completed_at?: string | null;
+}
+
 export interface OutboxEventSummary {
   id: string;
   tenant_id?: string | null;
@@ -962,6 +1180,205 @@ export function testNotificationChannel(
       method: "POST",
       body: JSON.stringify(payload)
     }
+  );
+}
+
+export function listAiProviders(params: {
+  include_history?: boolean;
+} = {}): Promise<{ items: AiProvider[] }> {
+  return apiRequest<{ items: AiProvider[] }>(
+    `/api/admin/ai/providers${query({
+      include_history: params.include_history
+    })}`
+  );
+}
+
+export function createAiProvider(
+  payload: CreateAiProviderPayload
+): Promise<{ provider: AiProvider }> {
+  return apiRequest<{ provider: AiProvider }>("/api/admin/ai/providers", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateAiProvider(params: {
+  id: string;
+  payload: UpdateAiProviderPayload;
+}): Promise<{ provider: AiProvider }> {
+  return apiRequest<{ provider: AiProvider }>(
+    `/api/admin/ai/providers/${params.id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function listAiModels(params: {
+  include_history?: boolean;
+  modality?: string;
+} = {}): Promise<{ items: AiModel[] }> {
+  return apiRequest<{ items: AiModel[] }>(
+    `/api/admin/ai/models${query({
+      include_history: params.include_history,
+      modality: params.modality
+    })}`
+  );
+}
+
+export function createAiModel(
+  payload: CreateAiModelPayload
+): Promise<{ model: AiModel }> {
+  return apiRequest<{ model: AiModel }>("/api/admin/ai/models", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateAiModel(params: {
+  id: string;
+  payload: UpdateAiModelPayload;
+}): Promise<{ model: AiModel }> {
+  return apiRequest<{ model: AiModel }>(`/api/admin/ai/models/${params.id}`, {
+    method: "PUT",
+    body: JSON.stringify(params.payload)
+  });
+}
+
+export function listAiWallets(params: {
+  include_history?: boolean;
+} = {}): Promise<{ items: AiWallet[] }> {
+  return apiRequest<{ items: AiWallet[] }>(
+    `/api/admin/ai/wallets${query({
+      include_history: params.include_history
+    })}`
+  );
+}
+
+export function adjustAiWallet(params: {
+  customerId: string;
+  payload: AdjustAiWalletPayload;
+}): Promise<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }> {
+  return apiRequest<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }>(
+    `/api/admin/ai/customers/${params.customerId}/wallet/adjust`,
+    {
+      method: "POST",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function updateAiWalletQuota(params: {
+  customerId: string;
+  payload: UpdateAiWalletQuotaPayload;
+}): Promise<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }> {
+  return apiRequest<{ wallet: AiWallet; ledger_entry?: AiWalletLedgerEntry | null }>(
+    `/api/admin/ai/customers/${params.customerId}/wallet/quota`,
+    {
+      method: "PUT",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function listAiWalletLedger(params: {
+  customerId: string;
+  page?: number;
+  page_size?: number;
+}): Promise<ListResponse<AiWalletLedgerEntry>> {
+  return apiRequest<ListResponse<AiWalletLedgerEntry>>(
+    `/api/admin/ai/customers/${params.customerId}/wallet/ledger${query({
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 20
+    })}`
+  );
+}
+
+export function listAiApiKeys(params: {
+  include_history?: boolean;
+  customer_id?: string;
+} = {}): Promise<{ items: AiApiKey[] }> {
+  return apiRequest<{ items: AiApiKey[] }>(
+    `/api/admin/ai/api-keys${query({
+      include_history: params.include_history,
+      customer_id: params.customer_id
+    })}`
+  );
+}
+
+export function createAiApiKey(params: {
+  customerId: string;
+  payload: CreateAiApiKeyPayload;
+}): Promise<CreateAiApiKeyResult> {
+  return apiRequest<CreateAiApiKeyResult>(
+    `/api/admin/ai/customers/${params.customerId}/api-keys`,
+    {
+      method: "POST",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function updateAiApiKey(params: {
+  id: string;
+  payload: UpdateAiApiKeyPayload;
+}): Promise<{ api_key: AiApiKey }> {
+  return apiRequest<{ api_key: AiApiKey }>(
+    `/api/admin/ai/api-keys/${params.id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function revokeAiApiKey(id: string): Promise<{ api_key: AiApiKey }> {
+  return apiRequest<{ api_key: AiApiKey }>(
+    `/api/admin/ai/api-keys/${id}/revoke`,
+    {
+      method: "POST"
+    }
+  );
+}
+
+export function listAiAssets(params: {
+  status?: string;
+  asset_type?: string;
+  customer_id?: string;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<ListResponse<AiAsset>> {
+  return apiRequest<ListResponse<AiAsset>>(
+    `/api/admin/ai/assets${query({
+      status: params.status,
+      asset_type: params.asset_type,
+      customer_id: params.customer_id,
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 50
+    })}`
+  );
+}
+
+export function deleteAiAsset(id: string): Promise<{ asset: AiAsset }> {
+  return apiRequest<{ asset: AiAsset }>(`/api/admin/ai/assets/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export function listAiUsageRecords(params: {
+  status?: string;
+  customer_id?: string;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<ListResponse<AiUsageRecord>> {
+  return apiRequest<ListResponse<AiUsageRecord>>(
+    `/api/admin/ai/usage-records${query({
+      status: params.status,
+      customer_id: params.customer_id,
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 50
+    })}`
   );
 }
 

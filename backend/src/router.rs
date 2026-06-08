@@ -9,7 +9,7 @@ use crate::{
     http::{client_ip, request_id, security},
     metrics,
     modules::{
-        application, audit, auth, client_auth, customer, device, iam, license, notification,
+        ai, application, audit, auth, client_auth, customer, device, iam, license, notification,
         outbox, platform, release, secure_script, subscription, system, team, tenant,
     },
     state::AppState,
@@ -107,6 +107,57 @@ pub fn build(state: AppState) -> Router {
             put(iam::admin::update_role).delete(iam::admin::delete_role),
         )
         .route("/api/admin/permissions", get(iam::admin::list_permissions))
+        .route(
+            "/api/admin/ai/providers",
+            get(ai::admin::list_ai_providers).post(ai::admin::create_ai_provider),
+        )
+        .route(
+            "/api/admin/ai/providers/{id}",
+            put(ai::admin::update_ai_provider),
+        )
+        .route(
+            "/api/admin/ai/models",
+            get(ai::admin::list_ai_models).post(ai::admin::create_ai_model),
+        )
+        .route("/api/admin/ai/models/{id}", put(ai::admin::update_ai_model))
+        .route("/api/admin/ai/wallets", get(ai::admin::list_ai_wallets))
+        .route(
+            "/api/admin/ai/api-keys",
+            get(ai::api_keys::list_ai_api_keys),
+        )
+        .route(
+            "/api/admin/ai/api-keys/{id}",
+            put(ai::api_keys::update_ai_api_key),
+        )
+        .route(
+            "/api/admin/ai/customers/{id}/api-keys",
+            post(ai::api_keys::create_ai_api_key),
+        )
+        .route(
+            "/api/admin/ai/api-keys/{id}/revoke",
+            post(ai::api_keys::revoke_ai_api_key),
+        )
+        .route(
+            "/api/admin/ai/usage-records",
+            get(ai::usage::list_ai_usage_records),
+        )
+        .route("/api/admin/ai/assets", get(ai::assets::list_ai_assets))
+        .route(
+            "/api/admin/ai/assets/{id}",
+            delete(ai::assets::delete_ai_asset),
+        )
+        .route(
+            "/api/admin/ai/customers/{id}/wallet/adjust",
+            post(ai::admin::adjust_ai_wallet),
+        )
+        .route(
+            "/api/admin/ai/customers/{id}/wallet/quota",
+            put(ai::admin::update_ai_wallet_quota),
+        )
+        .route(
+            "/api/admin/ai/customers/{id}/wallet/ledger",
+            get(ai::admin::list_ai_wallet_ledger),
+        )
         .route(
             "/api/admin/notification-channels",
             get(notification::admin::list_notification_channels)
@@ -316,6 +367,14 @@ pub fn build(state: AppState) -> Router {
             "/api/internal/alertmanager/webhook",
             post(notification::alertmanager::receive_alertmanager_webhook),
         )
+        .route("/api/ai/assets/{id}", get(ai::gateway::get_asset))
+        .route("/v1/chat/completions", post(ai::gateway::chat_completions))
+        .route("/v1/embeddings", post(ai::gateway::embeddings))
+        .route(
+            "/v1/images/generations",
+            post(ai::gateway::image_generations),
+        )
+        .route("/v1/models", get(ai::gateway::list_models))
         .route(
             "/api/auth/password/reset/request",
             post(auth::password::request_password_reset),
@@ -558,6 +617,8 @@ mod tests {
                 client_action_rate_limit_window_seconds: 60,
                 download_rate_limit_max: 30,
                 download_rate_limit_window_seconds: 300,
+                ai_gateway_rate_limit_max: 120,
+                ai_gateway_rate_limit_window_seconds: 60,
                 allowed_origins: vec!["https://admin.example.com".to_owned()],
                 trusted_proxies: Vec::new(),
             },

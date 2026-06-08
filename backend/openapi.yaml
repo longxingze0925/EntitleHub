@@ -17,6 +17,7 @@ tags:
   - name: internal
   - name: admin-auth
   - name: admin
+  - name: ai-gateway
   - name: client-auth
   - name: client
 paths:
@@ -82,6 +83,121 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/AlertDelivery"
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/ai/assets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [ai-gateway]
+      summary: Public cached AI asset download URL
+      responses:
+        "200":
+          description: Cached AI-generated asset bytes
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /v1/chat/completions:
+    post:
+      tags: [ai-gateway]
+      summary: OpenAI-compatible chat completion gateway with EntitleHub API key billing
+      security:
+        - AiApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible chat completion response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /v1/embeddings:
+    post:
+      tags: [ai-gateway]
+      summary: OpenAI-compatible embeddings gateway with EntitleHub API key billing
+      security:
+        - AiApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible embeddings response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /v1/images/generations:
+    post:
+      tags: [ai-gateway]
+      summary: OpenAI-compatible image generation gateway with EntitleHub API key billing and asset caching
+      security:
+        - AiApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible image generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /v1/models:
+    get:
+      tags: [ai-gateway]
+      summary: OpenAI-compatible model list for enabled EntitleHub AI models
+      security:
+        - AiApiKey: []
+      responses:
+        "200":
+          description: Provider-compatible model list response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
         default:
           $ref: "#/components/responses/ApiError"
 
@@ -436,6 +552,260 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/PermissionList"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/providers:
+    get:
+      tags: [admin]
+      summary: List AI providers
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create AI provider
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/providers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update AI provider
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/models:
+    get:
+      tags: [admin]
+      summary: List AI models
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create AI model pricing
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/models/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update AI model pricing
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/wallets:
+    get:
+      tags: [admin]
+      summary: List AI wallets
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/api-keys:
+    get:
+      tags: [admin]
+      summary: List AI API keys
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update AI API key
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/customers/{id}/api-keys:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Create AI API key for customer
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/api-keys/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Revoke AI API key
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/usage-records:
+    get:
+      tags: [admin]
+      summary: List AI usage records
+      security:
+        - AdminSession: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/assets:
+    get:
+      tags: [admin]
+      summary: List AI cached assets
+      security:
+        - AdminSession: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [caching, ready, failed, deleted]
+        - name: asset_type
+          in: query
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/assets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    delete:
+      tags: [admin]
+      summary: Delete AI cached asset
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/customers/{id}/wallet/adjust:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Manually adjust AI wallet balance
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/customers/{id}/wallet/quota:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update AI wallet quota
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/customers/{id}/wallet/ledger:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: List AI wallet ledger entries
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
   /api/admin/notification-channels:
@@ -1390,6 +1760,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: ALERTMANAGER_WEBHOOK_TOKEN
+    AiApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: EHAI_API_KEY
   parameters:
     IdPath:
       name: id

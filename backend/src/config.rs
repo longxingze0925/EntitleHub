@@ -123,6 +123,8 @@ pub struct SecurityConfig {
     pub client_action_rate_limit_window_seconds: u64,
     pub download_rate_limit_max: u32,
     pub download_rate_limit_window_seconds: u64,
+    pub ai_gateway_rate_limit_max: u32,
+    pub ai_gateway_rate_limit_window_seconds: u64,
     pub allowed_origins: Vec<String>,
     pub trusted_proxies: Vec<IpAddr>,
 }
@@ -193,6 +195,11 @@ impl AppConfig {
             download_rate_limit_window_seconds: parse_u64(
                 "DOWNLOAD_RATE_LIMIT_WINDOW_SECONDS",
                 300,
+            )?,
+            ai_gateway_rate_limit_max: parse_u32("AI_GATEWAY_RATE_LIMIT_MAX", 120)?,
+            ai_gateway_rate_limit_window_seconds: parse_u64(
+                "AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
+                60,
             )?,
             allowed_origins,
             trusted_proxies,
@@ -997,6 +1004,8 @@ mod tests {
             client_action_rate_limit_window_seconds: 60,
             download_rate_limit_max: 30,
             download_rate_limit_window_seconds: 300,
+            ai_gateway_rate_limit_max: 120,
+            ai_gateway_rate_limit_window_seconds: 60,
             allowed_origins: vec!["https://admin.example.com".to_owned()],
             trusted_proxies: Vec::new(),
         }

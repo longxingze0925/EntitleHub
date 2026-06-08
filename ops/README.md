@@ -79,6 +79,15 @@ pwsh -File ops/smoke-client-sdk.ps1
 
 The script logs in as the local owner, reuses or creates a `sdk-smoke` application, creates a short-lived test license, and runs the ignored SDK live test against the running backend. It does not print owner credentials or the generated license key.
 
+Run the AI gateway smoke with a real EntitleHub AI API Key:
+
+```powershell
+$env:AI_GATEWAY_API_KEY = "ehai_..."
+pwsh -File ops/smoke-ai-gateway.ps1 -ChatModel gpt-4o-mini -EmbeddingModel text-embedding-3-small
+```
+
+Add `-ImageModel image-test` when you want to spend a real image generation request and verify cached asset download.
+
 Run the expiry flow smoke to verify active sessions are rejected after license and subscription expiry:
 
 ```powershell
@@ -106,7 +115,7 @@ Prometheus and Grafana are included as first-run monitoring services. The compos
 
 PostgreSQL and Redis exporters are included for dependency-level metrics. Compose healthchecks cover PostgreSQL, Redis, Backend, Admin, Prometheus, Alertmanager, Grafana, and postgres-exporter. The redis-exporter image does not include a shell, so `ops/smoke-compose.ps1` verifies it through Prometheus active targets.
 
-Backend metrics include HTTP counters and latency, dependency health counters, worker failure counters, and Alertmanager notification delivery counters/latency under `notification_delivery_*`.
+Backend metrics include HTTP counters and latency, dependency health counters, worker failure counters, Alertmanager notification delivery counters/latency under `notification_delivery_*`, and AI gateway request/billing/cache/idempotency metrics under `ai_gateway_*`.
 
 Alertmanager starts with a no-op receiver so the local stack can boot without a real notification endpoint. For production, prefer routing Alertmanager to the backend adapter at `/api/internal/alertmanager/webhook`; the backend then reads the notification channels configured in the Admin UI and keeps webhook URLs, SMTP passwords, and PagerDuty routing keys encrypted in the database.
 

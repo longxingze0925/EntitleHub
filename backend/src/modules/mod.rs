@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod application;
 pub mod audit;
 pub mod auth;

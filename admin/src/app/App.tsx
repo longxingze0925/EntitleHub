@@ -21,6 +21,7 @@ import { EmailVerifyPage } from "../pages/login/EmailVerifyPage";
 import { LoginPage } from "../pages/login/LoginPage";
 import { PasswordResetPage } from "../pages/login/PasswordResetPage";
 import { ApplicationsPage } from "../pages/resources/ApplicationsPage";
+import { AiBillingPage } from "../pages/resources/AiBillingPage";
 import { AuditLogsPage } from "../pages/resources/AuditLogsPage";
 import { CustomersPage } from "../pages/resources/CustomersPage";
 import { DevicesPage } from "../pages/resources/DevicesPage";
@@ -133,6 +134,7 @@ export function App() {
           <Route path="roles" element={<RolesPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="apps" element={<ApplicationsPage />} />
+          <Route path="ai-billing" element={<AiBillingPage />} />
           <Route path="licenses" element={<LicensesPage />} />
           <Route path="subscriptions" element={<SubscriptionsPage />} />
           <Route path="devices" element={<DevicesPage />} />

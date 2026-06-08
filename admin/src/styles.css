@@ -343,6 +343,12 @@ body {
   justify-content: space-between;
 }
 
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
 .settings-stack,
 .settings-stack .ant-space-item {
   width: 100%;
@@ -374,9 +380,29 @@ body {
 }
 
 .secret-list .ant-typography,
-.recovery-code-grid .ant-typography {
+.recovery-code-grid .ant-typography,
+.api-key-preview {
   max-width: 100%;
   word-break: break-all;
+}
+
+.ai-billing-page .ant-table-wrapper {
+  min-width: 0;
+}
+
+.ai-stacked-cell {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-stacked-cell .ant-space-item {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ai-stacked-cell .ant-typography {
+  display: block;
+  max-width: 100%;
 }
 
 .recovery-code-grid {

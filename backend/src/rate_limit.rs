@@ -130,6 +130,10 @@ pub fn download_key(file_id: &str, device_id: &str) -> String {
     )
 }
 
+pub fn ai_gateway_key(api_key_id: &str) -> String {
+    format!("rate:ai_gateway:{}", key_part(api_key_id))
+}
+
 fn key_part(value: &str) -> String {
     let normalized = value.trim();
     if normalized.is_empty() {
@@ -150,8 +154,9 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue};
 
     use super::{
-        activation_key, client_action_key, client_ip, download_key, email_verify_key,
-        heartbeat_key, key_part, login_key, mfa_key, refresh_key, INTERNAL_CLIENT_IP_HEADER,
+        activation_key, ai_gateway_key, client_action_key, client_ip, download_key,
+        email_verify_key, heartbeat_key, key_part, login_key, mfa_key, refresh_key,
+        INTERNAL_CLIENT_IP_HEADER,
     };
 
     #[test]
@@ -210,5 +215,6 @@ mod tests {
             download_key("file-id", "device-id"),
             "rate:download:file-id:device-id"
         );
+        assert_eq!(ai_gateway_key("api/key-id"), "rate:ai_gateway:api_key-id");
     }
 }

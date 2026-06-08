@@ -5,6 +5,7 @@ import {
   Boxes,
   ClipboardList,
   CreditCard,
+  Cpu,
   FileClock,
   Gauge,
   Inbox,
@@ -59,6 +60,13 @@ export const menuRoutes: MenuRoute[] = [
     label: "应用管理",
     permission: "app:read",
     icon: <AppWindow size={18} />
+  },
+  {
+    key: "ai-billing",
+    path: "/ai-billing",
+    label: "AI 计费",
+    permission: "ai:read",
+    icon: <Cpu size={18} />
   },
   {
     key: "licenses",

@@ -132,7 +132,8 @@ GET /metrics
 
 - `/health` 和 `/healthz` 用于进程存活检查。
 - `/readyz` 用于依赖就绪检查。
-- `/metrics` 输出 Prometheus text 格式的 HTTP、依赖、worker 和通知投递指标。
+- `/metrics` 输出 Prometheus text 格式的 HTTP、依赖、worker、通知投递和 AI 网关指标。
+- AI 网关指标包括 `ai_gateway_requests_total`、`ai_gateway_charged_minor_total`、`ai_gateway_provider_duration_seconds`、`ai_gateway_asset_cache_failures_total` 和 `ai_gateway_idempotency_replays_total`。
 
 ### 1.5 分页参数
 
@@ -2298,7 +2299,817 @@ POST /api/client/secure-scripts/fetch
 - 接口返回给客户端的是 `content_base64`。
 - 客户端必须验证 `sha256` 和 `signature` 后才能交给业务层。
 
-## 18. API 安全注意事项
+## 18. 后台 AI 计费管理接口
+
+AI 计费用于配置三方渠道、模型售价、客户余额和客户 API Key。客户端 AI 中转第一版开放 OpenAI 兼容的 `/v1/chat/completions`、`/v1/embeddings` 和 `/v1/images/generations`，调用方只接触 EntitleHub API Key，不暴露三方平台密钥。
+
+### 18.1 AI 渠道列表
+
+```http
+GET /api/admin/ai/providers?include_history=false
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "name": "OpenAI 主渠道",
+      "kind": "openai_compatible",
+      "base_url": "https://api.openai.com/v1",
+      "enabled": true,
+      "config": {},
+      "secret_configured": true,
+      "created_at": "...",
+      "updated_at": "..."
+    }
+  ]
+}
+```
+
+### 18.2 创建 AI 渠道
+
+```http
+POST /api/admin/ai/providers
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:provider:update
+```
+
+请求：
+
+```json
+{
+  "name": "OpenAI 主渠道",
+  "kind": "openai_compatible",
+  "base_url": "https://api.openai.com/v1",
+  "enabled": true,
+  "config": {
+    "timeout_ms": 30000
+  },
+  "secret": {
+    "api_key": "sk-..."
+  }
+}
+```
+
+说明：
+
+- `kind` 第一版支持 `openai_compatible`、`custom_http`、`claude`、`gemini`、`deepseek`、`image`、`video`。
+- `config` 只能放非敏感配置。
+- `secret` 使用 `MASTER_KEY` envelope 加密保存，接口不回显明文。
+- 真实三方接口差异通过后续 provider adapter 处理，不在配置里硬编码复杂转换逻辑。
+
+### 18.3 更新 AI 渠道
+
+```http
+PUT /api/admin/ai/providers/{id}
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:provider:update
+```
+
+请求字段同创建接口，均为可选字段。传入新的 `secret` 会覆盖旧密钥，`clear_secret=true` 会清空已配置密钥。
+
+### 18.4 AI 模型价格列表
+
+```http
+GET /api/admin/ai/models?include_history=false&modality=text
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "code": "gpt-4o-mini",
+      "name": "GPT-4o mini",
+      "modality": "text",
+      "provider_id": "uuid",
+      "provider_name": "OpenAI 主渠道",
+      "provider_model": "gpt-4o-mini",
+      "enabled": true,
+      "currency": "CNY",
+      "input_1k_price_minor": 1,
+      "output_1k_price_minor": 3,
+      "request_price_minor": 0,
+      "image_price_minor": 0,
+      "second_price_minor": 0,
+      "daily_spend_limit_minor": null,
+      "metadata": {}
+    }
+  ]
+}
+```
+
+### 18.5 创建 / 更新 AI 模型价格
+
+```http
+POST /api/admin/ai/models
+PUT /api/admin/ai/models/{id}
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:model:update
+```
+
+请求：
+
+```json
+{
+  "code": "gpt-4o-mini",
+  "name": "GPT-4o mini",
+  "modality": "text",
+  "provider_id": "uuid",
+  "provider_model": "gpt-4o-mini",
+  "enabled": true,
+  "currency": "CNY",
+  "input_1k_price_minor": 1,
+  "output_1k_price_minor": 3,
+  "request_price_minor": 0,
+  "image_price_minor": 0,
+  "second_price_minor": 0,
+  "daily_spend_limit_minor": null,
+  "metadata": {}
+}
+```
+
+说明：
+
+- 金额字段使用最小货币单位，例如 CNY 分。
+- 价格调整只影响新请求，历史调用必须保存价格快照。
+- `daily_spend_limit_minor` 为空表示不限制；设置后同一自然日内该模型的新请求预扣金额不能超过该限额。
+- `modality` 支持 `text`、`image`、`video`、`audio`、`embedding`、`multimodal`。
+
+### 18.6 AI 钱包列表
+
+```http
+GET /api/admin/ai/wallets?include_history=false
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "customer_id": "uuid",
+      "customer_email": "user@example.com",
+      "customer_name": "User",
+      "wallet_id": "uuid",
+      "currency": "CNY",
+      "balance_minor": 10000,
+      "held_minor": 0,
+      "available_minor": 10000,
+      "daily_spend_limit_minor": null,
+      "updated_at": "..."
+    }
+  ]
+}
+```
+
+### 18.7 手动调整 AI 钱包余额
+
+```http
+POST /api/admin/ai/customers/{id}/wallet/adjust
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:wallet:update
+```
+
+请求：
+
+```json
+{
+  "amount_minor": 10000,
+  "reason": "后台充值",
+  "metadata": {}
+}
+```
+
+说明：
+
+- 正数表示充值，负数表示扣减。
+- 后端会自动创建客户钱包。
+- 余额流水会写入 `ai_wallet_ledger_entries`。
+- 扣减后余额不能小于冻结金额。
+- 后续网关发起请求时使用 `hold` 预扣，三方成功后 `capture` 结算，失败后 `release/refund` 退款。
+
+### 18.7.1 更新 AI 钱包每日限额
+
+```http
+PUT /api/admin/ai/customers/{id}/wallet/quota
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:wallet:update
+```
+
+请求：
+
+```json
+{
+  "daily_spend_limit_minor": 50000
+}
+```
+
+说明：
+
+- 金额使用最小货币单位；传 `null` 表示清空限制。
+- 限额按客户钱包维度生效，同一自然日内“已成功扣费 + 正在预扣”的金额达到上限后，新请求会被拒绝。
+
+### 18.8 AI 钱包流水
+
+```http
+GET /api/admin/ai/customers/{id}/wallet/ledger?page=1&page_size=20
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "customer_id": "uuid",
+      "entry_type": "credit",
+      "amount_minor": 10000,
+      "balance_after_minor": 10000,
+      "held_after_minor": 0,
+      "reason": "后台充值",
+      "metadata": {},
+      "created_at": "..."
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+### 18.9 AI API Key 列表
+
+```http
+GET /api/admin/ai/api-keys?include_history=false&customer_id=uuid
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "customer_id": "uuid",
+      "customer_email": "user@example.com",
+      "customer_name": "User",
+      "name": "生产环境 SDK Key",
+      "key_prefix": "ehai_xxxxxxxxxxxxx",
+      "status": "active",
+      "expires_at": null,
+      "daily_spend_limit_minor": null,
+      "last_used_at": "...",
+      "created_at": "...",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+说明：只返回 Key 前缀，不返回明文。
+
+### 18.10 创建 / 吊销 AI API Key
+
+```http
+POST /api/admin/ai/customers/{id}/api-keys
+POST /api/admin/ai/api-keys/{id}/revoke
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:api_key:update
+```
+
+创建请求：
+
+```json
+{
+  "name": "生产环境 SDK Key",
+  "expires_at": null,
+  "daily_spend_limit_minor": null
+}
+```
+
+创建响应：
+
+```json
+{
+  "api_key": {
+    "id": "uuid",
+    "customer_id": "uuid",
+    "customer_email": "user@example.com",
+    "name": "生产环境 SDK Key",
+    "key_prefix": "ehai_xxxxxxxxxxxxx",
+    "status": "active",
+    "created_at": "..."
+  },
+  "plain_key": "ehai_..."
+}
+```
+
+说明：
+
+- `plain_key` 只返回一次，数据库只保存 hash。
+- 只能给 active 客户创建 Key。
+- 吊销后客户端立即无法继续调用 AI 网关。
+- `daily_spend_limit_minor` 为空表示不限制；设置后同一自然日内该 Key 的新请求预扣金额不能超过该限额。
+
+### 18.10.1 更新 AI API Key
+
+```http
+PUT /api/admin/ai/api-keys/{id}
+```
+
+认证：后台 session + CSRF。
+
+权限：
+
+```text
+ai:api_key:update
+```
+
+请求：
+
+```json
+{
+  "name": "生产环境 SDK Key",
+  "expires_at": null,
+  "daily_spend_limit_minor": 20000
+}
+```
+
+说明：
+
+- 字段均为可选；`expires_at` 或 `daily_spend_limit_minor` 传 `null` 表示清空。
+- 更新不会返回明文 Key。
+
+### 18.11 OpenAI 兼容 Chat Completions 网关
+
+```http
+POST /v1/chat/completions
+Authorization: Bearer ehai_...
+Content-Type: application/json
+```
+
+认证：客户 AI API Key。
+
+请求：保持 OpenAI Chat Completions 格式，`model` 使用后台 `AI 模型价格` 中配置的对外模型代码。
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hello"
+    }
+  ],
+  "max_tokens": 128
+}
+```
+
+响应：保持三方 OpenAI 兼容接口返回格式，并附加响应头：
+
+```text
+x-entitlehub-usage-id: uuid
+```
+
+计费规则：
+
+- 请求开始时按模型价格预估并冻结客户 AI 钱包余额。
+- 三方返回 2xx 成功后，根据三方 `usage.prompt_tokens` / `usage.completion_tokens` 结算；没有 usage 时按预扣金额结算。
+- 三方返回失败或请求异常时释放预扣金额。
+- 三方平台状态和响应以三方回传为准，调用记录写入 `ai_usage_records`。
+- 第一版网关只支持 `openai_compatible` 且 `modality=text|multimodal` 的模型。
+- 第一版暂不支持 `stream=true`，传入流式请求会返回参数错误。
+- AI API Key 默认每 60 秒最多 120 次网关请求，可通过 `AI_GATEWAY_RATE_LIMIT_MAX` 和 `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS` 调整。
+- 可传 `Idempotency-Key` 请求头，长度 1-200。相同客户、Key、endpoint 和幂等键的已完成请求会直接返回上次三方响应；仍在处理中的请求会返回冲突错误，避免重复扣费。
+
+### 18.12 OpenAI 兼容 Embeddings 网关
+
+```http
+POST /v1/embeddings
+Authorization: Bearer ehai_...
+Content-Type: application/json
+```
+
+认证：客户 AI API Key。
+
+请求：保持 OpenAI Embeddings 格式，`model` 使用后台 `AI 模型价格` 中配置的对外模型代码。
+
+```json
+{
+  "model": "text-embedding-3-small",
+  "input": "hello"
+}
+```
+
+响应：保持三方 OpenAI 兼容接口返回格式，并附加响应头：
+
+```text
+x-entitlehub-usage-id: uuid
+```
+
+计费规则：
+
+- 请求开始时按 `request_price_minor + 预估输入 token * input_1k_price_minor / 1000` 冻结客户 AI 钱包余额。
+- 三方返回 2xx 成功后，根据三方 `usage.prompt_tokens` 结算；没有 `prompt_tokens` 时使用 `usage.total_tokens`；没有 usage 时按预扣金额结算。
+- 三方返回失败或请求异常时释放预扣金额。
+- 第一版只支持 `openai_compatible` 且 `modality=embedding|multimodal` 的模型。
+- AI API Key 默认每 60 秒最多 120 次网关请求，可通过 `AI_GATEWAY_RATE_LIMIT_MAX` 和 `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS` 调整。
+- 支持 `Idempotency-Key`，规则同 Chat Completions。
+
+### 18.13 OpenAI 兼容 Images Generations 网关
+
+```http
+POST /v1/images/generations
+Authorization: Bearer ehai_...
+Content-Type: application/json
+```
+
+认证：客户 AI API Key。
+
+请求：保持 OpenAI Images Generations 格式，`model` 使用后台 `AI 模型价格` 中配置的对外模型代码。
+
+```json
+{
+  "model": "image-test",
+  "prompt": "一张产品海报",
+  "n": 1,
+  "size": "1024x1024"
+}
+```
+
+响应：保持三方兼容格式，并附加响应头：
+
+```text
+x-entitlehub-usage-id: uuid
+```
+
+返回体里的图片会被缓存到 EntitleHub 对象存储。三方返回 `data[].url` 时会替换成平台自有地址；三方返回 `data[].b64_json` 时会写入对象存储，并改为返回平台自有 `url`。
+
+示例：
+
+```json
+{
+  "created": 1710000000,
+  "data": [
+    {
+      "url": "https://your-domain.example/api/ai/assets/uuid"
+    }
+  ]
+}
+```
+
+计费规则：
+
+- 请求开始时按 `request_price_minor + image_price_minor * n` 预扣，`n` 默认 1，最大 10。
+- 三方返回 2xx 且图片缓存成功后按预扣金额结算。
+- 三方失败、请求异常或图片缓存失败时释放预扣金额。
+- 第一版只支持 `openai_compatible` 且 `modality=image|multimodal` 的模型。
+- AI API Key 默认每 60 秒最多 120 次网关请求，可通过 `AI_GATEWAY_RATE_LIMIT_MAX` 和 `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS` 调整。
+- 支持 `Idempotency-Key`，规则同 Chat Completions；幂等重放返回已缓存后的平台素材地址。
+
+### 18.14 AI 生成素材访问
+
+```http
+GET /api/ai/assets/{id}
+```
+
+该地址由图片生成网关返回，用于下发已缓存到 EntitleHub 对象存储的图片等素材。接口返回原始文件字节，并设置 `Content-Type`、`Content-Length` 和长期缓存头。
+
+说明：
+
+- 素材 ID 为 UUID，客户端不需要三方平台地址或密钥。
+- 当前用于图片生成结果缓存；视频、音频、文件类素材后续可复用同一张 `ai_assets` 表扩展。
+
+### 18.14.1 后台缓存素材管理
+
+```http
+GET /api/admin/ai/assets?status=ready&asset_type=image&customer_id=uuid&page=1&page_size=50
+DELETE /api/admin/ai/assets/{id}
+```
+
+认证：后台 session；删除需要 CSRF。
+
+权限：
+
+```text
+ai:read
+ai:asset:delete
+```
+
+列表响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "usage_id": "uuid",
+      "customer_email": "user@example.com",
+      "provider_name": "OpenAI 主渠道",
+      "model_code": "image-test",
+      "asset_type": "image",
+      "status": "ready",
+      "public_url": "https://your-domain.example/api/ai/assets/uuid",
+      "mime_type": "image/png",
+      "file_size": 1024,
+      "created_at": "...",
+      "updated_at": "...",
+      "deleted_at": null
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 50
+  }
+}
+```
+
+说明：
+
+- 不传 `status` 时默认不返回已删除素材。
+- 删除为软删除，状态改为 `deleted`，客户端素材访问接口不再返回该素材。
+
+### 18.15 OpenAI 兼容模型列表
+
+```http
+GET /v1/models
+Authorization: Bearer ehai_...
+```
+
+认证：客户 AI API Key。
+
+响应：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-4o-mini",
+      "object": "model",
+      "created": 1710000000,
+      "owned_by": "entitlehub"
+    }
+  ]
+}
+```
+
+说明：只返回当前租户启用、且已绑定启用渠道的模型。
+
+AI API Key 默认每 60 秒最多 120 次网关请求，模型列表接口也计入同一限流窗口。
+
+### 18.16 AI 调用记录列表
+
+```http
+GET /api/admin/ai/usage-records?status=succeeded&customer_id=uuid&page=1&page_size=50
+```
+
+认证：后台 session。
+
+权限：
+
+```text
+ai:read
+```
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "customer_email": "user@example.com",
+      "provider_name": "OpenAI 主渠道",
+      "model_code": "gpt-4o-mini",
+      "endpoint": "/v1/chat/completions",
+      "status": "succeeded",
+      "provider_status": "200",
+      "prompt_tokens": 100,
+      "completion_tokens": 200,
+      "total_tokens": 300,
+      "charged_minor": 10,
+      "refunded_minor": 0,
+      "currency": "CNY",
+      "created_at": "...",
+      "completed_at": "..."
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 50
+  }
+}
+```
+
+### 18.17 AI 网关客户端接入示例
+
+客户侧只需要 EntitleHub AI API Key，不需要三方平台密钥。后台把三方渠道、模型和价格配置好后，客户把 OpenAI 兼容 SDK 的 `base_url` / `baseURL` 指向 EntitleHub 即可。
+
+基础配置：
+
+```text
+base_url=https://your-domain.example/v1
+api_key=ehai_...
+```
+
+HTTP Chat 示例：
+
+```bash
+curl https://your-domain.example/v1/chat/completions \
+  -H "Authorization: Bearer ehai_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "hello"}
+    ],
+    "max_tokens": 128
+  }'
+```
+
+HTTP Embeddings 示例：
+
+```bash
+curl https://your-domain.example/v1/embeddings \
+  -H "Authorization: Bearer ehai_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "text-embedding-3-small",
+    "input": "hello"
+  }'
+```
+
+HTTP Images 示例：
+
+```bash
+curl https://your-domain.example/v1/images/generations \
+  -H "Authorization: Bearer ehai_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "image-test",
+    "prompt": "一张产品海报",
+    "n": 1,
+    "size": "1024x1024"
+  }'
+```
+
+Python OpenAI SDK 示例：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="ehai_...",
+    base_url="https://your-domain.example/v1",
+)
+
+chat = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "hello"}],
+)
+
+embedding = client.embeddings.create(
+    model="text-embedding-3-small",
+    input="hello",
+)
+
+image = client.images.generate(
+    model="image-test",
+    prompt="一张产品海报",
+    n=1,
+)
+
+print(chat.id)
+print(embedding.usage)
+print(image.data[0].url)
+```
+
+Node.js OpenAI SDK 示例：
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "ehai_...",
+  baseURL: "https://your-domain.example/v1",
+});
+
+const chat = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "hello" }],
+});
+
+const embedding = await client.embeddings.create({
+  model: "text-embedding-3-small",
+  input: "hello",
+});
+
+const image = await client.images.generate({
+  model: "image-test",
+  prompt: "一张产品海报",
+  n: 1,
+});
+
+console.log(chat.id);
+console.log(embedding.usage);
+console.log(image.data[0]?.url);
+```
+
+错误处理建议：
+
+- `401 unauthenticated`：AI API Key 缺失、错误、过期、吊销，或客户已停用。
+- `429 rate_limited`：超过 `AI_GATEWAY_RATE_LIMIT_MAX` / `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS`。
+- `400 validation_failed`：模型不支持该接口、请求参数不合法、`stream=true` 暂不支持。
+- `404 not_found`：模型未启用、渠道未启用或模型代码不存在。
+- 余额不足会返回业务规则错误，客户需要先在后台充值 AI 钱包。
+- 响应头 `x-entitlehub-usage-id` 可用于客户侧日志和后台调用记录排查。
+
+## 19. API 安全注意事项
 
 所有后台写接口必须：
 
