@@ -190,6 +190,8 @@ export function AiBillingPage() {
   const canUpdateWallet = hasPermission(permissions, "ai:wallet:update");
   const canUpdateApiKey = hasPermission(permissions, "ai:api_key:update");
   const canDeleteAsset = hasPermission(permissions, "ai:asset:delete");
+  // API Key is reserved for future OpenAPI/server integrations; normal clients use session auth.
+  const showOpenApiKeyManagement = false;
   const selectedModelModality = (Form.useWatch("modality", modelForm) ??
     "text") as AiModelModality;
   const selectedBillingMode =
@@ -214,7 +216,8 @@ export function AiBillingPage() {
 
   const apiKeysQuery = useQuery({
     queryKey: ["admin", "ai-api-keys", includeHistory],
-    queryFn: () => listAiApiKeys({ include_history: includeHistory })
+    queryFn: () => listAiApiKeys({ include_history: includeHistory }),
+    enabled: showOpenApiKeyManagement
   });
 
   const usageRecordsQuery = useQuery({
@@ -1132,7 +1135,9 @@ export function AiBillingPage() {
               providersQuery.refetch();
               modelsQuery.refetch();
               walletsQuery.refetch();
-              apiKeysQuery.refetch();
+              if (showOpenApiKeyManagement) {
+                apiKeysQuery.refetch();
+              }
               usageRecordsQuery.refetch();
               assetsQuery.refetch();
             }}
@@ -1143,7 +1148,7 @@ export function AiBillingPage() {
       {providersQuery.error ||
       modelsQuery.error ||
       walletsQuery.error ||
-      apiKeysQuery.error ||
+      (showOpenApiKeyManagement && apiKeysQuery.error) ||
       usageRecordsQuery.error ||
       assetsQuery.error ? (
         <Alert
@@ -1153,7 +1158,7 @@ export function AiBillingPage() {
               providersQuery.error ||
                 modelsQuery.error ||
                 walletsQuery.error ||
-                apiKeysQuery.error ||
+                (showOpenApiKeyManagement && apiKeysQuery.error) ||
                 usageRecordsQuery.error ||
                 assetsQuery.error
             ) ??
@@ -1165,9 +1170,9 @@ export function AiBillingPage() {
       modelMutation.error ||
       walletMutation.error ||
       walletQuotaMutation.error ||
-      apiKeyMutation.error ||
-      updateApiKeyMutation.error ||
-      revokeApiKeyMutation.error ||
+      (showOpenApiKeyManagement && apiKeyMutation.error) ||
+      (showOpenApiKeyManagement && updateApiKeyMutation.error) ||
+      (showOpenApiKeyManagement && revokeApiKeyMutation.error) ||
       deleteAssetMutation.error ? (
         <Alert
           type="error"
@@ -1177,9 +1182,9 @@ export function AiBillingPage() {
                 modelMutation.error ||
                 walletMutation.error ||
                 walletQuotaMutation.error ||
-                apiKeyMutation.error ||
-                updateApiKeyMutation.error ||
-                revokeApiKeyMutation.error ||
+                (showOpenApiKeyManagement && apiKeyMutation.error) ||
+                (showOpenApiKeyManagement && updateApiKeyMutation.error) ||
+                (showOpenApiKeyManagement && revokeApiKeyMutation.error) ||
                 deleteAssetMutation.error
             ) ??
             "AI 计费保存失败"
@@ -1258,33 +1263,37 @@ export function AiBillingPage() {
               />
             )
           },
-          {
-            key: "api-keys",
-            label: "API Key",
-            children: (
-              <>
-                <div className="table-toolbar">
-                  <Button
-                    type="primary"
-                    icon={<KeyRound size={16} />}
-                    disabled={!canUpdateApiKey}
-                    onClick={openCreateApiKey}
-                  >
-                    生成 API Key
-                  </Button>
-                </div>
-                <Table
-                  rowKey="id"
-                  loading={apiKeysQuery.isLoading}
-                  columns={apiKeyColumns}
-                  dataSource={apiKeysQuery.data?.items ?? []}
-                  pagination={false}
-                  scroll={AI_TABLE_SCROLL}
-                  locale={{ emptyText: "暂无数据" }}
-                />
-              </>
-            )
-          },
+          ...(showOpenApiKeyManagement
+            ? [
+                {
+                  key: "api-keys",
+                  label: "开放接口 Key",
+                  children: (
+                    <>
+                      <div className="table-toolbar">
+                        <Button
+                          type="primary"
+                          icon={<KeyRound size={16} />}
+                          disabled={!canUpdateApiKey}
+                          onClick={openCreateApiKey}
+                        >
+                          生成接口 Key
+                        </Button>
+                      </div>
+                      <Table
+                        rowKey="id"
+                        loading={apiKeysQuery.isLoading}
+                        columns={apiKeyColumns}
+                        dataSource={apiKeysQuery.data?.items ?? []}
+                        pagination={false}
+                        scroll={AI_TABLE_SCROLL}
+                        locale={{ emptyText: "暂无数据" }}
+                      />
+                    </>
+                  )
+                }
+              ]
+            : []),
           {
             key: "usage-records",
             label: "调用记录",
@@ -1328,7 +1337,7 @@ export function AiBillingPage() {
         onOk={() => providerForm.submit()}
         confirmLoading={providerMutation.isPending}
         width={760}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<ProviderFormValues>
           form={providerForm}
@@ -1383,7 +1392,7 @@ export function AiBillingPage() {
         onOk={() => modelForm.submit()}
         confirmLoading={modelMutation.isPending}
         width={820}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<ModelFormValues>
           form={modelForm}
@@ -1476,7 +1485,7 @@ export function AiBillingPage() {
         onCancel={() => setWalletModalOpen(false)}
         onOk={() => walletForm.submit()}
         confirmLoading={walletMutation.isPending}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<WalletAdjustFormValues>
           form={walletForm}
@@ -1506,7 +1515,7 @@ export function AiBillingPage() {
         onCancel={() => setWalletQuotaModalOpen(false)}
         onOk={() => walletQuotaForm.submit()}
         confirmLoading={walletQuotaMutation.isPending}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<WalletQuotaFormValues>
           form={walletQuotaForm}
@@ -1548,7 +1557,7 @@ export function AiBillingPage() {
         onOk={() => apiKeyForm.submit()}
         okButtonProps={{ disabled: Boolean(generatedApiKey) }}
         confirmLoading={apiKeyMutation.isPending}
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" size={12} className="settings-stack">
           {generatedApiKey ? (
@@ -1595,7 +1604,7 @@ export function AiBillingPage() {
         }}
         onOk={() => apiKeyEditForm.submit()}
         confirmLoading={updateApiKeyMutation.isPending}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<ApiKeyEditFormValues>
           form={apiKeyEditForm}

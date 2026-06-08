@@ -47,6 +47,22 @@ pub fn build(state: AppState) -> Router {
             "/api/client/devices/self/rotate-key",
             post(device::client::rotate_self_key),
         )
+        .route(
+            "/api/client/ai/v1/chat/completions",
+            post(ai::gateway::client_chat_completions),
+        )
+        .route(
+            "/api/client/ai/v1/embeddings",
+            post(ai::gateway::client_embeddings),
+        )
+        .route(
+            "/api/client/ai/v1/images/generations",
+            post(ai::gateway::client_image_generations),
+        )
+        .route(
+            "/api/client/ai/v1/models",
+            get(ai::gateway::client_list_models),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             client_auth::signature::require_device_signature,

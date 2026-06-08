@@ -201,6 +201,96 @@ paths:
         default:
           $ref: "#/components/responses/ApiError"
 
+  /api/client/ai/v1/chat/completions:
+    post:
+      tags: [client-ai]
+      summary: Client session chat completion gateway with EntitleHub wallet billing
+      security:
+        - ClientBearer: []
+          DeviceSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible chat completion response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/ai/v1/embeddings:
+    post:
+      tags: [client-ai]
+      summary: Client session embeddings gateway with EntitleHub wallet billing
+      security:
+        - ClientBearer: []
+          DeviceSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible embeddings response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/ai/v1/images/generations:
+    post:
+      tags: [client-ai]
+      summary: Client session image generation gateway with EntitleHub wallet billing and asset caching
+      security:
+        - ClientBearer: []
+          DeviceSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible image generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/ai/v1/models:
+    get:
+      tags: [client-ai]
+      summary: Client session model list for enabled EntitleHub AI models
+      security:
+        - ClientBearer: []
+          DeviceSignature: []
+      responses:
+        "200":
+          description: Provider-compatible model list response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
   /api/auth/login:
     post:
       tags: [admin-auth]

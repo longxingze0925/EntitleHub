@@ -28,7 +28,10 @@ use crate::{
     error::AppError,
     http::request_id::RequestId,
     metrics::{self, AiGatewayRequestStatus},
-    modules::ai::api_keys::{authenticate_api_key, AiApiKeyContext},
+    modules::{
+        ai::api_keys::{authenticate_api_key, AiApiKeyContext},
+        client_auth::session::ClientContext,
+    },
     rate_limit,
     state::AppState,
 };
@@ -107,30 +110,89 @@ struct AiAssetRecord {
     file_size: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+struct GatewayCaller {
+    tenant_id: Uuid,
+    customer_id: Uuid,
+    api_key_id: Option<Uuid>,
+    rate_limit_key: String,
+    api_key_daily_spend_limit_minor: Option<i64>,
+    source: &'static str,
+}
+
+impl GatewayCaller {
+    fn from_api_key(api_key: AiApiKeyContext) -> Self {
+        Self {
+            tenant_id: api_key.tenant_id,
+            customer_id: api_key.customer_id,
+            api_key_id: Some(api_key.api_key_id),
+            rate_limit_key: format!("api_key:{}", api_key.api_key_id),
+            api_key_daily_spend_limit_minor: api_key.daily_spend_limit_minor,
+            source: "api_key",
+        }
+    }
+
+    fn from_client_context(client: &ClientContext) -> Result<Self, AppError> {
+        let customer_id = client.customer_id.ok_or_else(|| {
+            AppError::business_rule_failed("client session is not linked to a customer")
+        })?;
+
+        Ok(Self {
+            tenant_id: client.tenant_id,
+            customer_id,
+            api_key_id: None,
+            rate_limit_key: format!("client:{}:{}", customer_id, client.device_id),
+            api_key_daily_spend_limit_minor: None,
+            source: "client_session",
+        })
+    }
+}
+
 pub async fn chat_completions(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
-    let api_key = authenticate_api_key(&state, &headers).await?;
-    check_gateway_rate_limit(&state, &api_key).await?;
+    let caller = GatewayCaller::from_api_key(authenticate_api_key(&state, &headers).await?);
+    chat_completions_for_caller(state, request_id, headers, payload, caller).await
+}
+
+pub async fn client_chat_completions(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(client): Extension<ClientContext>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let caller = GatewayCaller::from_client_context(&client)?;
+    chat_completions_for_caller(state, request_id, headers, payload, caller).await
+}
+
+async fn chat_completions_for_caller(
+    state: AppState,
+    request_id: RequestId,
+    headers: HeaderMap,
+    payload: Value,
+    caller: GatewayCaller,
+) -> Result<Response, AppError> {
+    check_gateway_rate_limit(&state, &caller).await?;
     let endpoint = "/v1/chat/completions";
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &api_key, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
     reject_streaming_request(&payload)?;
     let model_code = requested_model_code(&payload)?;
-    let model = load_gateway_model(&state, api_key.tenant_id, model_code).await?;
+    let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
     validate_model_for_chat(&model)?;
 
     let hold_minor = estimate_hold_minor(&payload, &model)?;
     let reservation = reserve_wallet_and_create_usage(
         &state,
-        &api_key,
+        &caller,
         &model,
         &request_id.to_string(),
         endpoint,
@@ -212,23 +274,44 @@ pub async fn image_generations(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
-    let api_key = authenticate_api_key(&state, &headers).await?;
-    check_gateway_rate_limit(&state, &api_key).await?;
+    let caller = GatewayCaller::from_api_key(authenticate_api_key(&state, &headers).await?);
+    image_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
+pub async fn client_image_generations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(client): Extension<ClientContext>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let caller = GatewayCaller::from_client_context(&client)?;
+    image_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
+async fn image_generations_for_caller(
+    state: AppState,
+    request_id: RequestId,
+    headers: HeaderMap,
+    payload: Value,
+    caller: GatewayCaller,
+) -> Result<Response, AppError> {
+    check_gateway_rate_limit(&state, &caller).await?;
     let endpoint = "/v1/images/generations";
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &api_key, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
     let model_code = requested_model_code(&payload)?;
-    let model = load_gateway_model(&state, api_key.tenant_id, model_code).await?;
+    let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
     validate_model_for_images(&model)?;
 
     let hold_minor = estimate_image_hold_minor(&payload, &model)?;
     let reservation = reserve_wallet_and_create_usage(
         &state,
-        &api_key,
+        &caller,
         &model,
         &request_id.to_string(),
         endpoint,
@@ -247,7 +330,7 @@ pub async fn image_generations(
         Ok(mut provider_response) if provider_response.status.is_success() => {
             if let Err(error) = cache_image_assets(
                 &state,
-                api_key.tenant_id,
+                caller.tenant_id,
                 reservation.usage_id,
                 &mut provider_response.body,
             )
@@ -331,23 +414,44 @@ pub async fn embeddings(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Result<Response, AppError> {
-    let api_key = authenticate_api_key(&state, &headers).await?;
-    check_gateway_rate_limit(&state, &api_key).await?;
+    let caller = GatewayCaller::from_api_key(authenticate_api_key(&state, &headers).await?);
+    embeddings_for_caller(state, request_id, headers, payload, caller).await
+}
+
+pub async fn client_embeddings(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(client): Extension<ClientContext>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let caller = GatewayCaller::from_client_context(&client)?;
+    embeddings_for_caller(state, request_id, headers, payload, caller).await
+}
+
+async fn embeddings_for_caller(
+    state: AppState,
+    request_id: RequestId,
+    headers: HeaderMap,
+    payload: Value,
+    caller: GatewayCaller,
+) -> Result<Response, AppError> {
+    check_gateway_rate_limit(&state, &caller).await?;
     let endpoint = "/v1/embeddings";
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &api_key, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
     let model_code = requested_model_code(&payload)?;
-    let model = load_gateway_model(&state, api_key.tenant_id, model_code).await?;
+    let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
     validate_model_for_embeddings(&model)?;
 
     let hold_minor = estimate_embedding_hold_minor(&payload, &model)?;
     let reservation = reserve_wallet_and_create_usage(
         &state,
-        &api_key,
+        &caller,
         &model,
         &request_id.to_string(),
         endpoint,
@@ -428,8 +532,25 @@ pub async fn list_models(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let endpoint = "/v1/models";
-    let api_key = authenticate_api_key(&state, &headers).await?;
-    check_gateway_rate_limit(&state, &api_key).await?;
+    let caller = GatewayCaller::from_api_key(authenticate_api_key(&state, &headers).await?);
+    list_models_for_caller(state, endpoint, caller).await
+}
+
+pub async fn client_list_models(
+    State(state): State<AppState>,
+    Extension(client): Extension<ClientContext>,
+) -> Result<Response, AppError> {
+    let endpoint = "/v1/models";
+    let caller = GatewayCaller::from_client_context(&client)?;
+    list_models_for_caller(state, endpoint, caller).await
+}
+
+async fn list_models_for_caller(
+    state: AppState,
+    endpoint: &'static str,
+    caller: GatewayCaller,
+) -> Result<Response, AppError> {
+    check_gateway_rate_limit(&state, &caller).await?;
     let models = sqlx::query_as::<_, GatewayModelSummary>(
         r#"
         select
@@ -445,7 +566,7 @@ pub async fn list_models(
         order by m.code
         "#,
     )
-    .bind(api_key.tenant_id)
+    .bind(caller.tenant_id)
     .fetch_all(&state.db)
     .await
     .map_err(map_db_error)?;
@@ -592,7 +713,7 @@ struct GatewayModelSummary {
 
 async fn find_idempotent_response(
     state: &AppState,
-    api_key: &AiApiKeyContext,
+    caller: &GatewayCaller,
     endpoint: &str,
     idempotency_key: Option<&str>,
 ) -> Result<Option<Response>, AppError> {
@@ -609,16 +730,16 @@ async fn find_idempotent_response(
         from ai_usage_records
         where tenant_id = $1
           and customer_id = $2
-          and api_key_id = $3
+          and api_key_id is not distinct from $3
           and endpoint = $4
           and idempotency_key = $5
         order by created_at desc
         limit 1
         "#,
     )
-    .bind(api_key.tenant_id)
-    .bind(api_key.customer_id)
-    .bind(api_key.api_key_id)
+    .bind(caller.tenant_id)
+    .bind(caller.customer_id)
+    .bind(caller.api_key_id)
     .bind(endpoint)
     .bind(idempotency_key)
     .fetch_optional(&state.db)
@@ -697,7 +818,7 @@ async fn load_gateway_model(
 
 async fn reserve_wallet_and_create_usage(
     state: &AppState,
-    api_key: &AiApiKeyContext,
+    caller: &GatewayCaller,
     model: &GatewayModel,
     request_id: &str,
     endpoint: &str,
@@ -706,9 +827,9 @@ async fn reserve_wallet_and_create_usage(
     idempotency_key: Option<&str>,
 ) -> Result<BillingReservation, AppError> {
     let mut transaction = state.db.begin().await.map_err(map_db_error)?;
-    ensure_wallet_exists(&mut transaction, api_key.tenant_id, api_key.customer_id).await?;
+    ensure_wallet_exists(&mut transaction, caller.tenant_id, caller.customer_id).await?;
     let wallet =
-        find_wallet_for_update(&mut transaction, api_key.tenant_id, api_key.customer_id).await?;
+        find_wallet_for_update(&mut transaction, caller.tenant_id, caller.customer_id).await?;
     if wallet.currency != model.currency {
         return Err(AppError::business_rule_failed(
             "ai wallet currency does not match model currency",
@@ -719,18 +840,18 @@ async fn reserve_wallet_and_create_usage(
             "ai wallet available balance is insufficient",
         ));
     }
-    ensure_daily_spend_limits(&mut transaction, api_key, model, &wallet, hold_minor).await?;
+    ensure_daily_spend_limits(&mut transaction, caller, model, &wallet, hold_minor).await?;
 
     let usage_id = Uuid::new_v4();
     let updated_wallet = if hold_minor > 0 {
-        update_wallet_hold(&mut transaction, api_key.tenant_id, wallet.id, hold_minor).await?
+        update_wallet_hold(&mut transaction, caller.tenant_id, wallet.id, hold_minor).await?
     } else {
         wallet.clone()
     };
     insert_usage_record(
         &mut transaction,
         usage_id,
-        api_key,
+        caller,
         model,
         wallet.id,
         request_id,
@@ -743,14 +864,15 @@ async fn reserve_wallet_and_create_usage(
     if hold_minor > 0 {
         insert_wallet_ledger_entry(
             &mut transaction,
-            api_key.tenant_id,
+            caller.tenant_id,
             &updated_wallet,
             "hold",
             hold_minor,
             "AI 请求预扣",
             usage_id,
             json!({
-                "api_key_id": api_key.api_key_id,
+                "source": caller.source,
+                "api_key_id": caller.api_key_id,
                 "model": model.code,
             }),
         )
@@ -767,7 +889,7 @@ async fn reserve_wallet_and_create_usage(
 
 async fn ensure_daily_spend_limits(
     transaction: &mut Transaction<'_, Postgres>,
-    api_key: &AiApiKeyContext,
+    caller: &GatewayCaller,
     model: &GatewayModel,
     wallet: &WalletRecord,
     hold_minor: i64,
@@ -778,16 +900,17 @@ async fn ensure_daily_spend_limits(
 
     if let Some(limit) = wallet.daily_spend_limit_minor {
         let used =
-            daily_customer_spend_minor(transaction, api_key.tenant_id, api_key.customer_id).await?;
+            daily_customer_spend_minor(transaction, caller.tenant_id, caller.customer_id).await?;
         ensure_daily_limit_available("customer ai daily spend limit", limit, used, hold_minor)?;
     }
-    if let Some(limit) = api_key.daily_spend_limit_minor {
-        let used =
-            daily_api_key_spend_minor(transaction, api_key.tenant_id, api_key.api_key_id).await?;
+    if let (Some(api_key_id), Some(limit)) =
+        (caller.api_key_id, caller.api_key_daily_spend_limit_minor)
+    {
+        let used = daily_api_key_spend_minor(transaction, caller.tenant_id, api_key_id).await?;
         ensure_daily_limit_available("ai api key daily spend limit", limit, used, hold_minor)?;
     }
     if let Some(limit) = model.daily_spend_limit_minor {
-        let used = daily_model_spend_minor(transaction, api_key.tenant_id, model.id).await?;
+        let used = daily_model_spend_minor(transaction, caller.tenant_id, model.id).await?;
         ensure_daily_limit_available("ai model daily spend limit", limit, used, hold_minor)?;
     }
 
@@ -975,11 +1098,11 @@ async fn release_usage(
 
 async fn check_gateway_rate_limit(
     state: &AppState,
-    api_key: &AiApiKeyContext,
+    caller: &GatewayCaller,
 ) -> Result<(), AppError> {
     rate_limit::check_fixed_window(
         state,
-        rate_limit::ai_gateway_key(&api_key.api_key_id.to_string()),
+        rate_limit::ai_gateway_key(&caller.rate_limit_key),
         state.config.security.ai_gateway_rate_limit_max,
         state.config.security.ai_gateway_rate_limit_window_seconds,
         AppError::rate_limited,
@@ -1128,7 +1251,7 @@ async fn update_wallet_capture(
 async fn insert_usage_record(
     transaction: &mut Transaction<'_, Postgres>,
     usage_id: Uuid,
-    api_key: &AiApiKeyContext,
+    caller: &GatewayCaller,
     model: &GatewayModel,
     wallet_id: Uuid,
     request_id: &str,
@@ -1159,10 +1282,10 @@ async fn insert_usage_record(
         "#,
     )
     .bind(usage_id)
-    .bind(api_key.tenant_id)
+    .bind(caller.tenant_id)
     .bind(wallet_id)
-    .bind(api_key.customer_id)
-    .bind(api_key.api_key_id)
+    .bind(caller.customer_id)
+    .bind(caller.api_key_id)
     .bind(model.provider_id)
     .bind(model.id)
     .bind(request_id)
@@ -1170,7 +1293,8 @@ async fn insert_usage_record(
     .bind(endpoint)
     .bind(price_snapshot(model, held_minor))
     .bind(json!({
-        "api_key_id": api_key.api_key_id,
+        "source": caller.source,
+        "api_key_id": caller.api_key_id,
         "request_model": requested_model_code(request_payload).unwrap_or(&model.code),
         "provider_name": model.provider_name,
     }))
@@ -1962,8 +2086,11 @@ fn map_db_error(error: sqlx::Error) -> AppError {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::json;
     use uuid::Uuid;
+
+    use crate::modules::client_auth::session::ClientContext;
 
     use super::{
         calculate_actual_charge_minor, calculate_embedding_charge_minor,
@@ -1971,7 +2098,8 @@ mod tests {
         ensure_daily_limit_available, ensure_provider_asset_url_allowed,
         estimate_embedding_hold_minor, estimate_hold_minor, estimate_image_hold_minor,
         extension_for_mime, idempotency_key, image_count, normalize_mime_type, provider_payload,
-        provider_timeout, token_price_minor, token_usage_from_response, GatewayModel,
+        provider_timeout, token_price_minor, token_usage_from_response, GatewayCaller,
+        GatewayModel,
     };
 
     #[test]
@@ -2121,6 +2249,32 @@ mod tests {
     }
 
     #[test]
+    fn client_context_builds_session_gateway_caller_without_api_key() {
+        let tenant_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+        let client = fixture_client_context(tenant_id, Some(customer_id), device_id);
+
+        let caller = GatewayCaller::from_client_context(&client).expect("caller");
+
+        assert_eq!(caller.tenant_id, tenant_id);
+        assert_eq!(caller.customer_id, customer_id);
+        assert_eq!(caller.api_key_id, None);
+        assert_eq!(caller.source, "client_session");
+        assert_eq!(
+            caller.rate_limit_key,
+            format!("client:{customer_id}:{device_id}")
+        );
+    }
+
+    #[test]
+    fn client_context_without_customer_cannot_use_gateway_billing() {
+        let client = fixture_client_context(Uuid::new_v4(), None, Uuid::new_v4());
+
+        assert!(GatewayCaller::from_client_context(&client).is_err());
+    }
+
+    #[test]
     fn base64_image_asset_decodes_data_url() {
         let asset = decode_base64_image_asset("data:image/webp;base64,aGVsbG8=").expect("asset");
 
@@ -2204,6 +2358,27 @@ mod tests {
             minute_price_minor: 0,
             daily_spend_limit_minor: None,
             pricing_config: json!({}),
+        }
+    }
+
+    fn fixture_client_context(
+        tenant_id: Uuid,
+        customer_id: Option<Uuid>,
+        device_id: Uuid,
+    ) -> ClientContext {
+        ClientContext {
+            session_id: Uuid::new_v4(),
+            tenant_id,
+            app_id: Uuid::new_v4(),
+            customer_id,
+            device_id,
+            machine_id: "machine-1".to_owned(),
+            auth_mode: "account".to_owned(),
+            entitlement_id: Uuid::new_v4(),
+            entitlement_kind: "subscription".to_owned(),
+            entitlement_status: "active".to_owned(),
+            features: json!({}),
+            entitlement_expires_at: Some(Utc::now()),
         }
     }
 }
