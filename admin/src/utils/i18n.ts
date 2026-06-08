@@ -170,6 +170,7 @@ const messageText: Record<string, string> = {
   team_member_disable_failed: "成员禁用失败",
   team_member_invite_failed: "成员邀请失败",
   team_member_roles_update_failed: "成员角色更新失败",
+  team_invitation_accepted: "团队邀请已接受，请登录",
   team_members_load_failed: "团队成员加载失败",
   tenant_forbidden: "无权访问该租户",
   tenant_not_found: "租户不存在",

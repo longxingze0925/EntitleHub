@@ -20,6 +20,7 @@ import { ClientPasswordResetPage } from "../pages/login/ClientPasswordResetPage"
 import { EmailVerifyPage } from "../pages/login/EmailVerifyPage";
 import { LoginPage } from "../pages/login/LoginPage";
 import { PasswordResetPage } from "../pages/login/PasswordResetPage";
+import { TeamInvitationAcceptPage } from "../pages/login/TeamInvitationAcceptPage";
 import { ApplicationsPage } from "../pages/resources/ApplicationsPage";
 import { AiBillingPage } from "../pages/resources/AiBillingPage";
 import { AuditLogsPage } from "../pages/resources/AuditLogsPage";
@@ -126,6 +127,10 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin/password-reset" element={<PasswordResetPage />} />
         <Route path="/admin/email-verify" element={<EmailVerifyPage />} />
+        <Route
+          path="/team/invitations/accept"
+          element={<TeamInvitationAcceptPage />}
+        />
         <Route path="/client/password-reset" element={<ClientPasswordResetPage />} />
         <Route path="/client/email-verify" element={<ClientEmailVerifyPage />} />
         <Route element={<ProtectedRoutes />}>

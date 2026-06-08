@@ -87,6 +87,33 @@ export function confirmPasswordReset(payload: {
   });
 }
 
+export interface AcceptTeamInvitationPayload {
+  token: string;
+  name: string;
+  password: string;
+}
+
+export interface AcceptedTeamMember {
+  id: string;
+  tenant_id: string;
+  email: string;
+  name: string;
+  status: string;
+  email_verified: boolean;
+}
+
+export function acceptTeamInvitation(
+  payload: AcceptTeamInvitationPayload
+): Promise<{ member: AcceptedTeamMember }> {
+  return apiRequest<{ member: AcceptedTeamMember }>(
+    "/api/team/invitations/accept",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
 export function confirmClientEmailVerify(token: string): Promise<{
   customer_id: string;
   email_verified: boolean;

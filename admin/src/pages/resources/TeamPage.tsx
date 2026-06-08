@@ -35,11 +35,15 @@ import { dateTime } from "../../utils/format";
 import { tMessage, tRoleName } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
+interface InvitationView extends InvitationResult {
+  email: string;
+}
+
 export function TeamPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [includeHistory, setIncludeHistory] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
-  const [invitation, setInvitation] = useState<InvitationResult | null>(null);
+  const [invitation, setInvitation] = useState<InvitationView | null>(null);
   const [inviteForm] = Form.useForm<InviteTeamMemberPayload>();
   const [roleForm] = Form.useForm<UpdateTeamMemberRolesPayload>();
   const permissions = useAuthStore((state) => state.permissions);
@@ -60,7 +64,10 @@ export function TeamPage() {
     mutationFn: inviteTeamMember,
     onSuccess: async (data) => {
       message.success(tMessage("member_invited"));
-      setInvitation(data.invitation);
+      setInvitation({
+        ...data.invitation,
+        email: data.member.email
+      });
       setInviteOpen(false);
       inviteForm.resetFields();
       await query.refetch();
@@ -319,12 +326,26 @@ export function TeamPage() {
       </Modal>
 
       <Modal
-        title="邀请令牌"
+        title="邀请链接"
         open={Boolean(invitation)}
         onCancel={() => setInvitation(null)}
         onOk={() => setInvitation(null)}
       >
         <Space direction="vertical" size={12} className="token-result">
+          <Alert
+            type="info"
+            showIcon
+            message="邀请邮件会进入发送队列；如果邮件未送达，可复制链接手动发送给成员。"
+          />
+          <Typography.Text type="secondary">成员</Typography.Text>
+          <Typography.Text copyable>{invitation?.email}</Typography.Text>
+          <Typography.Text type="secondary">邀请链接</Typography.Text>
+          <Typography.Paragraph
+            copyable={{ text: invitation ? invitationLink(invitation.token) : "" }}
+          >
+            {invitation ? invitationLink(invitation.token) : "-"}
+          </Typography.Paragraph>
+          <Typography.Text type="secondary">邀请令牌</Typography.Text>
           <Typography.Text copyable>{invitation?.token}</Typography.Text>
           <Typography.Text type="secondary">
             有效期至 {dateTime(invitation?.expires_at)}
@@ -333,4 +354,11 @@ export function TeamPage() {
       </Modal>
     </section>
   );
+}
+
+function invitationLink(token: string): string {
+  const baseUrl = window.location.origin;
+  const encodedToken = encodeURIComponent(token);
+
+  return `${baseUrl}/team/invitations/accept?token=${encodedToken}`;
 }
