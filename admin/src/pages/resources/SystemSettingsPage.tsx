@@ -123,7 +123,7 @@ export function SystemSettingsPage() {
 
   useEffect(() => {
     if (emailQuery.data) {
-      applyEmailSettings(emailForm, emailQuery.data);
+      applyEmailSettings(emailForm, emailQuery.data, emailForm.getFieldValue("test_to"));
     }
   }, [emailForm, emailQuery.data]);
   const systemSettingSaveError = tApiError(mutation.error);
@@ -488,7 +488,7 @@ function applyEmailSettings(
     smtp_password: "",
     clear_password: false,
     smtp_from: settings.smtp_from,
-    test_to: testTo?.trim() || settings.smtp_from || undefined
+    test_to: testTo === undefined ? settings.smtp_from || undefined : testTo
   });
 }
 
