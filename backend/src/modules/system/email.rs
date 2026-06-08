@@ -95,6 +95,12 @@ struct NormalizedEmailSettings {
     smtp_password_encrypted: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmtpSecurityMode {
+    TlsWrapper,
+    StartTls,
+}
+
 pub async fn get_email_settings(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminContext>,
@@ -259,11 +265,15 @@ pub async fn send_email(
         .body(email.body.clone())
         .map_err(|error| format!("email message build failed: {error}"))?;
 
-    build_smtp_transport(config)?
-        .send(message)
-        .await
-        .map(|_| ())
-        .map_err(|error| format!("SMTP send failed: {error}"))
+    build_smtp_transport(
+        &config.smtp_host,
+        config.smtp_port,
+        smtp_credentials(config.smtp_user.as_deref(), config.smtp_password.as_deref()),
+    )?
+    .send(message)
+    .await
+    .map(|_| ())
+    .map_err(|error| format!("SMTP send failed: {error}"))
 }
 
 async fn load_email_settings_response(state: &AppState) -> Result<EmailSettingsResponse, AppError> {
@@ -522,18 +532,43 @@ fn validate_delivery_config(config: &EmailDeliveryConfig) -> Result<(), String> 
     Ok(())
 }
 
-fn build_smtp_transport(
-    config: &EmailDeliveryConfig,
+pub fn build_smtp_transport(
+    smtp_host: &str,
+    smtp_port: u16,
+    credentials: Option<(&str, &str)>,
 ) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
-    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
-        .map_err(|error| format!("SMTP relay config failed: {error}"))?
-        .port(config.smtp_port);
+    let mut builder = match smtp_security_mode(smtp_port) {
+        SmtpSecurityMode::TlsWrapper => AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host),
+        SmtpSecurityMode::StartTls => {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
+        }
+    }
+    .map_err(|error| format!("SMTP relay config failed: {error}"))?
+    .port(smtp_port);
 
-    if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password) {
-        builder = builder.credentials(Credentials::new(user.clone(), password.clone()));
+    if let Some((user, password)) = credentials {
+        builder = builder.credentials(Credentials::new(user.to_owned(), password.to_owned()));
     }
 
     Ok(builder.build())
+}
+
+fn smtp_security_mode(smtp_port: u16) -> SmtpSecurityMode {
+    if smtp_port == 465 {
+        SmtpSecurityMode::TlsWrapper
+    } else {
+        SmtpSecurityMode::StartTls
+    }
+}
+
+pub fn smtp_credentials<'a>(
+    user: Option<&'a str>,
+    password: Option<&'a str>,
+) -> Option<(&'a str, &'a str)> {
+    match (user, password) {
+        (Some(user), Some(password)) => Some((user, password)),
+        _ => None,
+    }
 }
 
 fn encrypt_secret_to_text(state: &AppState, value: &str) -> Result<String, AppError> {
@@ -653,7 +688,10 @@ impl EmailSettingsResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_delivery_config, EmailDeliveryConfig};
+    use super::{
+        smtp_credentials, smtp_security_mode, validate_delivery_config, EmailDeliveryConfig,
+        SmtpSecurityMode,
+    };
 
     #[test]
     fn delivery_config_requires_user_and_password_together() {
@@ -679,5 +717,26 @@ mod tests {
         };
 
         assert!(validate_delivery_config(&config).is_ok());
+    }
+
+    #[test]
+    fn smtp_security_mode_uses_tls_wrapper_for_465() {
+        assert_eq!(smtp_security_mode(465), SmtpSecurityMode::TlsWrapper);
+    }
+
+    #[test]
+    fn smtp_security_mode_uses_starttls_for_587_and_custom_ports() {
+        assert_eq!(smtp_security_mode(587), SmtpSecurityMode::StartTls);
+        assert_eq!(smtp_security_mode(2525), SmtpSecurityMode::StartTls);
+    }
+
+    #[test]
+    fn smtp_credentials_require_user_and_password() {
+        assert_eq!(
+            smtp_credentials(Some("user@example.com"), Some("secret")),
+            Some(("user@example.com", "secret"))
+        );
+        assert_eq!(smtp_credentials(Some("user@example.com"), None), None);
+        assert_eq!(smtp_credentials(None, Some("secret")), None);
     }
 }

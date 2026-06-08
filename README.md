@@ -726,7 +726,7 @@ client-sdk/
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
 
-系统邮件 SMTP 推荐在后台 `系统配置 -> 邮件服务` 中配置；以上 `EMAIL_OUTBOX_*` / `SMTP_*` 环境变量保留为部署兜底。
+系统邮件 SMTP 推荐在后台 `系统配置 -> 邮件服务` 中配置；以上 `EMAIL_OUTBOX_*` / `SMTP_*` 环境变量保留为部署兜底。SMTP 端口 `465` 会使用 SSL/TLS 直连，`587` 和其他端口会使用 STARTTLS。
 
 生产环境必须：
 

@@ -4,10 +4,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::{DateTime, Utc};
-use lettre::{
-    message::Mailbox, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
-    AsyncTransport, Message, Tokio1Executor,
-};
+use lettre::{message::Mailbox, AsyncTransport, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -22,6 +19,7 @@ use crate::{
     modules::{
         audit::{self, AuditLogInput},
         auth::session::AdminContext,
+        system::email::{build_smtp_transport, smtp_credentials},
     },
     state::AppState,
 };
@@ -892,13 +890,7 @@ async fn deliver_email_test(
     let password = text_field(secret, "smtp_password")
         .ok_or_else(|| "smtp_password is not configured".to_owned())?;
 
-    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(host)
-        .map_err(|error| format!("smtp relay config failed: {error}"))?
-        .port(port);
-    if let Some(user) = user {
-        builder = builder.credentials(Credentials::new(user.to_owned(), password.to_owned()));
-    }
-    let mailer = builder.build();
+    let mailer = build_smtp_transport(host, port, smtp_credentials(user, Some(password)))?;
     let from: Mailbox = from
         .parse()
         .map_err(|error| format!("email from is invalid: {error}"))?;

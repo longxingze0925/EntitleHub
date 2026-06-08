@@ -303,6 +303,7 @@ export function SystemSettingsPage() {
             <Form.Item
               name="smtp_port"
               label="SMTP 端口"
+              extra="465 使用 SSL/TLS 直连；587 使用 STARTTLS。"
               rules={[{ required: true, message: "请输入 SMTP 端口" }]}
             >
               <InputNumber min={1} max={65535} className="form-number" />

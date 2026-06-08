@@ -32,7 +32,7 @@ docker compose -p entitle-hub --env-file .env.compose -f compose.yaml run --rm \
 
 The CLI prints a generated replacement password and revokes existing admin sessions. Add `-e RESET_ADMIN_DISABLE_MFA=true` only if the admin also lost MFA access.
 
-Transactional system email, including password reset and email verification, can be configured after installation in `System Settings -> Email service`. The SMTP password is encrypted in the database with `MASTER_KEY`; `.env.compose` `EMAIL_OUTBOX_*` and `SMTP_*` values remain a fallback for deployments that prefer environment-managed mail settings.
+Transactional system email, including password reset and email verification, can be configured after installation in `System Settings -> Email service`. The SMTP password is encrypted in the database with `MASTER_KEY`; `.env.compose` `EMAIL_OUTBOX_*` and `SMTP_*` values remain a fallback for deployments that prefer environment-managed mail settings. SMTP port `465` uses implicit SSL/TLS, while `587` and other ports use STARTTLS.
 
 ## Docker Compose
 
