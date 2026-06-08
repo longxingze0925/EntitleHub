@@ -91,12 +91,15 @@ pub struct AiModel {
     pub provider_model: Option<String>,
     pub enabled: bool,
     pub currency: String,
+    pub billing_mode: String,
     pub input_1k_price_minor: i64,
     pub output_1k_price_minor: i64,
     pub request_price_minor: i64,
     pub image_price_minor: i64,
     pub second_price_minor: i64,
+    pub minute_price_minor: i64,
     pub daily_spend_limit_minor: Option<i64>,
+    pub pricing_config: Value,
     pub metadata: Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -127,12 +130,16 @@ pub struct CreateAiModelRequest {
     pub provider_model: Option<String>,
     pub enabled: Option<bool>,
     pub currency: Option<String>,
+    pub billing_mode: Option<String>,
     pub input_1k_price_minor: Option<i64>,
     pub output_1k_price_minor: Option<i64>,
     pub request_price_minor: Option<i64>,
     pub image_price_minor: Option<i64>,
     pub second_price_minor: Option<i64>,
+    pub minute_price_minor: Option<i64>,
     pub daily_spend_limit_minor: Option<i64>,
+    #[serde(default)]
+    pub pricing_config: Value,
     #[serde(default)]
     pub metadata: Value,
 }
@@ -145,12 +152,15 @@ pub struct UpdateAiModelRequest {
     pub provider_model: Option<Option<String>>,
     pub enabled: Option<bool>,
     pub currency: Option<String>,
+    pub billing_mode: Option<String>,
     pub input_1k_price_minor: Option<i64>,
     pub output_1k_price_minor: Option<i64>,
     pub request_price_minor: Option<i64>,
     pub image_price_minor: Option<i64>,
     pub second_price_minor: Option<i64>,
+    pub minute_price_minor: Option<i64>,
     pub daily_spend_limit_minor: Option<Option<i64>>,
+    pub pricing_config: Option<Value>,
     pub metadata: Option<Value>,
 }
 
@@ -280,12 +290,15 @@ struct CreateModelInput {
     provider_model: Option<String>,
     enabled: bool,
     currency: String,
+    billing_mode: String,
     input_1k_price_minor: i64,
     output_1k_price_minor: i64,
     request_price_minor: i64,
     image_price_minor: i64,
     second_price_minor: i64,
+    minute_price_minor: i64,
     daily_spend_limit_minor: Option<i64>,
+    pricing_config: Value,
     metadata: Value,
 }
 
@@ -296,12 +309,15 @@ struct UpdateModelInput {
     provider_model: Option<String>,
     enabled: bool,
     currency: String,
+    billing_mode: String,
     input_1k_price_minor: i64,
     output_1k_price_minor: i64,
     request_price_minor: i64,
     image_price_minor: i64,
     second_price_minor: i64,
+    minute_price_minor: i64,
     daily_spend_limit_minor: Option<i64>,
+    pricing_config: Value,
     metadata: Value,
 }
 
@@ -864,12 +880,15 @@ async fn list_models(
           m.provider_model,
           m.enabled,
           m.currency,
+          m.billing_mode,
           m.input_1k_price_minor,
           m.output_1k_price_minor,
           m.request_price_minor,
           m.image_price_minor,
           m.second_price_minor,
+          m.minute_price_minor,
           m.daily_spend_limit_minor,
+          m.pricing_config_json as pricing_config,
           m.metadata_json as metadata,
           m.created_at,
           m.updated_at
@@ -907,15 +926,18 @@ async fn insert_model(
           provider_model,
           enabled,
           currency,
+          billing_mode,
           input_1k_price_minor,
           output_1k_price_minor,
           request_price_minor,
           image_price_minor,
           second_price_minor,
+          minute_price_minor,
           daily_spend_limit_minor,
+          pricing_config_json,
           metadata_json
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         returning
           id,
           code,
@@ -926,12 +948,15 @@ async fn insert_model(
           provider_model,
           enabled,
           currency,
+          billing_mode,
           input_1k_price_minor,
           output_1k_price_minor,
           request_price_minor,
           image_price_minor,
           second_price_minor,
+          minute_price_minor,
           daily_spend_limit_minor,
+          pricing_config_json as pricing_config,
           metadata_json as metadata,
           created_at,
           updated_at
@@ -945,12 +970,15 @@ async fn insert_model(
     .bind(input.provider_model)
     .bind(input.enabled)
     .bind(input.currency)
+    .bind(input.billing_mode)
     .bind(input.input_1k_price_minor)
     .bind(input.output_1k_price_minor)
     .bind(input.request_price_minor)
     .bind(input.image_price_minor)
     .bind(input.second_price_minor)
+    .bind(input.minute_price_minor)
     .bind(input.daily_spend_limit_minor)
+    .bind(input.pricing_config)
     .bind(input.metadata)
     .fetch_one(&mut **transaction)
     .await
@@ -974,12 +1002,15 @@ async fn find_model_for_update(
           m.provider_model,
           m.enabled,
           m.currency,
+          m.billing_mode,
           m.input_1k_price_minor,
           m.output_1k_price_minor,
           m.request_price_minor,
           m.image_price_minor,
           m.second_price_minor,
+          m.minute_price_minor,
           m.daily_spend_limit_minor,
+          m.pricing_config_json as pricing_config,
           m.metadata_json as metadata,
           m.created_at,
           m.updated_at
@@ -1016,13 +1047,16 @@ async fn update_model_in_transaction(
           provider_model = $6,
           enabled = $7,
           currency = $8,
-          input_1k_price_minor = $9,
-          output_1k_price_minor = $10,
-          request_price_minor = $11,
-          image_price_minor = $12,
-          second_price_minor = $13,
-          daily_spend_limit_minor = $14,
-          metadata_json = $15,
+          billing_mode = $9,
+          input_1k_price_minor = $10,
+          output_1k_price_minor = $11,
+          request_price_minor = $12,
+          image_price_minor = $13,
+          second_price_minor = $14,
+          minute_price_minor = $15,
+          daily_spend_limit_minor = $16,
+          pricing_config_json = $17,
+          metadata_json = $18,
           updated_at = now()
         where tenant_id = $1
           and id = $2
@@ -1036,12 +1070,15 @@ async fn update_model_in_transaction(
           provider_model,
           enabled,
           currency,
+          billing_mode,
           input_1k_price_minor,
           output_1k_price_minor,
           request_price_minor,
           image_price_minor,
           second_price_minor,
+          minute_price_minor,
           daily_spend_limit_minor,
+          pricing_config_json as pricing_config,
           metadata_json as metadata,
           created_at,
           updated_at
@@ -1055,12 +1092,15 @@ async fn update_model_in_transaction(
     .bind(input.provider_model)
     .bind(input.enabled)
     .bind(input.currency)
+    .bind(input.billing_mode)
     .bind(input.input_1k_price_minor)
     .bind(input.output_1k_price_minor)
     .bind(input.request_price_minor)
     .bind(input.image_price_minor)
     .bind(input.second_price_minor)
+    .bind(input.minute_price_minor)
     .bind(input.daily_spend_limit_minor)
+    .bind(input.pricing_config)
     .bind(input.metadata)
     .fetch_one(&mut **transaction)
     .await
@@ -1530,10 +1570,25 @@ fn normalize_update_provider_input(
 fn normalize_create_model_input(
     payload: CreateAiModelRequest,
 ) -> Result<CreateModelInput, AppError> {
+    let modality = normalize_modality(&payload.modality)?;
+    let input_1k_price_minor =
+        normalize_nonnegative_price(payload.input_1k_price_minor.unwrap_or(0))?;
+    let output_1k_price_minor =
+        normalize_nonnegative_price(payload.output_1k_price_minor.unwrap_or(0))?;
+    let request_price_minor =
+        normalize_nonnegative_price(payload.request_price_minor.unwrap_or(0))?;
+    let image_price_minor = normalize_nonnegative_price(payload.image_price_minor.unwrap_or(0))?;
+    let second_price_minor = normalize_nonnegative_price(payload.second_price_minor.unwrap_or(0))?;
+    let minute_price_minor = normalize_nonnegative_price(payload.minute_price_minor.unwrap_or(0))?;
+    let billing_mode = match payload.billing_mode.as_deref() {
+        Some(value) => normalize_billing_mode(value, &modality)?,
+        None => default_billing_mode(&modality, request_price_minor, second_price_minor),
+    };
+
     Ok(CreateModelInput {
         code: normalize_model_code(&payload.code)?,
         name: normalize_name(&payload.name, "ai model name", MAX_MODEL_NAME_LEN)?,
-        modality: normalize_modality(&payload.modality)?,
+        modality,
         provider_id: payload.provider_id,
         provider_model: payload
             .provider_model
@@ -1542,18 +1597,21 @@ fn normalize_create_model_input(
             .transpose()?,
         enabled: payload.enabled.unwrap_or(true),
         currency: normalize_currency(payload.currency.as_deref().unwrap_or("CNY"))?,
-        input_1k_price_minor: normalize_nonnegative_price(
-            payload.input_1k_price_minor.unwrap_or(0),
-        )?,
-        output_1k_price_minor: normalize_nonnegative_price(
-            payload.output_1k_price_minor.unwrap_or(0),
-        )?,
-        request_price_minor: normalize_nonnegative_price(payload.request_price_minor.unwrap_or(0))?,
-        image_price_minor: normalize_nonnegative_price(payload.image_price_minor.unwrap_or(0))?,
-        second_price_minor: normalize_nonnegative_price(payload.second_price_minor.unwrap_or(0))?,
+        billing_mode,
+        input_1k_price_minor,
+        output_1k_price_minor,
+        request_price_minor,
+        image_price_minor,
+        second_price_minor,
+        minute_price_minor,
         daily_spend_limit_minor: normalize_optional_limit(
             payload.daily_spend_limit_minor,
             "ai model daily spend limit",
+        )?,
+        pricing_config: normalize_public_json(
+            payload.pricing_config,
+            "ai model pricing config",
+            MAX_CONFIG_BYTES,
         )?,
         metadata: normalize_public_json(payload.metadata, "ai model metadata", MAX_CONFIG_BYTES)?,
     })
@@ -1563,15 +1621,55 @@ fn normalize_update_model_input(
     before: &AiModel,
     payload: UpdateAiModelRequest,
 ) -> Result<UpdateModelInput, AppError> {
+    let modality_changed = payload.modality.is_some();
+    let modality = match payload.modality {
+        Some(modality) => normalize_modality(&modality)?,
+        None => before.modality.clone(),
+    };
+    let input_1k_price_minor = normalize_nonnegative_price(
+        payload
+            .input_1k_price_minor
+            .unwrap_or(before.input_1k_price_minor),
+    )?;
+    let output_1k_price_minor = normalize_nonnegative_price(
+        payload
+            .output_1k_price_minor
+            .unwrap_or(before.output_1k_price_minor),
+    )?;
+    let request_price_minor = normalize_nonnegative_price(
+        payload
+            .request_price_minor
+            .unwrap_or(before.request_price_minor),
+    )?;
+    let image_price_minor = normalize_nonnegative_price(
+        payload
+            .image_price_minor
+            .unwrap_or(before.image_price_minor),
+    )?;
+    let second_price_minor = normalize_nonnegative_price(
+        payload
+            .second_price_minor
+            .unwrap_or(before.second_price_minor),
+    )?;
+    let minute_price_minor = normalize_nonnegative_price(
+        payload
+            .minute_price_minor
+            .unwrap_or(before.minute_price_minor),
+    )?;
+    let billing_mode = match payload.billing_mode {
+        Some(billing_mode) => normalize_billing_mode(&billing_mode, &modality)?,
+        None if modality_changed && modality != before.modality => {
+            default_billing_mode(&modality, request_price_minor, second_price_minor)
+        }
+        None => normalize_billing_mode(&before.billing_mode, &modality)?,
+    };
+
     Ok(UpdateModelInput {
         name: match payload.name {
             Some(name) => normalize_name(&name, "ai model name", MAX_MODEL_NAME_LEN)?,
             None => before.name.clone(),
         },
-        modality: match payload.modality {
-            Some(modality) => normalize_modality(&modality)?,
-            None => before.modality.clone(),
-        },
+        modality,
         provider_id: payload.provider_id.unwrap_or(before.provider_id),
         provider_model: match payload.provider_model {
             Some(Some(provider_model)) => Some(normalize_provider_model(&provider_model)?),
@@ -1583,34 +1681,22 @@ fn normalize_update_model_input(
             Some(currency) => normalize_currency(&currency)?,
             None => before.currency.clone(),
         },
-        input_1k_price_minor: normalize_nonnegative_price(
-            payload
-                .input_1k_price_minor
-                .unwrap_or(before.input_1k_price_minor),
-        )?,
-        output_1k_price_minor: normalize_nonnegative_price(
-            payload
-                .output_1k_price_minor
-                .unwrap_or(before.output_1k_price_minor),
-        )?,
-        request_price_minor: normalize_nonnegative_price(
-            payload
-                .request_price_minor
-                .unwrap_or(before.request_price_minor),
-        )?,
-        image_price_minor: normalize_nonnegative_price(
-            payload
-                .image_price_minor
-                .unwrap_or(before.image_price_minor),
-        )?,
-        second_price_minor: normalize_nonnegative_price(
-            payload
-                .second_price_minor
-                .unwrap_or(before.second_price_minor),
-        )?,
+        billing_mode,
+        input_1k_price_minor,
+        output_1k_price_minor,
+        request_price_minor,
+        image_price_minor,
+        second_price_minor,
+        minute_price_minor,
         daily_spend_limit_minor: match payload.daily_spend_limit_minor {
             Some(value) => normalize_optional_limit(value, "ai model daily spend limit")?,
             None => before.daily_spend_limit_minor,
+        },
+        pricing_config: match payload.pricing_config {
+            Some(pricing_config) => {
+                normalize_public_json(pricing_config, "ai model pricing config", MAX_CONFIG_BYTES)?
+            }
+            None => before.pricing_config.clone(),
         },
         metadata: match payload.metadata {
             Some(metadata) => {
@@ -1672,6 +1758,44 @@ fn normalize_modality(value: &str) -> Result<String, AppError> {
         "text" | "image" | "video" | "audio" | "embedding" | "multimodal" => Ok(value),
         _ => Err(AppError::validation_failed("ai model modality is invalid")),
     }
+}
+
+fn normalize_billing_mode(value: &str, modality: &str) -> Result<String, AppError> {
+    let value = value.trim().to_ascii_lowercase();
+    let valid = match modality {
+        "text" | "embedding" => value == "token",
+        "image" => value == "per_image",
+        "video" => matches!(value.as_str(), "video_per_second" | "video_per_request"),
+        "audio" => matches!(
+            value.as_str(),
+            "audio_per_second" | "audio_per_minute" | "audio_per_request"
+        ),
+        "multimodal" => matches!(value.as_str(), "token" | "per_image"),
+        _ => false,
+    };
+    if valid {
+        Ok(value)
+    } else {
+        Err(AppError::validation_failed(
+            "ai model billing mode is invalid for modality",
+        ))
+    }
+}
+
+fn default_billing_mode(
+    modality: &str,
+    request_price_minor: i64,
+    second_price_minor: i64,
+) -> String {
+    match modality {
+        "image" => "per_image",
+        "video" if request_price_minor > 0 && second_price_minor == 0 => "video_per_request",
+        "video" => "video_per_second",
+        "audio" if request_price_minor > 0 && second_price_minor == 0 => "audio_per_request",
+        "audio" => "audio_per_second",
+        _ => "token",
+    }
+    .to_owned()
 }
 
 fn normalize_provider_model(value: &str) -> Result<String, AppError> {
@@ -1861,12 +1985,15 @@ fn model_audit_json(record: &AiModel) -> Value {
         "provider_model": &record.provider_model,
         "enabled": record.enabled,
         "currency": &record.currency,
+        "billing_mode": &record.billing_mode,
         "input_1k_price_minor": record.input_1k_price_minor,
         "output_1k_price_minor": record.output_1k_price_minor,
         "request_price_minor": record.request_price_minor,
         "image_price_minor": record.image_price_minor,
         "second_price_minor": record.second_price_minor,
+        "minute_price_minor": record.minute_price_minor,
         "daily_spend_limit_minor": record.daily_spend_limit_minor,
+        "pricing_config": &record.pricing_config,
         "metadata": &record.metadata,
         "created_at": &record.created_at,
         "updated_at": &record.updated_at,
@@ -1927,8 +2054,9 @@ mod tests {
     use crate::modules::auth::session::AdminContext;
 
     use super::{
-        ensure_admin_permission, normalize_adjustment_amount, normalize_base_url,
-        normalize_modality, normalize_model_code, normalize_provider_kind, normalize_public_json,
+        default_billing_mode, ensure_admin_permission, normalize_adjustment_amount,
+        normalize_base_url, normalize_billing_mode, normalize_modality, normalize_model_code,
+        normalize_provider_kind, normalize_public_json,
     };
 
     #[test]
@@ -1954,6 +2082,32 @@ mod tests {
         assert!(normalize_model_code("bad code").is_err());
         assert_eq!(normalize_modality("Video").expect("modality"), "video");
         assert!(normalize_modality("document").is_err());
+    }
+
+    #[test]
+    fn billing_mode_is_validated_by_modality() {
+        assert_eq!(
+            normalize_billing_mode("token", "text").expect("billing mode"),
+            "token"
+        );
+        assert_eq!(
+            normalize_billing_mode("per_image", "image").expect("billing mode"),
+            "per_image"
+        );
+        assert_eq!(
+            normalize_billing_mode("audio_per_minute", "audio").expect("billing mode"),
+            "audio_per_minute"
+        );
+        assert!(normalize_billing_mode("per_image", "text").is_err());
+        assert!(normalize_billing_mode("audio_per_minute", "video").is_err());
+    }
+
+    #[test]
+    fn default_billing_mode_keeps_legacy_prices_reasonable() {
+        assert_eq!(default_billing_mode("text", 0, 0), "token");
+        assert_eq!(default_billing_mode("image", 0, 0), "per_image");
+        assert_eq!(default_billing_mode("video", 300, 0), "video_per_request");
+        assert_eq!(default_billing_mode("video", 0, 25), "video_per_second");
     }
 
     #[test]

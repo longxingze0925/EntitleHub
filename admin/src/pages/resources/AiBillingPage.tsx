@@ -43,6 +43,7 @@ import {
   type AiAssetType,
   type AiApiKey,
   type AiModel,
+  type AiModelBillingMode,
   type AiModelModality,
   type AiProvider,
   type AiProviderKind,
@@ -76,12 +77,15 @@ interface ModelFormValues {
   provider_model?: string;
   enabled: boolean;
   currency: string;
+  billing_mode: AiModelBillingMode;
   input_1k_price: number;
   output_1k_price: number;
   request_price: number;
   image_price: number;
   second_price: number;
+  minute_price: number;
   daily_spend_limit?: number | null;
+  pricing_config_json: string;
   metadata_json: string;
 }
 
@@ -125,6 +129,38 @@ const modalityOptions: Array<{ label: string; value: AiModelModality }> = [
   { label: "多模态", value: "multimodal" }
 ];
 
+const billingModeLabels: Record<AiModelBillingMode, string> = {
+  token: "输入/输出 token",
+  per_image: "按张图片",
+  video_per_second: "视频按秒",
+  video_per_request: "视频按次",
+  audio_per_second: "音频按秒",
+  audio_per_minute: "音频按分钟",
+  audio_per_request: "音频按次"
+};
+
+const billingModeOptionsByModality: Record<
+  AiModelModality,
+  Array<{ label: string; value: AiModelBillingMode }>
+> = {
+  text: [{ label: billingModeLabels.token, value: "token" }],
+  embedding: [{ label: billingModeLabels.token, value: "token" }],
+  image: [{ label: billingModeLabels.per_image, value: "per_image" }],
+  video: [
+    { label: billingModeLabels.video_per_second, value: "video_per_second" },
+    { label: billingModeLabels.video_per_request, value: "video_per_request" }
+  ],
+  audio: [
+    { label: billingModeLabels.audio_per_second, value: "audio_per_second" },
+    { label: billingModeLabels.audio_per_minute, value: "audio_per_minute" },
+    { label: billingModeLabels.audio_per_request, value: "audio_per_request" }
+  ],
+  multimodal: [
+    { label: billingModeLabels.token, value: "token" },
+    { label: billingModeLabels.per_image, value: "per_image" }
+  ]
+};
+
 const defaultJson = "{\n}";
 
 export function AiBillingPage() {
@@ -154,6 +190,12 @@ export function AiBillingPage() {
   const canUpdateWallet = hasPermission(permissions, "ai:wallet:update");
   const canUpdateApiKey = hasPermission(permissions, "ai:api_key:update");
   const canDeleteAsset = hasPermission(permissions, "ai:asset:delete");
+  const selectedModelModality = (Form.useWatch("modality", modelForm) ??
+    "text") as AiModelModality;
+  const selectedBillingMode =
+    ((Form.useWatch("billing_mode", modelForm) ??
+      defaultBillingModeForModality(selectedModelModality)) as AiModelBillingMode);
+  const billingModeOptions = billingModeOptionsByModality[selectedModelModality];
 
   const providersQuery = useQuery({
     queryKey: ["admin", "ai-providers", includeHistory],
@@ -389,12 +431,15 @@ export function AiBillingPage() {
       modality: "text",
       enabled: true,
       currency: "CNY",
+      billing_mode: "token",
       input_1k_price: 0,
       output_1k_price: 0,
       request_price: 0,
       image_price: 0,
       second_price: 0,
+      minute_price: 0,
       daily_spend_limit: null,
+      pricing_config_json: defaultJson,
       metadata_json: defaultJson
     });
     setModelModalOpen(true);
@@ -410,15 +455,18 @@ export function AiBillingPage() {
       provider_model: model.provider_model ?? undefined,
       enabled: model.enabled,
       currency: model.currency,
+      billing_mode: model.billing_mode ?? defaultBillingModeForModality(model.modality),
       input_1k_price: minorToMoneyNumber(model.input_1k_price_minor),
       output_1k_price: minorToMoneyNumber(model.output_1k_price_minor),
       request_price: minorToMoneyNumber(model.request_price_minor),
       image_price: minorToMoneyNumber(model.image_price_minor),
       second_price: minorToMoneyNumber(model.second_price_minor),
+      minute_price: minorToMoneyNumber(model.minute_price_minor ?? 0),
       daily_spend_limit:
         model.daily_spend_limit_minor == null
           ? null
           : minorToMoneyNumber(model.daily_spend_limit_minor),
+      pricing_config_json: stringifyJson(model.pricing_config),
       metadata_json: stringifyJson(model.metadata)
     });
     setModelModalOpen(true);
@@ -580,16 +628,9 @@ export function AiBillingPage() {
       width: 340,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>
-            输入 {money(record.input_1k_price_minor, record.currency)} / 1K
-          </Typography.Text>
-          <Typography.Text>
-            输出 {money(record.output_1k_price_minor, record.currency)} / 1K
-          </Typography.Text>
+          <Typography.Text>{billingPriceSummary(record)}</Typography.Text>
           <Typography.Text type="secondary">
-            请求 {money(record.request_price_minor, record.currency)} / 图片{" "}
-            {money(record.image_price_minor, record.currency)} / 秒{" "}
-            {money(record.second_price_minor, record.currency)}
+            计费方式 {billingModeLabel(record.billing_mode)}
           </Typography.Text>
           <Typography.Text type="secondary">
             每日限额 {limitText(record.daily_spend_limit_minor, record.currency)}
@@ -1347,6 +1388,14 @@ export function AiBillingPage() {
         <Form<ModelFormValues>
           form={modelForm}
           layout="vertical"
+          onValuesChange={(changedValues) => {
+            if ("modality" in changedValues) {
+              modelForm.setFieldValue(
+                "billing_mode",
+                defaultBillingModeForModality(changedValues.modality as AiModelModality)
+              );
+            }
+          }}
           onFinish={(values) => modelMutation.mutate(values)}
         >
           <div className="settings-grid-inner">
@@ -1373,15 +1422,44 @@ export function AiBillingPage() {
             <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
               <Input maxLength={3} />
             </Form.Item>
+            <Form.Item name="billing_mode" label="计费方式" rules={[{ required: true }]}>
+              <Select options={billingModeOptions} disabled={billingModeOptions.length === 1} />
+            </Form.Item>
           </div>
           <div className="settings-grid-inner">
-            <MoneyFormItem name="input_1k_price" label="输入 / 1K" />
-            <MoneyFormItem name="output_1k_price" label="输出 / 1K" />
-            <MoneyFormItem name="request_price" label="每次请求" />
-            <MoneyFormItem name="image_price" label="每张图片" />
-            <MoneyFormItem name="second_price" label="每秒视频" />
+            {selectedBillingMode === "token" ? (
+              <>
+                <MoneyFormItem name="input_1k_price" label="输入 / 1K token" />
+                <MoneyFormItem name="output_1k_price" label="输出 / 1K token" />
+              </>
+            ) : null}
+            {selectedBillingMode === "per_image" ? (
+              <MoneyFormItem name="image_price" label="每张图片" />
+            ) : null}
+            {selectedBillingMode === "video_per_second" ? (
+              <MoneyFormItem name="second_price" label="每秒视频" />
+            ) : null}
+            {selectedBillingMode === "video_per_request" ? (
+              <MoneyFormItem name="request_price" label="每次视频请求" />
+            ) : null}
+            {selectedBillingMode === "audio_per_second" ? (
+              <MoneyFormItem name="second_price" label="每秒音频" />
+            ) : null}
+            {selectedBillingMode === "audio_per_minute" ? (
+              <MoneyFormItem name="minute_price" label="每分钟音频" />
+            ) : null}
+            {selectedBillingMode === "audio_per_request" ? (
+              <MoneyFormItem name="request_price" label="每次音频请求" />
+            ) : null}
             <OptionalMoneyFormItem name="daily_spend_limit" label="每日限额" />
           </div>
+          <Form.Item
+            name="pricing_config_json"
+            label="计费扩展 JSON"
+            rules={[{ validator: validateJsonField }]}
+          >
+            <Input.TextArea className="settings-json-editor" rows={5} />
+          </Form.Item>
           <Form.Item
             name="metadata_json"
             label="扩展配置 JSON"
@@ -1571,20 +1649,64 @@ function buildProviderPayload(values: ProviderFormValues, editing: boolean) {
 }
 
 function buildModelPayload(values: ModelFormValues) {
+  const priceFields = priceFieldsForBillingMode(values);
+
   return {
     name: values.name.trim(),
     modality: values.modality,
     enabled: values.enabled,
     currency: values.currency.trim().toUpperCase(),
-    input_1k_price_minor: moneyToMinor(values.input_1k_price),
-    output_1k_price_minor: moneyToMinor(values.output_1k_price),
-    request_price_minor: moneyToMinor(values.request_price),
-    image_price_minor: moneyToMinor(values.image_price),
-    second_price_minor: moneyToMinor(values.second_price),
+    billing_mode: values.billing_mode,
+    ...priceFields,
     daily_spend_limit_minor:
       values.daily_spend_limit == null ? null : moneyToMinor(values.daily_spend_limit),
+    pricing_config: parseJsonObject(values.pricing_config_json),
     metadata: parseJsonObject(values.metadata_json)
   };
+}
+
+function priceFieldsForBillingMode(values: ModelFormValues) {
+  const zeroPrices = {
+    input_1k_price_minor: 0,
+    output_1k_price_minor: 0,
+    request_price_minor: 0,
+    image_price_minor: 0,
+    second_price_minor: 0,
+    minute_price_minor: 0
+  };
+
+  switch (values.billing_mode) {
+    case "token":
+      return {
+        ...zeroPrices,
+        input_1k_price_minor: moneyToMinor(values.input_1k_price),
+        output_1k_price_minor: moneyToMinor(values.output_1k_price)
+      };
+    case "per_image":
+      return {
+        ...zeroPrices,
+        image_price_minor: moneyToMinor(values.image_price)
+      };
+    case "video_per_second":
+    case "audio_per_second":
+      return {
+        ...zeroPrices,
+        second_price_minor: moneyToMinor(values.second_price)
+      };
+    case "video_per_request":
+    case "audio_per_request":
+      return {
+        ...zeroPrices,
+        request_price_minor: moneyToMinor(values.request_price)
+      };
+    case "audio_per_minute":
+      return {
+        ...zeroPrices,
+        minute_price_minor: moneyToMinor(values.minute_price)
+      };
+  }
+
+  return zeroPrices;
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {
@@ -1648,6 +1770,47 @@ function providerKindLabel(value: AiProviderKind): string {
 
 function modalityLabel(value: AiModelModality): string {
   return modalityOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function defaultBillingModeForModality(modality: AiModelModality): AiModelBillingMode {
+  switch (modality) {
+    case "image":
+      return "per_image";
+    case "video":
+      return "video_per_second";
+    case "audio":
+      return "audio_per_second";
+    case "text":
+    case "embedding":
+    case "multimodal":
+      return "token";
+  }
+}
+
+function billingModeLabel(value: AiModelBillingMode): string {
+  return billingModeLabels[value] ?? value;
+}
+
+function billingPriceSummary(record: AiModel): string {
+  switch (record.billing_mode) {
+    case "token":
+      return `输入 ${money(record.input_1k_price_minor, record.currency)} / 1K，输出 ${money(
+        record.output_1k_price_minor,
+        record.currency
+      )} / 1K`;
+    case "per_image":
+      return `每张图片 ${money(record.image_price_minor, record.currency)}`;
+    case "video_per_second":
+      return `每秒视频 ${money(record.second_price_minor, record.currency)}`;
+    case "video_per_request":
+      return `每次视频请求 ${money(record.request_price_minor, record.currency)}`;
+    case "audio_per_second":
+      return `每秒音频 ${money(record.second_price_minor, record.currency)}`;
+    case "audio_per_minute":
+      return `每分钟音频 ${money(record.minute_price_minor, record.currency)}`;
+    case "audio_per_request":
+      return `每次音频请求 ${money(record.request_price_minor, record.currency)}`;
+  }
 }
 
 function ledgerTypeLabel(value: string): string {

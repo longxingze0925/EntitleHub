@@ -2420,12 +2420,15 @@ ai:read
       "provider_model": "gpt-4o-mini",
       "enabled": true,
       "currency": "CNY",
+      "billing_mode": "token",
       "input_1k_price_minor": 1,
       "output_1k_price_minor": 3,
       "request_price_minor": 0,
       "image_price_minor": 0,
       "second_price_minor": 0,
+      "minute_price_minor": 0,
       "daily_spend_limit_minor": null,
+      "pricing_config": {},
       "metadata": {}
     }
   ]
@@ -2458,12 +2461,15 @@ ai:model:update
   "provider_model": "gpt-4o-mini",
   "enabled": true,
   "currency": "CNY",
+  "billing_mode": "token",
   "input_1k_price_minor": 1,
   "output_1k_price_minor": 3,
   "request_price_minor": 0,
   "image_price_minor": 0,
   "second_price_minor": 0,
+  "minute_price_minor": 0,
   "daily_spend_limit_minor": null,
+  "pricing_config": {},
   "metadata": {}
 }
 ```
@@ -2474,6 +2480,8 @@ ai:model:update
 - 价格调整只影响新请求，历史调用必须保存价格快照。
 - `daily_spend_limit_minor` 为空表示不限制；设置后同一自然日内该模型的新请求预扣金额不能超过该限额。
 - `modality` 支持 `text`、`image`、`video`、`audio`、`embedding`、`multimodal`。
+- `billing_mode` 控制生效价格字段：`token` 使用 `input_1k_price_minor` / `output_1k_price_minor`，`per_image` 使用 `image_price_minor`，`video_per_second` 使用 `second_price_minor`，`video_per_request` 使用 `request_price_minor`，`audio_per_second` 使用 `second_price_minor`，`audio_per_minute` 使用 `minute_price_minor`，`audio_per_request` 使用 `request_price_minor`。
+- `pricing_config` 预留给三方特殊计费参数，必须是普通 JSON 对象，不要放密钥。
 
 ### 18.6 AI 钱包列表
 
@@ -2758,6 +2766,7 @@ x-entitlehub-usage-id: uuid
 计费规则：
 
 - 请求开始时按模型价格预估并冻结客户 AI 钱包余额。
+- `billing_mode=token` 时，根据后台输入 / 输出 token 单价预扣。
 - 三方返回 2xx 成功后，根据三方 `usage.prompt_tokens` / `usage.completion_tokens` 结算；没有 usage 时按预扣金额结算。
 - 三方返回失败或请求异常时释放预扣金额。
 - 三方平台状态和响应以三方回传为准，调用记录写入 `ai_usage_records`。
@@ -2793,7 +2802,7 @@ x-entitlehub-usage-id: uuid
 
 计费规则：
 
-- 请求开始时按 `request_price_minor + 预估输入 token * input_1k_price_minor / 1000` 冻结客户 AI 钱包余额。
+- `billing_mode=token` 时，请求开始按预估输入 token 和 `input_1k_price_minor` 冻结客户 AI 钱包余额。
 - 三方返回 2xx 成功后，根据三方 `usage.prompt_tokens` 结算；没有 `prompt_tokens` 时使用 `usage.total_tokens`；没有 usage 时按预扣金额结算。
 - 三方返回失败或请求异常时释放预扣金额。
 - 第一版只支持 `openai_compatible` 且 `modality=embedding|multimodal` 的模型。
@@ -2844,8 +2853,8 @@ x-entitlehub-usage-id: uuid
 
 计费规则：
 
-- 请求开始时按 `request_price_minor + image_price_minor * n` 预扣，`n` 默认 1，最大 10。
-- 三方返回 2xx 且图片缓存成功后按预扣金额结算。
+- `billing_mode=per_image` 时，请求开始按 `image_price_minor * n` 预扣，`n` 默认 1，最大 10。
+- 三方返回 2xx 且图片缓存成功后，优先按三方返回 `data` 数量和 `image_price_minor` 结算；返回体没有可识别图片数量时按预扣金额结算。
 - 三方失败、请求异常或图片缓存失败时释放预扣金额。
 - 第一版只支持 `openai_compatible` 且 `modality=image|multimodal` 的模型。
 - AI API Key 默认每 60 秒最多 120 次网关请求，可通过 `AI_GATEWAY_RATE_LIMIT_MAX` 和 `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS` 调整。

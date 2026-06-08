@@ -412,6 +412,15 @@ export type AiModelModality =
   | "embedding"
   | "multimodal";
 
+export type AiModelBillingMode =
+  | "token"
+  | "per_image"
+  | "video_per_second"
+  | "video_per_request"
+  | "audio_per_second"
+  | "audio_per_minute"
+  | "audio_per_request";
+
 export interface AiModel {
   id: string;
   code: string;
@@ -422,12 +431,15 @@ export interface AiModel {
   provider_model?: string | null;
   enabled: boolean;
   currency: string;
+  billing_mode: AiModelBillingMode;
   input_1k_price_minor: number;
   output_1k_price_minor: number;
   request_price_minor: number;
   image_price_minor: number;
   second_price_minor: number;
+  minute_price_minor: number;
   daily_spend_limit_minor?: number | null;
+  pricing_config: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -441,12 +453,15 @@ export interface CreateAiModelPayload {
   provider_model?: string;
   enabled?: boolean;
   currency?: string;
+  billing_mode?: AiModelBillingMode;
   input_1k_price_minor?: number;
   output_1k_price_minor?: number;
   request_price_minor?: number;
   image_price_minor?: number;
   second_price_minor?: number;
+  minute_price_minor?: number;
   daily_spend_limit_minor?: number | null;
+  pricing_config?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 
@@ -457,12 +472,15 @@ export interface UpdateAiModelPayload {
   provider_model?: string | null;
   enabled?: boolean;
   currency?: string;
+  billing_mode?: AiModelBillingMode;
   input_1k_price_minor?: number;
   output_1k_price_minor?: number;
   request_price_minor?: number;
   image_price_minor?: number;
   second_price_minor?: number;
+  minute_price_minor?: number;
   daily_spend_limit_minor?: number | null;
+  pricing_config?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 

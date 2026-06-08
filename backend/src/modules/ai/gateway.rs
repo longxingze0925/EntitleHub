@@ -54,11 +54,15 @@ struct GatewayModel {
     modality: String,
     provider_model: Option<String>,
     currency: String,
+    billing_mode: String,
     input_1k_price_minor: i64,
     output_1k_price_minor: i64,
     request_price_minor: i64,
     image_price_minor: i64,
+    second_price_minor: i64,
+    minute_price_minor: i64,
     daily_spend_limit_minor: Option<i64>,
+    pricing_config: Value,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -263,6 +267,9 @@ pub async fn image_generations(
 
                 return Err(error);
             }
+            let charge_minor = calculate_image_charge_minor(&model, &provider_response.body)
+                .unwrap_or(reservation.held_minor)
+                .min(reservation.held_minor);
             capture_usage(
                 &state,
                 &reservation,
@@ -270,12 +277,12 @@ pub async fn image_generations(
                 provider_response.status.as_u16() as i32,
                 provider_response.provider_request_id.as_deref(),
                 TokenUsage::default(),
-                reservation.held_minor,
+                charge_minor,
                 &provider_response.body,
             )
             .await?;
             metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Success);
-            metrics::record_ai_gateway_charged(endpoint, reservation.held_minor);
+            metrics::record_ai_gateway_charged(endpoint, charge_minor);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -661,11 +668,15 @@ async fn load_gateway_model(
           m.modality,
           m.provider_model,
           m.currency,
+          m.billing_mode,
           m.input_1k_price_minor,
           m.output_1k_price_minor,
           m.request_price_minor,
           m.image_price_minor,
-          m.daily_spend_limit_minor
+          m.second_price_minor,
+          m.minute_price_minor,
+          m.daily_spend_limit_minor,
+          m.pricing_config_json as pricing_config
         from ai_models m
         join ai_providers p
           on p.id = m.provider_id
@@ -1293,6 +1304,11 @@ fn validate_model_for_chat(model: &GatewayModel) -> Result<(), AppError> {
             "ai model does not support chat completions",
         ));
     }
+    if model.billing_mode != "token" {
+        return Err(AppError::validation_failed(
+            "ai chat model billing mode must be token",
+        ));
+    }
     if model.provider_secret_encrypted.is_none() {
         return Err(AppError::validation_failed(
             "ai provider api key is not configured",
@@ -1313,6 +1329,11 @@ fn validate_model_for_images(model: &GatewayModel) -> Result<(), AppError> {
             "ai model does not support image generations",
         ));
     }
+    if model.billing_mode != "per_image" {
+        return Err(AppError::validation_failed(
+            "ai image model billing mode must be per_image",
+        ));
+    }
     if model.provider_secret_encrypted.is_none() {
         return Err(AppError::validation_failed(
             "ai provider api key is not configured",
@@ -1331,6 +1352,11 @@ fn validate_model_for_embeddings(model: &GatewayModel) -> Result<(), AppError> {
     if !matches!(model.modality.as_str(), "embedding" | "multimodal") {
         return Err(AppError::validation_failed(
             "ai model does not support embeddings",
+        ));
+    }
+    if model.billing_mode != "token" {
+        return Err(AppError::validation_failed(
+            "ai embedding model billing mode must be token",
         ));
     }
     if model.provider_secret_encrypted.is_none() {
@@ -1774,6 +1800,21 @@ fn estimate_image_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i6
         .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large"))
 }
 
+fn calculate_image_charge_minor(model: &GatewayModel, provider_body: &Value) -> Option<i64> {
+    let count = image_result_count(provider_body)?;
+    model
+        .request_price_minor
+        .checked_add(model.image_price_minor.checked_mul(count)?)
+}
+
+fn image_result_count(provider_body: &Value) -> Option<i64> {
+    provider_body
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| items.len() as i64)
+        .filter(|count| *count > 0)
+}
+
 fn estimate_embedding_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, AppError> {
     let input_tokens = estimate_embedding_input_tokens(payload)?;
     let input_minor = token_price_minor(input_tokens, model.input_1k_price_minor)?;
@@ -1882,11 +1923,15 @@ fn token_usage_from_response(body: &Value) -> TokenUsage {
 
 fn price_snapshot(model: &GatewayModel, held_minor: i64) -> Value {
     json!({
-        "currency": model.currency,
+        "currency": &model.currency,
+        "billing_mode": &model.billing_mode,
         "input_1k_price_minor": model.input_1k_price_minor,
         "output_1k_price_minor": model.output_1k_price_minor,
         "request_price_minor": model.request_price_minor,
         "image_price_minor": model.image_price_minor,
+        "second_price_minor": model.second_price_minor,
+        "minute_price_minor": model.minute_price_minor,
+        "pricing_config": &model.pricing_config,
         "held_minor": held_minor,
         "captured_at": Utc::now(),
     })
@@ -1921,8 +1966,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        calculate_actual_charge_minor, calculate_embedding_charge_minor, completion_token_budget,
-        decode_base64_image_asset, ensure_daily_limit_available, ensure_provider_asset_url_allowed,
+        calculate_actual_charge_minor, calculate_embedding_charge_minor,
+        calculate_image_charge_minor, completion_token_budget, decode_base64_image_asset,
+        ensure_daily_limit_available, ensure_provider_asset_url_allowed,
         estimate_embedding_hold_minor, estimate_hold_minor, estimate_image_hold_minor,
         extension_for_mime, idempotency_key, image_count, normalize_mime_type, provider_payload,
         provider_timeout, token_price_minor, token_usage_from_response, GatewayModel,
@@ -2002,6 +2048,7 @@ mod tests {
     fn image_hold_uses_request_price_and_image_count() {
         let model = GatewayModel {
             modality: "image".to_owned(),
+            billing_mode: "per_image".to_owned(),
             image_price_minor: 250,
             ..fixture_model()
         };
@@ -2016,6 +2063,29 @@ mod tests {
             estimate_image_hold_minor(&payload, &model).expect("hold"),
             850
         );
+    }
+
+    #[test]
+    fn image_charge_uses_provider_result_count() {
+        let model = GatewayModel {
+            modality: "image".to_owned(),
+            billing_mode: "per_image".to_owned(),
+            request_price_minor: 0,
+            image_price_minor: 250,
+            ..fixture_model()
+        };
+        let body = json!({
+            "data": [
+                {"url": "https://cdn.example.com/1.png"},
+                {"url": "https://cdn.example.com/2.png"}
+            ]
+        });
+
+        assert_eq!(
+            calculate_image_charge_minor(&model, &body).expect("charge"),
+            500
+        );
+        assert!(calculate_image_charge_minor(&model, &json!({})).is_none());
     }
 
     #[test]
@@ -2125,11 +2195,15 @@ mod tests {
             modality: "text".to_owned(),
             provider_model: Some("provider-gpt-test".to_owned()),
             currency: "CNY".to_owned(),
+            billing_mode: "token".to_owned(),
             input_1k_price_minor: 200,
             output_1k_price_minor: 300,
             request_price_minor: 100,
             image_price_minor: 0,
+            second_price_minor: 0,
+            minute_price_minor: 0,
             daily_spend_limit_minor: None,
+            pricing_config: json!({}),
         }
     }
 }
