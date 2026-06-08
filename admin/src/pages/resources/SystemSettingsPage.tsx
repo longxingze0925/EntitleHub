@@ -30,7 +30,7 @@ import {
 } from "../../api/admin";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
-import { tMessage } from "../../utils/i18n";
+import { tApiError, tMessage } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface SettingFormValues {
@@ -126,6 +126,10 @@ export function SystemSettingsPage() {
       applyEmailSettings(emailForm, emailQuery.data);
     }
   }, [emailForm, emailQuery.data]);
+  const systemSettingSaveError = tApiError(mutation.error);
+  const emailSettingsLoadError = tApiError(emailQuery.error);
+  const emailSettingsSaveError = tApiError(emailMutation.error);
+  const emailSettingsTestError = tApiError(emailTestMutation.error);
 
   const openCreate = () => {
     setEditing(null);
@@ -219,11 +223,21 @@ export function SystemSettingsPage() {
         <Alert type="error" message={tMessage("system_settings_load_failed")} />
       ) : null}
       {mutation.error ? (
-        <Alert type="error" message={tMessage("system_setting_save_failed")} />
+        <Alert
+          type="error"
+          message={tMessage("system_setting_save_failed")}
+          description={systemSettingSaveError}
+        />
       ) : null}
-      {emailQuery.error ? <Alert type="error" message="邮件服务配置加载失败" /> : null}
-      {emailMutation.error ? <Alert type="error" message="邮件服务配置保存失败" /> : null}
-      {emailTestMutation.error ? <Alert type="error" message="测试邮件发送失败" /> : null}
+      {emailQuery.error ? (
+        <Alert type="error" message="邮件服务配置加载失败" description={emailSettingsLoadError} />
+      ) : null}
+      {emailMutation.error ? (
+        <Alert type="error" message="邮件服务配置保存失败" description={emailSettingsSaveError} />
+      ) : null}
+      {emailTestMutation.error ? (
+        <Alert type="error" message="测试邮件发送失败" description={emailSettingsTestError} />
+      ) : null}
 
       <div className="settings-panel settings-panel-wide">
         <div className="settings-panel-title settings-panel-title-split">
@@ -263,6 +277,7 @@ export function SystemSettingsPage() {
           form={emailForm}
           layout="vertical"
           className="settings-stack"
+          autoComplete="off"
           onFinish={(values) => emailMutation.mutate(values)}
         >
           <div className="settings-grid-inner">
@@ -293,7 +308,7 @@ export function SystemSettingsPage() {
               <InputNumber min={1} max={65535} className="form-number" />
             </Form.Item>
             <Form.Item name="smtp_user" label="SMTP 用户名">
-              <Input placeholder="通常是发件邮箱" />
+              <Input autoComplete="off" placeholder="通常是发件邮箱" />
             </Form.Item>
             <Form.Item noStyle shouldUpdate>
               {({ getFieldValue }) => (
@@ -329,6 +344,7 @@ export function SystemSettingsPage() {
                   ]}
                 >
                   <Input.Password
+                    autoComplete="new-password"
                     disabled={Boolean(getFieldValue("clear_password"))}
                     placeholder={
                       emailQuery.data?.smtp_password_configured

@@ -40,7 +40,7 @@ import { ConfirmActionButton } from "../../components/ConfirmActionButton";
 import { HistoryToggle } from "../../components/HistoryToggle";
 import { useAuthStore } from "../../stores/authStore";
 import { dateTime } from "../../utils/format";
-import { tMessage, tStatus } from "../../utils/i18n";
+import { tApiError, tMessage, tStatus } from "../../utils/i18n";
 import { hasPermission } from "../../utils/permissions";
 
 interface ChannelFormValues {
@@ -151,6 +151,7 @@ export function NotificationChannelsPage() {
 
   const openCreate = () => {
     setEditing(null);
+    form.resetFields();
     form.setFieldsValue({
       name: "",
       kind: "webhook",
@@ -162,6 +163,7 @@ export function NotificationChannelsPage() {
 
   const openEdit = (channel: NotificationChannel) => {
     setEditing(channel);
+    form.resetFields();
     form.setFieldsValue(toFormValues(channel));
     setModalOpen(true);
   };
@@ -175,6 +177,9 @@ export function NotificationChannelsPage() {
       onOk: () => testMutation.mutateAsync({ id: channel.id, mode: "delivery" })
     });
   };
+  const saveError = tApiError(saveMutation.error);
+  const testError = tApiError(testMutation.error);
+  const statusError = tApiError(statusMutation.error);
 
   const columns: ColumnsType<NotificationChannel> = [
     {
@@ -228,13 +233,20 @@ export function NotificationChannelsPage() {
     {
       title: "最近测试",
       key: "last_test",
-      width: 180,
+      width: 240,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <TestStatusTag status={record.last_test_status} />
           <Typography.Text type="secondary">
             {record.last_test_at ? dateTime(record.last_test_at) : "-"}
           </Typography.Text>
+          {record.last_test_error ? (
+            <Tooltip title={record.last_test_error}>
+              <Typography.Text type="danger">
+                {shortText(record.last_test_error, 48)}
+              </Typography.Text>
+            </Tooltip>
+          ) : null}
         </Space>
       )
     },
@@ -344,13 +356,25 @@ export function NotificationChannelsPage() {
         <Alert type="error" message={tMessage("notification_channels_load_failed")} />
       ) : null}
       {saveMutation.error ? (
-        <Alert type="error" message={tMessage("notification_channel_save_failed")} />
+        <Alert
+          type="error"
+          message={tMessage("notification_channel_save_failed")}
+          description={saveError}
+        />
       ) : null}
       {testMutation.error ? (
-        <Alert type="error" message={tMessage("notification_channel_test_failed")} />
+        <Alert
+          type="error"
+          message={tMessage("notification_channel_test_failed")}
+          description={testError}
+        />
       ) : null}
       {statusMutation.error ? (
-        <Alert type="error" message={tMessage("notification_channel_save_failed")} />
+        <Alert
+          type="error"
+          message={tMessage("notification_channel_save_failed")}
+          description={statusError}
+        />
       ) : null}
 
       <Table
@@ -382,6 +406,7 @@ export function NotificationChannelsPage() {
         <Form<ChannelFormValues>
           form={form}
           layout="vertical"
+          autoComplete="off"
           onFinish={(values) => saveMutation.mutate(values)}
         >
           <div className="settings-grid-inner">
@@ -416,7 +441,10 @@ export function NotificationChannelsPage() {
                 { type: "url", message: "URL 格式不正确" }
               ]}
             >
-              <Input.Password placeholder={editing?.secret_configured ? "已配置" : ""} />
+              <Input.Password
+                autoComplete="new-password"
+                placeholder={editing?.secret_configured ? "已配置，留空不修改" : ""}
+              />
             </Form.Item>
           ) : null}
 
@@ -427,7 +455,7 @@ export function NotificationChannelsPage() {
                 label="SMTP 主机"
                 rules={[{ required: true, message: "请输入 SMTP 主机" }]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
               <Form.Item
                 name="smtp_port"
@@ -441,7 +469,7 @@ export function NotificationChannelsPage() {
                 label="SMTP 用户名"
                 rules={[{ required: true, message: "请输入 SMTP 用户名" }]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
               <Form.Item
                 name="smtp_password"
@@ -453,7 +481,10 @@ export function NotificationChannelsPage() {
                   }
                 ]}
               >
-                <Input.Password placeholder={editing?.secret_configured ? "已配置" : ""} />
+                <Input.Password
+                  autoComplete="new-password"
+                  placeholder={editing?.secret_configured ? "已配置，留空不修改" : ""}
+                />
               </Form.Item>
               <Form.Item
                 name="from"
@@ -463,14 +494,14 @@ export function NotificationChannelsPage() {
                   { type: "email", message: "邮箱格式不正确" }
                 ]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
               <Form.Item
                 name="to"
                 label="收件人"
                 rules={[{ required: true, message: "请输入收件人" }]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
             </div>
           ) : null}
@@ -490,7 +521,10 @@ export function NotificationChannelsPage() {
                   }
                 ]}
               >
-                <Input.Password placeholder={editing?.secret_configured ? "已配置" : ""} />
+                <Input.Password
+                  autoComplete="new-password"
+                  placeholder={editing?.secret_configured ? "已配置，留空不修改" : ""}
+                />
               </Form.Item>
             </div>
           ) : null}
@@ -575,6 +609,10 @@ function targetSummary(config: Record<string, unknown>): string {
   const summary = text(config.target_summary);
 
   return summary ?? "-";
+}
+
+function shortText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
 function KindTag({ kind }: { kind: NotificationChannelKind }) {
