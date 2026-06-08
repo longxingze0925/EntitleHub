@@ -59,6 +59,15 @@ ask() {
   fi
 }
 
+ask_secret_optional() {
+  local prompt="$1"
+  local value
+  printf '%s: ' "$prompt" >&2
+  read -r -s value
+  printf '\n' >&2
+  printf '%s' "$value"
+}
+
 confirm() {
   local prompt="$1"
   local answer
@@ -895,6 +904,32 @@ restart_flow() {
   run_smoke
 }
 
+reset_admin_password_flow() {
+  require_root
+  is_installed || die "$APP_NAME 尚未安装。"
+  in_install_dir
+
+  local email tenant_slug password disable_mfa
+  email="$(ask "管理员邮箱")"
+  tenant_slug="$(ask "租户 slug，同邮箱多租户时填写" "")"
+  password="$(ask_secret_optional "新密码，留空则自动生成")"
+  if confirm "是否同时关闭该账号 MFA"; then
+    disable_mfa="true"
+  else
+    disable_mfa="false"
+  fi
+
+  local args=(run --rm -e RESET_ADMIN_EMAIL="$email" -e RESET_ADMIN_DISABLE_MFA="$disable_mfa")
+  if [[ -n "$tenant_slug" ]]; then
+    args+=(-e RESET_ADMIN_TENANT_SLUG="$tenant_slug")
+  fi
+  if [[ -n "$password" ]]; then
+    args+=(-e RESET_ADMIN_PASSWORD="$password")
+  fi
+
+  compose_base "${args[@]}" backend user-admin-backend reset-admin-password
+}
+
 cert_flow() {
   require_root
   is_installed || die "$APP_NAME 尚未安装。"
@@ -991,10 +1026,11 @@ main_menu() {
 4) 备份数据
 5) 恢复备份
 6) 证书管理
-7) 运行诊断
-8) 重启服务
-9) 卸载
-10) 退出
+7) 重置管理员密码
+8) 运行诊断
+9) 重启服务
+10) 卸载
+11) 退出
 EOF
       printf '请选择：'
       local choice
@@ -1006,10 +1042,11 @@ EOF
         4) backup_flow; pause ;;
         5) restore_flow; pause ;;
         6) cert_flow; pause ;;
-        7) doctor_flow; pause ;;
-        8) restart_flow; pause ;;
-        9) uninstall_flow; pause ;;
-        10) exit 0 ;;
+        7) reset_admin_password_flow; pause ;;
+        8) doctor_flow; pause ;;
+        9) restart_flow; pause ;;
+        10) uninstall_flow; pause ;;
+        11) exit 0 ;;
         *) warn "无效选择。"; pause ;;
       esac
     else

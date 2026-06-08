@@ -2,7 +2,7 @@ use user_admin_backend::{
     config::{AppConfig, DatabaseConfig},
     db,
     modules::{
-        auth,
+        auth::{self, password::AdminPasswordResetCliInput},
         bootstrap::{initialize_owner, BootstrapOwnerInput},
         outbox,
     },
@@ -32,6 +32,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("bootstrap owner initialized");
             println!("tenant_id={}", result.tenant_id);
             println!("owner_id={}", result.owner_id);
+            if let Some(password) = result.generated_password {
+                println!("generated_password={password}");
+            }
+
+            return Ok(());
+        }
+        Some("reset-admin-password") => {
+            let input = AdminPasswordResetCliInput::from_env()?;
+            let database = DatabaseConfig::from_env()?;
+            let pool = db::connect(&database).await?;
+            let result = auth::password::reset_admin_password_cli(&pool, input).await?;
+
+            println!("admin password reset");
+            println!("tenant_id={}", result.tenant_id);
+            println!("tenant_slug={}", result.tenant_slug);
+            println!("team_member_id={}", result.team_member_id);
+            println!("email={}", result.email);
+            println!("revoked_sessions={}", result.revoked_sessions);
+            println!("revoked_refresh_tokens={}", result.revoked_refresh_tokens);
+            println!("mfa_disabled={}", result.mfa_disabled);
             if let Some(password) = result.generated_password {
                 println!("generated_password={password}");
             }

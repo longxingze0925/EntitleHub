@@ -1,7 +1,9 @@
+use std::env;
+
 use axum::{extract::State, http::HeaderMap, Extension, Json};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -58,6 +60,26 @@ pub struct PasswordResetConfirmResponse {
     pub revoked_sessions: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct AdminPasswordResetCliInput {
+    pub email: String,
+    pub tenant_slug: Option<String>,
+    pub new_password: Option<String>,
+    pub disable_mfa: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminPasswordResetCliResult {
+    pub tenant_id: Uuid,
+    pub team_member_id: Uuid,
+    pub tenant_slug: String,
+    pub email: String,
+    pub generated_password: Option<String>,
+    pub revoked_sessions: u64,
+    pub revoked_refresh_tokens: u64,
+    pub mfa_disabled: bool,
+}
+
 #[derive(Debug, FromRow)]
 struct PasswordResetSubject {
     token_id: Uuid,
@@ -73,6 +95,25 @@ struct ResetCandidate {
     email: String,
     member_status: String,
     tenant_status: String,
+}
+
+#[derive(Debug, FromRow)]
+struct AdminPasswordResetCliCandidate {
+    tenant_id: Uuid,
+    team_member_id: Uuid,
+    tenant_slug: String,
+    email: String,
+}
+
+impl AdminPasswordResetCliInput {
+    pub fn from_env() -> Result<Self, AppError> {
+        Ok(Self {
+            email: required_env("RESET_ADMIN_EMAIL")?,
+            tenant_slug: optional_non_empty_env("RESET_ADMIN_TENANT_SLUG"),
+            new_password: optional_non_empty_env("RESET_ADMIN_PASSWORD"),
+            disable_mfa: parse_env_bool("RESET_ADMIN_DISABLE_MFA"),
+        })
+    }
 }
 
 pub async fn change_password(
@@ -247,6 +288,117 @@ pub async fn confirm_password_reset(
     )))
 }
 
+pub async fn reset_admin_password_cli(
+    pool: &PgPool,
+    input: AdminPasswordResetCliInput,
+) -> Result<AdminPasswordResetCliResult, AppError> {
+    let email = normalize_email(&input.email)
+        .ok_or_else(|| AppError::validation_failed("email is invalid"))?;
+    let (new_password, generated) = match input.new_password {
+        Some(password) => {
+            validate_new_password(&password)?;
+            (password, false)
+        }
+        None => (generate_cli_password(), true),
+    };
+    let password_hash = hash_password(&new_password)?;
+    let candidates =
+        find_admin_password_reset_cli_candidates(pool, &email, input.tenant_slug.as_deref())
+            .await?;
+
+    if candidates.is_empty() {
+        return Err(AppError::user_not_found());
+    }
+    if candidates.len() > 1 {
+        return Err(AppError::config(
+            "multiple active admins match RESET_ADMIN_EMAIL; set RESET_ADMIN_TENANT_SLUG",
+        ));
+    }
+
+    let candidate = &candidates[0];
+    let mut transaction = pool.begin().await.map_err(map_db_error)?;
+    let before = find_member_for_update(
+        &mut transaction,
+        candidate.tenant_id,
+        candidate.team_member_id,
+    )
+    .await?
+    .ok_or_else(AppError::user_not_found)?;
+
+    update_member_password_in_transaction(
+        &mut transaction,
+        candidate.tenant_id,
+        candidate.team_member_id,
+        &password_hash,
+    )
+    .await?;
+    let mfa_disabled = if input.disable_mfa {
+        disable_member_mfa_in_transaction(
+            &mut transaction,
+            candidate.tenant_id,
+            candidate.team_member_id,
+        )
+        .await?
+    } else {
+        false
+    };
+    let revoked_sessions = revoke_admin_sessions_in_transaction(
+        &mut transaction,
+        candidate.tenant_id,
+        candidate.team_member_id,
+        None,
+    )
+    .await?;
+    let revoked_refresh_tokens = revoke_admin_refresh_tokens_in_transaction(
+        &mut transaction,
+        candidate.tenant_id,
+        candidate.team_member_id,
+        None,
+    )
+    .await?;
+
+    audit::record(
+        &mut transaction,
+        AuditLogInput {
+            tenant_id: Some(candidate.tenant_id),
+            actor_type: "system",
+            actor_id: None,
+            action: "team_member.password_reset.cli",
+            resource_type: "team_member",
+            resource_id: Some(candidate.team_member_id),
+            ip: None,
+            user_agent: None,
+            request_id: None,
+            before_json: Some(team_member_audit_json(&before)),
+            after_json: Some(serde_json::json!({
+                "id": candidate.team_member_id,
+                "email": candidate.email,
+                "password_changed": true,
+                "mfa_disabled": mfa_disabled,
+            })),
+            metadata_json: serde_json::json!({
+                "tenant_slug": candidate.tenant_slug,
+                "revoked_sessions": revoked_sessions,
+                "revoked_refresh_tokens": revoked_refresh_tokens,
+            }),
+        },
+    )
+    .await?;
+
+    transaction.commit().await.map_err(map_db_error)?;
+
+    Ok(AdminPasswordResetCliResult {
+        tenant_id: candidate.tenant_id,
+        team_member_id: candidate.team_member_id,
+        tenant_slug: candidate.tenant_slug.clone(),
+        email: candidate.email.clone(),
+        generated_password: generated.then_some(new_password),
+        revoked_sessions,
+        revoked_refresh_tokens,
+        mfa_disabled,
+    })
+}
+
 async fn create_password_reset_for_candidate(
     state: &AppState,
     request_id: &RequestId,
@@ -367,6 +519,36 @@ async fn create_reset_token_in_transaction(
     Ok(id)
 }
 
+async fn find_admin_password_reset_cli_candidates(
+    pool: &PgPool,
+    email: &str,
+    tenant_slug: Option<&str>,
+) -> Result<Vec<AdminPasswordResetCliCandidate>, AppError> {
+    sqlx::query_as::<_, AdminPasswordResetCliCandidate>(
+        r#"
+        select
+          t.id as tenant_id,
+          tm.id as team_member_id,
+          t.slug as tenant_slug,
+          tm.email
+        from team_members tm
+        join tenants t on t.id = tm.tenant_id
+        where lower(tm.email) = lower($1)
+          and tm.status = 'active'
+          and tm.deleted_at is null
+          and t.status = 'active'
+          and t.deleted_at is null
+          and ($2::text is null or t.slug = $2)
+        order by tm.created_at asc
+        "#,
+    )
+    .bind(email)
+    .bind(tenant_slug)
+    .fetch_all(pool)
+    .await
+    .map_err(map_db_error)
+}
+
 async fn find_active_reset_subject_for_update(
     transaction: &mut Transaction<'_, Postgres>,
     token_hash: &str,
@@ -435,6 +617,34 @@ async fn find_member_for_update(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(map_db_error)
+}
+
+async fn disable_member_mfa_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    team_member_id: Uuid,
+) -> Result<bool, AppError> {
+    let disabled = sqlx::query_scalar::<_, bool>(
+        r#"
+        update team_members
+        set
+          mfa_enabled = false,
+          mfa_secret_encrypted = null,
+          updated_at = now()
+        where tenant_id = $1
+          and id = $2
+          and deleted_at is null
+          and mfa_enabled = true
+        returning true
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(team_member_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(map_db_error)?;
+
+    Ok(disabled.unwrap_or(false))
 }
 
 async fn update_member_password_in_transaction(
@@ -599,6 +809,37 @@ fn normalize_email(email: &str) -> Option<String> {
     (email.contains('@') && email.len() <= 254).then_some(email)
 }
 
+fn generate_cli_password() -> String {
+    format!("EntitleHub1!{}", generate_token())
+}
+
+fn required_env(key: &str) -> Result<String, AppError> {
+    let value = env::var(key)
+        .map_err(|_| AppError::config(format!("{key} environment variable is required")))?;
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::config(format!(
+            "{key} environment variable cannot be empty",
+        )));
+    }
+
+    Ok(value.to_owned())
+}
+
+fn optional_non_empty_env(key: &str) -> Option<String> {
+    env::var(key)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn parse_env_bool(key: &str) -> bool {
+    matches!(
+        env::var(key).ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
 fn normalize_token(token: &str) -> Result<String, AppError> {
     let token = token.trim();
     if token.is_empty() {
@@ -650,11 +891,16 @@ fn map_db_error(error: sqlx::Error) -> AppError {
 mod tests {
     use crate::error::AppError;
 
-    use super::{normalize_email, normalize_token, validate_new_password};
+    use super::{generate_cli_password, normalize_email, normalize_token, validate_new_password};
 
     #[test]
     fn password_policy_accepts_strong_password() {
         assert!(validate_new_password("Strong@12345").is_ok());
+    }
+
+    #[test]
+    fn generated_cli_password_satisfies_password_policy() {
+        assert!(validate_new_password(&generate_cli_password()).is_ok());
     }
 
     #[test]

@@ -21,6 +21,17 @@ ghcr.io/longxingze0925/entitlehub-admin:main
 
 Set `USER_ADMIN_DEPLOY_MODE=source` before running the installer only when you need the old server-side source build fallback.
 
+If the initial owner password is lost and SMTP password reset is not configured, use the installed menu item `Reset admin password`, or run the backend CLI directly:
+
+```bash
+cd /opt/entitle-hub
+docker compose -p entitle-hub --env-file .env.compose -f compose.yaml run --rm \
+  -e RESET_ADMIN_EMAIL=admin@example.com \
+  backend user-admin-backend reset-admin-password
+```
+
+The CLI prints a generated replacement password and revokes existing admin sessions. Add `-e RESET_ADMIN_DISABLE_MFA=true` only if the admin also lost MFA access.
+
 ## Docker Compose
 
 Create the local compose environment file:
