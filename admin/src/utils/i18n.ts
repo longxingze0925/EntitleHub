@@ -225,7 +225,7 @@ const permissionText: Record<string, string> = {
   "ai:asset:delete": "删除 AI 生成素材",
   "ai:model:update": "管理 AI 模型价格",
   "ai:provider:update": "管理 AI 渠道",
-  "ai:read": "查看 AI 计费",
+  "ai:read": "查看接口计费",
   "ai:wallet:update": "调整 AI 钱包余额",
   "app:create": "创建应用",
   "app:delete": "删除应用",

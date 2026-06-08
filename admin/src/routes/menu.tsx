@@ -64,7 +64,7 @@ export const menuRoutes: MenuRoute[] = [
   {
     key: "ai-billing",
     path: "/ai-billing",
-    label: "AI 计费",
+    label: "接口计费",
     permission: "ai:read",
     icon: <Cpu size={18} />
   },

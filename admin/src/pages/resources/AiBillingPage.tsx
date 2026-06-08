@@ -1170,13 +1170,13 @@ export function AiBillingPage() {
     <section className="workspace-page ai-billing-page">
       <div className="page-heading">
         <div>
-          <Typography.Title level={2}>AI 计费</Typography.Title>
+          <Typography.Title level={2}>接口计费</Typography.Title>
           <Typography.Text type="secondary">渠道、模型价格、客户余额</Typography.Text>
         </div>
         <Space>
           <HistoryToggle checked={includeHistory} onChange={setIncludeHistory} />
           <Button
-            aria-label="刷新 AI 计费数据"
+            aria-label="刷新接口计费数据"
             icon={<RefreshCw size={16} />}
             onClick={() => {
               providersQuery.refetch();
@@ -1209,7 +1209,7 @@ export function AiBillingPage() {
                 usageRecordsQuery.error ||
                 assetsQuery.error
             ) ??
-            "AI 计费数据加载失败"
+            "接口计费数据加载失败"
           }
         />
       ) : null}
@@ -1236,7 +1236,7 @@ export function AiBillingPage() {
                 (showOpenApiKeyManagement && revokeApiKeyMutation.error) ||
                 deleteAssetMutation.error
             ) ??
-            "AI 计费保存失败"
+            "接口计费保存失败"
           }
         />
       ) : null}
