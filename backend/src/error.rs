@@ -45,6 +45,7 @@ pub enum AppError {
     MfaNotEnabled(String),
     MfaRequired(String),
     NotFound(String),
+    NotificationChannelNameExists(String),
     PasswordResetTokenInvalid(String),
     SessionExpired(String),
     SignatureInvalid(String),
@@ -206,6 +207,10 @@ impl AppError {
         Self::NotFound(message.into())
     }
 
+    pub fn notification_channel_name_exists() -> Self {
+        Self::NotificationChannelNameExists("notification channel name exists".to_owned())
+    }
+
     pub fn password_reset_token_invalid() -> Self {
         Self::PasswordResetTokenInvalid("password reset token invalid".to_owned())
     }
@@ -306,6 +311,7 @@ impl fmt::Display for AppError {
             | Self::MfaNotEnabled(message)
             | Self::MfaRequired(message)
             | Self::NotFound(message)
+            | Self::NotificationChannelNameExists(message)
             | Self::PasswordResetTokenInvalid(message)
             | Self::SessionExpired(message)
             | Self::SignatureInvalid(message)
@@ -437,6 +443,11 @@ impl IntoResponse for AppError {
             Self::MfaNotEnabled(_) => (StatusCode::UNPROCESSABLE_ENTITY, 42207, "mfa_not_enabled"),
             Self::MfaRequired(_) => (StatusCode::UNAUTHORIZED, 40103, "mfa_required"),
             Self::NotFound(_) => (StatusCode::NOT_FOUND, 40400, "not_found"),
+            Self::NotificationChannelNameExists(_) => (
+                StatusCode::CONFLICT,
+                40909,
+                "notification_channel_name_exists",
+            ),
             Self::PasswordResetTokenInvalid(_) => (
                 StatusCode::UNAUTHORIZED,
                 40109,
@@ -573,6 +584,12 @@ mod tests {
                 StatusCode::CONFLICT,
                 40901,
                 "duplicate_email",
+            ),
+            (
+                AppError::notification_channel_name_exists(),
+                StatusCode::CONFLICT,
+                40909,
+                "notification_channel_name_exists",
             ),
             (
                 AppError::forbidden("forbidden"),

@@ -110,6 +110,7 @@ const messageText: Record<string, string> = {
   mfa_required: "需要多因素验证码",
   notification_channel_save_failed: "通知渠道保存失败",
   notification_channel_saved: "通知渠道已保存",
+  notification_channel_name_exists: "通知渠道名称已存在",
   notification_channel_test_failed: "通知渠道测试失败",
   notification_channel_test_passed: "通知渠道配置校验通过",
   notification_channel_test_sent: "测试消息已发送",

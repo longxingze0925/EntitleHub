@@ -1243,6 +1243,12 @@ fn ensure_admin_permission(admin: &AdminContext, permission_code: &str) -> Resul
 }
 
 fn map_db_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database_error) = &error {
+        if database_error.code().as_deref() == Some("23505") {
+            return AppError::notification_channel_name_exists();
+        }
+    }
+
     AppError::dependency(format!("notification channel database error: {error}"))
 }
 
