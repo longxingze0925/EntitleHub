@@ -1,6 +1,8 @@
 pub mod access_token;
+pub mod ai;
 pub mod auth;
 pub mod cache;
+pub mod client;
 pub mod device;
 pub mod error;
 pub mod jwks;
@@ -19,8 +21,10 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use crate::{
+        ai::{image_urls_from_response, AiGatewayJsonResponse, AiModelListResponse},
         auth::{ClientBootstrap, HeartbeatResponse, LogoutResponse, VerifyResponse},
         cache::{LogoutClearOptions, SdkCacheEnvelope},
+        client::{ai_chat_completions_request, ai_models_request, ProtectedClientRequestContext},
         device::{build_rotate_device_key_request, DeviceIdentity, RotateDeviceKeyResponse},
         jwks::JwksCache,
         request::{build_authorized_cached_device_request, CachedAuthorizedDeviceRequestInput},
@@ -172,6 +176,63 @@ mod tests {
         .to_string();
         let script = ScriptPackage::from_api_response_json(&script_json).expect("script response");
         assert_eq!(script.version_code, 100);
+
+        let context = ProtectedClientRequestContext {
+            cache: &cache,
+            session_manager: &bootstrap.session_manager,
+            timestamp: 204,
+            nonce: "0123456789abcdef",
+            refresh_before_seconds: 60,
+        };
+        let ai_models_request =
+            ai_models_request(context, |_| unreachable!("access token should not refresh"))
+                .expect("ai models request should sign");
+        assert_eq!(ai_models_request.path, "/api/client/ai/v1/models");
+        assert_eq!(
+            ai_models_request.header("X-Device-Key-Id"),
+            Some("device-key-id")
+        );
+        let ai_chat_request = ai_chat_completions_request(
+            context,
+            &serde_json::json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            Some("sdk-flow-1"),
+            |_| unreachable!("access token should not refresh"),
+        )
+        .expect("ai chat request should sign");
+        assert_eq!(
+            ai_chat_request.header("Idempotency-Key"),
+            Some("sdk-flow-1")
+        );
+
+        let models = AiModelListResponse::from_json(
+            r#"{
+              "object": "list",
+              "data": [{
+                "id": "gpt-test",
+                "object": "model",
+                "created": 1710000000,
+                "owned_by": "entitlehub"
+              }]
+            }"#,
+        )
+        .expect("models response");
+        assert_eq!(models.data[0].id, "gpt-test");
+        let ai_response = AiGatewayJsonResponse::from_json_with_usage_id(
+            r#"{
+              "created": 1710000000,
+              "data": [{ "url": "/api/ai/assets/00000000-0000-0000-0000-000000000099" }]
+            }"#,
+            Some("usage-id"),
+        )
+        .expect("ai response");
+        assert_eq!(ai_response.usage_id.as_deref(), Some("usage-id"));
+        assert_eq!(
+            image_urls_from_response(&ai_response.body),
+            vec!["/api/ai/assets/00000000-0000-0000-0000-000000000099".to_owned()]
+        );
 
         let rotated_device = cache.device.rotate_key().expect("rotated key");
         let rotate_payload =

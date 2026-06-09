@@ -56,6 +56,28 @@ pub struct CustomerLoginRequestPayload {
     pub device_public_key: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RefreshRequestPayload {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HeartbeatRequestPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EmailVerifyConfirmRequestPayload {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PasswordResetConfirmRequestPayload {
+    pub token: String,
+    pub new_password: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct HeartbeatResponse {
     pub status: String,
@@ -93,6 +115,24 @@ pub struct VerifyResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct LogoutResponse {
     pub revoked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EmailVerifyRequestResponse {
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EmailVerifyConfirmResponse {
+    pub customer_id: String,
+    pub email_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PasswordResetConfirmResponse {
+    pub ok: bool,
+    pub revoked_sessions: u64,
+    pub revoked_refresh_tokens: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +260,36 @@ impl LogoutResponse {
     }
 }
 
+impl EmailVerifyRequestResponse {
+    pub fn from_json(json: &str) -> SdkResult<Self> {
+        serde_json::from_str(json).map_err(|_| SdkError::InvalidSession)
+    }
+
+    pub fn from_api_response_json(json: &str) -> SdkResult<Self> {
+        crate::response::parse_api_response_data(json).map(|response| response.data)
+    }
+}
+
+impl EmailVerifyConfirmResponse {
+    pub fn from_json(json: &str) -> SdkResult<Self> {
+        serde_json::from_str(json).map_err(|_| SdkError::InvalidSession)
+    }
+
+    pub fn from_api_response_json(json: &str) -> SdkResult<Self> {
+        crate::response::parse_api_response_data(json).map(|response| response.data)
+    }
+}
+
+impl PasswordResetConfirmResponse {
+    pub fn from_json(json: &str) -> SdkResult<Self> {
+        serde_json::from_str(json).map_err(|_| SdkError::InvalidSession)
+    }
+
+    pub fn from_api_response_json(json: &str) -> SdkResult<Self> {
+        crate::response::parse_api_response_data(json).map(|response| response.data)
+    }
+}
+
 pub fn build_activation_request(
     input: ActivationRequestInput<'_>,
 ) -> SdkResult<ActivationRequestPayload> {
@@ -250,6 +320,36 @@ pub fn build_customer_login_request(
         os: clean_optional(input.os),
         app_version: clean_optional(input.app_version),
         device_public_key: input.device.device_public_key.clone(),
+    })
+}
+
+pub fn build_refresh_request(refresh_token: &str) -> SdkResult<RefreshRequestPayload> {
+    Ok(RefreshRequestPayload {
+        refresh_token: clean_required("refresh_token", refresh_token)?,
+    })
+}
+
+pub fn build_heartbeat_request(app_version: Option<&str>) -> HeartbeatRequestPayload {
+    HeartbeatRequestPayload {
+        app_version: clean_optional(app_version),
+    }
+}
+
+pub fn build_email_verify_confirm_request(
+    token: &str,
+) -> SdkResult<EmailVerifyConfirmRequestPayload> {
+    Ok(EmailVerifyConfirmRequestPayload {
+        token: clean_required("token", token)?,
+    })
+}
+
+pub fn build_password_reset_confirm_request(
+    token: &str,
+    new_password: &str,
+) -> SdkResult<PasswordResetConfirmRequestPayload> {
+    Ok(PasswordResetConfirmRequestPayload {
+        token: clean_required("token", token)?,
+        new_password: clean_required("new_password", new_password)?,
     })
 }
 
@@ -286,9 +386,11 @@ mod tests {
     use crate::device::DeviceIdentity;
 
     use super::{
-        build_activation_request, build_customer_login_request, ActivationRequestInput,
-        ClientBootstrap, CustomerLoginRequestInput, HeartbeatResponse, LogoutResponse,
-        VerifyResponse,
+        build_activation_request, build_customer_login_request, build_email_verify_confirm_request,
+        build_heartbeat_request, build_password_reset_confirm_request, build_refresh_request,
+        ActivationRequestInput, ClientBootstrap, CustomerLoginRequestInput,
+        EmailVerifyConfirmResponse, EmailVerifyRequestResponse, HeartbeatResponse, LogoutResponse,
+        PasswordResetConfirmResponse, VerifyResponse,
     };
 
     #[test]
@@ -360,6 +462,25 @@ mod tests {
             app_version: None,
         })
         .is_err());
+        assert!(build_refresh_request(" ").is_err());
+        assert!(build_email_verify_confirm_request(" ").is_err());
+        assert!(build_password_reset_confirm_request("token", " ").is_err());
+    }
+
+    #[test]
+    fn auxiliary_auth_payloads_trim_or_skip_fields() {
+        let refresh = build_refresh_request(" refresh-token ").expect("refresh payload");
+        let heartbeat = build_heartbeat_request(Some(" 1.2.3 "));
+        let verify = build_email_verify_confirm_request(" token ").expect("verify payload");
+        let reset = build_password_reset_confirm_request(" reset-token ", " NewPassword@123 ")
+            .expect("reset payload");
+
+        assert_eq!(refresh.refresh_token, "refresh-token");
+        assert_eq!(heartbeat.app_version.as_deref(), Some("1.2.3"));
+        assert_eq!(build_heartbeat_request(Some(" ")).app_version, None);
+        assert_eq!(verify.token, "token");
+        assert_eq!(reset.token, "reset-token");
+        assert_eq!(reset.new_password, "NewPassword@123");
     }
 
     #[test]
@@ -483,6 +604,51 @@ mod tests {
         .expect("logout response should parse");
 
         assert!(response.revoked);
+    }
+
+    #[test]
+    fn email_and_password_responses_parse_api_response_wrapper() {
+        let requested = EmailVerifyRequestResponse::from_api_response_json(
+            r#"{
+              "code": 0,
+              "message": "ok",
+              "data": { "expires_at": "2027-01-01T00:00:00Z" },
+              "request_id": "req_1"
+            }"#,
+        )
+        .expect("request response should parse");
+        assert_eq!(requested.expires_at, "2027-01-01T00:00:00Z");
+
+        let confirmed = EmailVerifyConfirmResponse::from_api_response_json(
+            r#"{
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "customer_id": "00000000-0000-0000-0000-000000000001",
+                "email_verified": true
+              },
+              "request_id": "req_1"
+            }"#,
+        )
+        .expect("confirm response should parse");
+        assert!(confirmed.email_verified);
+
+        let reset = PasswordResetConfirmResponse::from_api_response_json(
+            r#"{
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "ok": true,
+                "revoked_sessions": 2,
+                "revoked_refresh_tokens": 3
+              },
+              "request_id": "req_1"
+            }"#,
+        )
+        .expect("reset response should parse");
+        assert!(reset.ok);
+        assert_eq!(reset.revoked_sessions, 2);
+        assert_eq!(reset.revoked_refresh_tokens, 3);
     }
 
     fn fixture_device() -> DeviceIdentity {

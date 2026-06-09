@@ -8,6 +8,7 @@ use client_sdk::{
     access_token::verify_access_token_with_jwks_refresh,
     auth::{ClientBootstrap, HeartbeatResponse},
     cache::SdkCacheEnvelope,
+    client::{ai_models_request, ProtectedClientRequestContext},
     device::DeviceIdentity,
     jwks::JwksCache,
     request::{build_authorized_cached_device_request, CachedAuthorizedDeviceRequestInput},
@@ -181,21 +182,18 @@ fn live_backend_customer_login_ai_subscription_gate() -> Result<(), Box<dyn Erro
         now_unix(),
     )?;
     let session_manager = cache.session_manager();
-    let ai_path = "/api/client/ai/v1/models";
-    let ai_headers = build_authorized_cached_device_request(
-        &cache,
-        &session_manager,
-        CachedAuthorizedDeviceRequestInput {
-            method: "get",
-            path: ai_path,
-            body: &[],
+    let ai_nonce = format!("sdkaismoke{}", now_unix());
+    let ai_request = ai_models_request(
+        ProtectedClientRequestContext {
+            cache: &cache,
+            session_manager: &session_manager,
             timestamp: now_unix(),
-            nonce: &format!("sdkaismoke{}", now_unix()),
+            nonce: &ai_nonce,
             refresh_before_seconds: 60,
         },
         |_| unreachable!("fresh login access token should not refresh"),
     )?;
-    let ai_response = get_raw(&client, &backend_url, ai_path, &ai_headers.headers)?;
+    let ai_response = get_raw(&client, &backend_url, &ai_request.path, &ai_request.headers)?;
 
     if expect_subscription {
         if ai_response.0 != 200 {

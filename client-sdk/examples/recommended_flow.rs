@@ -3,9 +3,12 @@ use std::error::Error;
 use client_sdk::{
     auth::{ClientBootstrap, HeartbeatResponse, LogoutResponse},
     cache::{LogoutClearOptions, SdkCacheEnvelope},
-    device::{build_rotate_device_key_request, DeviceIdentity, RotateDeviceKeyResponse},
+    client::{
+        ai_chat_completions_request, heartbeat_request, rotate_device_key_request,
+        ProtectedClientRequestContext,
+    },
+    device::{DeviceIdentity, RotateDeviceKeyResponse},
     jwks::JwksCache,
-    request::{build_authorized_cached_device_request, CachedAuthorizedDeviceRequestInput},
     session::{ClientAuthSessionResponse, ClientSessionState, SessionRefresh},
     signing::generate_device_nonce,
 };
@@ -57,21 +60,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cache bytes: {}", persisted_cache_json.len());
 
     let session_manager = cache.session_manager();
-    let heartbeat_body = br#"{"app_version":"1.0.0"}"#;
-    let heartbeat_headers = build_authorized_cached_device_request(
-        &cache,
-        &session_manager,
-        CachedAuthorizedDeviceRequestInput {
-            method: "post",
-            path: "/api/client/auth/heartbeat",
-            body: heartbeat_body,
-            timestamp: now_unix + 1,
-            nonce: &generate_device_nonce()?,
-            refresh_before_seconds: 60,
-        },
-        refresh_session,
-    )?;
-    println!("heartbeat headers: {}", heartbeat_headers.headers.len());
+    let heartbeat_nonce = generate_device_nonce()?;
+    let heartbeat_context = ProtectedClientRequestContext {
+        cache: &cache,
+        session_manager: &session_manager,
+        timestamp: now_unix + 1,
+        nonce: &heartbeat_nonce,
+        refresh_before_seconds: 60,
+    };
+    let heartbeat_request = heartbeat_request(heartbeat_context, Some("1.0.0"), refresh_session)?;
+    println!("heartbeat headers: {}", heartbeat_request.headers.len());
 
     let heartbeat = HeartbeatResponse::from_api_response_json(
         r#"{
@@ -88,24 +86,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("heartbeat license status: {}", heartbeat.license_status);
 
     let next_device = cache.device.rotate_key()?;
-    let rotate_payload = build_rotate_device_key_request(&next_device)?;
-    let rotate_body = serde_json::to_vec(&rotate_payload)?;
-    let rotate_headers = build_authorized_cached_device_request(
-        &cache,
-        &session_manager,
-        CachedAuthorizedDeviceRequestInput {
-            method: "post",
-            path: "/api/client/devices/self/rotate-key",
-            body: &rotate_body,
-            timestamp: now_unix + 2,
-            nonce: &generate_device_nonce()?,
-            refresh_before_seconds: 60,
-        },
-        refresh_session,
-    )?;
+    let rotate_nonce = generate_device_nonce()?;
+    let rotate_context = ProtectedClientRequestContext {
+        cache: &cache,
+        session_manager: &session_manager,
+        timestamp: now_unix + 2,
+        nonce: &rotate_nonce,
+        refresh_before_seconds: 60,
+    };
+    let rotate_request = rotate_device_key_request(rotate_context, &next_device, refresh_session)?;
     println!(
         "rotate request device key id: {}",
-        rotate_headers.header("X-Device-Key-Id").unwrap_or("")
+        rotate_request.header("X-Device-Key-Id").unwrap_or("")
     );
 
     let rotate_response_json = serde_json::json!({
@@ -127,6 +119,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         "cache now uses device key id: {}",
         cache.device_key_id.as_deref().unwrap_or("")
     );
+
+    let ai_nonce = generate_device_nonce()?;
+    let ai_context = ProtectedClientRequestContext {
+        cache: &cache,
+        session_manager: &session_manager,
+        timestamp: now_unix + 4,
+        nonce: &ai_nonce,
+        refresh_before_seconds: 60,
+    };
+    let ai_request = ai_chat_completions_request(
+        ai_context,
+        &serde_json::json!({
+            "model": "gpt-test",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        Some("demo-request-1"),
+        refresh_session,
+    )?;
+    println!("ai request path: {}", ai_request.path);
 
     let logout = LogoutResponse::from_api_response_json(
         r#"{

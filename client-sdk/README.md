@@ -1,6 +1,6 @@
 # Client SDK
 
-Rust helper library for client activation, customer login, session caching, signed device requests, update verification, script verification, and device key rotation.
+Rust helper library for client activation, customer login, session caching, signed device requests, update verification, script verification, device key rotation, and client-side AI gateway calls.
 
 The SDK is intentionally transport-agnostic. Your application owns HTTP, secure local storage, clock source, nonce generation, and retry policy. The SDK builds request payloads, validates backend response envelopes, signs protected requests, and serializes cache state.
 
@@ -10,9 +10,11 @@ Use the SDK for:
 
 - Generating and loading `DeviceIdentity`.
 - Building activation and customer-login request payloads.
+- Building transport-agnostic request parts for every `/api/client/...` endpoint.
 - Parsing wrapped backend `ApiResponse` JSON.
 - Managing in-memory session refresh state.
 - Building `Authorization` and device-signature headers for protected client APIs.
+- Building OpenAI-compatible client AI gateway payloads without exposing upstream provider keys.
 - Storing and restoring `SdkCacheEnvelope`.
 - Applying device key rotation responses atomically to cache state.
 - Verifying update packages and secure scripts with JWKS-backed Ed25519 keys.
@@ -30,8 +32,10 @@ The host application must provide:
 
 ```text
 access_token  JWT access-token validation helpers
+ai            AI gateway payload/response helpers
 auth          activation, customer login, heartbeat, verify, logout models
 cache         durable SDK cache envelope
+client        endpoint paths and high-level request part builders
 device        machine id, device key generation, device key rotation payloads
 jwks          JWKS parsing/cache and EdDSA key lookup
 request       authorized signed request header builders
@@ -41,6 +45,35 @@ session       session state and refresh handling
 signing       Ed25519 device request signing helpers
 update        release/update model and verification helpers
 ```
+
+## Endpoint Coverage
+
+The `client` module exposes constants and request builders for the supported client surface:
+
+```text
+POST   /api/client/auth/activate
+POST   /api/client/auth/login
+POST   /api/client/auth/refresh
+POST   /api/client/auth/heartbeat
+POST   /api/client/auth/verify
+POST   /api/client/auth/logout
+POST   /api/client/auth/email/verify/request
+POST   /api/client/auth/email/verify/confirm
+POST   /api/client/auth/password/reset/confirm
+GET    /api/client/apps/{app_key}/jwks
+GET    /api/client/releases/latest
+GET    /api/client/releases/download/{file_name}
+GET    /api/client/secure-scripts/versions
+POST   /api/client/secure-scripts/fetch
+DELETE /api/client/devices/self
+POST   /api/client/devices/self/rotate-key
+GET    /api/client/ai/v1/models
+POST   /api/client/ai/v1/chat/completions
+POST   /api/client/ai/v1/images/generations
+POST   /api/client/ai/v1/embeddings
+```
+
+OpenAI-compatible `/v1/...` routes are for API-key callers. A normal logged-in client should use `/api/client/ai/v1/...`; the SDK signs those requests with the client session and device key, and no customer-side AI API key is needed.
 
 ## Basic Flow
 
@@ -97,29 +130,26 @@ Store the serialized cache in encrypted local storage. On next launch, restore w
 
 ## Protected Requests
 
-For protected client APIs, restore the cache, create a session manager from it, and ask the SDK to build headers:
+For protected client APIs, restore the cache, create a session manager from it, and ask the SDK to build request parts:
 
 ```rust
-use client_sdk::request::{
-    build_authorized_cached_device_request,
-    CachedAuthorizedDeviceRequestInput,
+use client_sdk::client::{
+    heartbeat_request,
+    ProtectedClientRequestContext,
 };
 
 let cache = SdkCacheEnvelope::from_json(&persisted_cache_json)?;
 let session_manager = cache.session_manager();
-let body = br#"{"app_version":"1.0.0"}"#;
 
-let headers = build_authorized_cached_device_request(
-    &cache,
-    &session_manager,
-    CachedAuthorizedDeviceRequestInput {
-        method: "post",
-        path: "/api/client/auth/heartbeat",
-        body,
+let request = heartbeat_request(
+    ProtectedClientRequestContext {
+        cache: &cache,
+        session_manager: &session_manager,
         timestamp: now_unix,
         nonce: "unique-random-nonce",
         refresh_before_seconds: 60,
     },
+    Some("1.0.0"),
     |current_session| {
         // Call POST /api/client/auth/refresh with current_session.refresh_token,
         // parse the backend response, and return SessionRefresh.
@@ -128,7 +158,7 @@ let headers = build_authorized_cached_device_request(
 )?;
 ```
 
-Attach every returned header to the outgoing HTTP request:
+Send `request.method`, `request.path`, `request.body`, and every returned header with your HTTP client:
 
 ```text
 Authorization
@@ -141,6 +171,46 @@ X-Signature
 ```
 
 If the refresh closure succeeds, `SessionManager` updates its in-memory session. Persist a new `SdkCacheEnvelope` after a refresh if your HTTP layer observes that tokens changed.
+
+## Client AI Gateway
+
+Client AI calls use the signed client routes and return raw provider-compatible JSON on success. Failed EntitleHub checks can still return the normal backend error envelope.
+
+```rust
+use client_sdk::{
+    ai::{AiGatewayJsonResponse, AiModelListResponse},
+    client::{ai_chat_completions_request, ai_models_request, ProtectedClientRequestContext},
+};
+
+let context = ProtectedClientRequestContext {
+    cache: &cache,
+    session_manager: &session_manager,
+    timestamp: now_unix,
+    nonce: "unique-random-nonce",
+    refresh_before_seconds: 60,
+};
+
+let models_request = ai_models_request(context, |session| refresh_session(session))?;
+// Send GET models_request.path with models_request.headers.
+let models = AiModelListResponse::from_json(&models_response_body)?;
+
+let chat_request = ai_chat_completions_request(
+    context,
+    &serde_json::json!({
+        "model": "gpt-test",
+        "messages": [{ "role": "user", "content": "hello" }]
+    }),
+    Some("idempotency-key-1"),
+    |session| refresh_session(session),
+)?;
+// Send POST chat_request.path with chat_request.body and chat_request.headers.
+let chat = AiGatewayJsonResponse::from_json_with_usage_id(
+    &chat_response_body,
+    response_headers.get("x-entitlehub-usage-id"),
+)?;
+```
+
+The backend handles balance checks, subscription gating, provider forwarding, and image caching. For image responses, `ai::image_urls_from_response` extracts URLs after the backend has replaced provider assets with EntitleHub asset URLs.
 
 ## Device Key Rotation
 

@@ -84,6 +84,37 @@ pub struct RotateDeviceKeyResponse {
     pub rotated_device_key_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DeviceSummary {
+    pub id: String,
+    pub app_id: String,
+    #[serde(default)]
+    pub customer_id: Option<String>,
+    #[serde(default)]
+    pub license_id: Option<String>,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    pub machine_id: String,
+    #[serde(default)]
+    pub device_name: Option<String>,
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub app_version: Option<String>,
+    pub status: String,
+    pub first_seen_at: String,
+    #[serde(default)]
+    pub last_seen_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SelfUnbindDeviceResponse {
+    pub device: DeviceSummary,
+    pub revoked_sessions: u64,
+}
+
 impl RotateDeviceKeyResponse {
     pub fn from_json(json: &str) -> SdkResult<Self> {
         let response: Self = serde_json::from_str(json).map_err(|_| SdkError::InvalidSession)?;
@@ -112,6 +143,37 @@ impl RotateDeviceKeyResponse {
         }
         validate_ed25519_public_key(&self.device_public_key)
             .map_err(|_| SdkError::InvalidSession)?;
+
+        Ok(())
+    }
+}
+
+impl SelfUnbindDeviceResponse {
+    pub fn from_json(json: &str) -> SdkResult<Self> {
+        let response: Self = serde_json::from_str(json).map_err(|_| SdkError::InvalidSession)?;
+        response.validate()?;
+
+        Ok(response)
+    }
+
+    pub fn from_api_response_json(json: &str) -> SdkResult<Self> {
+        let response: Self = crate::response::parse_api_response_data(json)?.data;
+        response.validate()?;
+
+        Ok(response)
+    }
+
+    fn validate(&self) -> SdkResult<()> {
+        if self.device.id.trim().is_empty()
+            || self.device.app_id.trim().is_empty()
+            || self.device.machine_id.trim().is_empty()
+            || self.device.status.trim().is_empty()
+            || self.device.first_seen_at.trim().is_empty()
+            || self.device.created_at.trim().is_empty()
+            || self.device.updated_at.trim().is_empty()
+        {
+            return Err(SdkError::InvalidSession);
+        }
 
         Ok(())
     }
@@ -183,7 +245,7 @@ mod tests {
 
     use super::{
         build_rotate_device_key_request, machine_id_from_fingerprint_parts, normalize_machine_id,
-        DeviceIdentity, RotateDeviceKeyResponse,
+        DeviceIdentity, RotateDeviceKeyResponse, SelfUnbindDeviceResponse,
     };
 
     #[test]
@@ -371,5 +433,40 @@ mod tests {
             response.device_key_id,
             "00000000-0000-0000-0000-000000000002"
         );
+    }
+
+    #[test]
+    fn self_unbind_device_response_parses_api_response_wrapper() {
+        let response = SelfUnbindDeviceResponse::from_api_response_json(
+            r#"{
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "device": {
+                  "id": "00000000-0000-0000-0000-000000000001",
+                  "app_id": "00000000-0000-0000-0000-000000000002",
+                  "customer_id": null,
+                  "license_id": "00000000-0000-0000-0000-000000000003",
+                  "subscription_id": null,
+                  "machine_id": "machine",
+                  "device_name": "Workstation",
+                  "os": "Windows",
+                  "app_version": "1.0.0",
+                  "status": "unbound",
+                  "first_seen_at": "2026-01-01T00:00:00Z",
+                  "last_seen_at": "2026-01-02T00:00:00Z",
+                  "created_at": "2026-01-01T00:00:00Z",
+                  "updated_at": "2026-01-02T00:00:00Z"
+                },
+                "revoked_sessions": 1
+              },
+              "request_id": "req_1"
+            }"#,
+        )
+        .expect("unbind response should parse");
+
+        assert_eq!(response.device.status, "unbound");
+        assert_eq!(response.revoked_sessions, 1);
+        assert!(SelfUnbindDeviceResponse::from_json(r#"{"revoked_sessions":1}"#).is_err());
     }
 }

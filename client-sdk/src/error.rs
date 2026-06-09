@@ -23,6 +23,7 @@ pub enum SdkError {
     InvalidAccessToken,
     InvalidApiResponse,
     InvalidUpdateInfo(&'static str),
+    InvalidClientRequest(&'static str),
     Io(std::io::Error),
     UnsupportedSignatureAlg(String),
 }
@@ -41,6 +42,7 @@ impl fmt::Display for SdkError {
             Self::InvalidAccessToken => write!(f, "access token invalid"),
             Self::InvalidApiResponse => write!(f, "api response invalid"),
             Self::InvalidCache => write!(f, "cache invalid"),
+            Self::InvalidClientRequest(field) => write!(f, "client request invalid: {field}"),
             Self::InvalidMachineId => write!(f, "machine id invalid"),
             Self::InvalidNonce => write!(f, "nonce invalid"),
             Self::InvalidJwks => write!(f, "jwks invalid"),
