@@ -196,12 +196,12 @@ export function LicensesPage() {
     {
       title: "操作",
       key: "actions",
-      width: 330,
+      width: 420,
       render: (_, record) => {
         const effectiveStatus = effectiveTemporalStatus(record);
 
         return (
-          <Space wrap>
+          <Space className="table-actions-nowrap">
             {canRevoke && record.status !== "revoked" ? (
               <ConfirmActionButton
                 title="吊销授权"

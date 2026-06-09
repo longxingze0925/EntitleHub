@@ -187,6 +187,10 @@ body {
   white-space: nowrap;
 }
 
+.table-actions-nowrap {
+  flex-wrap: nowrap;
+}
+
 .workspace-page .ant-table-wrapper .ant-table-thead > tr > th {
   position: sticky;
   top: 0;
