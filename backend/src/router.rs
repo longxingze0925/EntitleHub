@@ -239,6 +239,12 @@ pub fn build(state: AppState) -> Router {
             get(release::admin::list_releases).post(release::admin::create_release),
         )
         .route(
+            "/api/admin/releases/{id}",
+            get(release::admin::get_release)
+                .put(release::admin::update_release)
+                .delete(release::admin::delete_release),
+        )
+        .route(
             "/api/admin/releases/{id}/publish",
             post(release::admin::publish_release),
         )

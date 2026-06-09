@@ -15,16 +15,20 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Archive, Plus, RefreshCw, Rocket } from "lucide-react";
+import { Archive, Edit3, KeyRound, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   createRelease,
+  deleteRelease,
   deprecateRelease,
+  getRelease,
   listApplications,
   listReleases,
   publishRelease,
+  updateRelease,
   uploadReleaseFile,
+  type ReleaseDetailResult,
   type RegisterReleaseFileResult,
   type ReleaseSummary
 } from "../../api/admin";
@@ -57,15 +61,20 @@ export function ReleasesPage() {
   const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingRelease, setEditingRelease] = useState<ReleaseSummary | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [createdRelease, setCreatedRelease] =
     useState<CreatedReleaseResult | null>(null);
+  const [releaseDetail, setReleaseDetail] = useState<ReleaseDetailResult | null>(null);
   const [form] = Form.useForm<CreateReleaseFormValues>();
+  const [editForm] = Form.useForm<CreateReleaseFormValues>();
   const permissions = useAuthStore((state) => state.permissions);
   const canCreate = hasPermission(permissions, "release:create");
   const canUpload = hasPermission(permissions, "release:upload");
+  const canUpdate = hasPermission(permissions, "release:update");
   const canPublish = hasPermission(permissions, "release:publish");
   const canDeprecate = hasPermission(permissions, "release:deprecate");
+  const canDelete = hasPermission(permissions, "release:delete");
   const appsQuery = useQuery({
     queryKey: ["admin", "apps", "release-selector", includeHistory],
     queryFn: () => listApplications({ include_history: includeHistory })
@@ -133,6 +142,37 @@ export function ReleasesPage() {
       await releasesQuery.refetch();
     }
   });
+  const detailMutation = useMutation({
+    mutationFn: getRelease,
+    onSuccess: (data) => {
+      setReleaseDetail(data);
+    }
+  });
+  const updateMutation = useMutation({
+    mutationFn: async (values: CreateReleaseFormValues) => {
+      if (!editingRelease) {
+        throw new Error("release_required");
+      }
+
+      const updated = await updateRelease({
+        id: editingRelease.id,
+        payload: {
+          version: values.version.trim(),
+          version_code: requiredNumber(values.version_code),
+          changelog: clean(values.changelog),
+          force_update: Boolean(values.force_update)
+        }
+      });
+
+      return updated.release;
+    },
+    onSuccess: async () => {
+      message.success(tMessage("release_updated"));
+      setEditingRelease(null);
+      editForm.resetFields();
+      await releasesQuery.refetch();
+    }
+  });
   const publishMutation = useMutation({
     mutationFn: publishRelease,
     onSuccess: async () => {
@@ -147,6 +187,23 @@ export function ReleasesPage() {
       await releasesQuery.refetch();
     }
   });
+  const deleteMutation = useMutation({
+    mutationFn: deleteRelease,
+    onSuccess: async () => {
+      message.success(tMessage("release_deleted"));
+      await releasesQuery.refetch();
+    }
+  });
+
+  const openEdit = (release: ReleaseSummary) => {
+    setEditingRelease(release);
+    editForm.setFieldsValue({
+      version: release.version,
+      version_code: release.version_code,
+      changelog: release.changelog ?? undefined,
+      force_update: release.force_update
+    });
+  };
 
   const columns: ColumnsType<ReleaseSummary> = [
     {
@@ -196,9 +253,26 @@ export function ReleasesPage() {
     {
       title: "操作",
       key: "actions",
-      width: 170,
+      width: 320,
       render: (_, record) => (
-        <Space>
+        <Space className="table-actions-nowrap">
+          <Button
+            size="small"
+            icon={<KeyRound size={14} />}
+            loading={detailMutation.isPending}
+            onClick={() => detailMutation.mutate(record.id)}
+          >
+            签名
+          </Button>
+          {canUpdate && record.status === "draft" ? (
+            <Button
+              size="small"
+              icon={<Edit3 size={14} />}
+              onClick={() => openEdit(record)}
+            >
+              编辑
+            </Button>
+          ) : null}
           {canPublish && record.status === "draft" ? (
             <ConfirmActionButton
               title="发布版本"
@@ -211,6 +285,21 @@ export function ReleasesPage() {
               onConfirm={() => publishMutation.mutate(record.id)}
             >
               发布
+            </ConfirmActionButton>
+          ) : null}
+          {canDelete && record.status === "draft" ? (
+            <ConfirmActionButton
+              title="删除草稿"
+              description="只会删除当前草稿记录，不会删除已经上传的版本文件。删除后可以重新创建同版本。"
+              buttonProps={{
+                size: "small",
+                danger: true,
+                icon: <Trash2 size={14} />
+              }}
+              loading={deleteMutation.isPending}
+              onConfirm={() => deleteMutation.mutate(record.id)}
+            >
+              删除
             </ConfirmActionButton>
           ) : null}
           {canDeprecate && record.status === "published" ? (
@@ -296,6 +385,15 @@ export function ReleasesPage() {
       {createMutation.error ? (
         <Alert type="error" message={tMessage("release_create_failed")} />
       ) : null}
+      {detailMutation.error ? (
+        <Alert type="error" message={tMessage("release_detail_failed")} />
+      ) : null}
+      {updateMutation.error ? (
+        <Alert type="error" message={tMessage("release_update_failed")} />
+      ) : null}
+      {deleteMutation.error ? (
+        <Alert type="error" message={tMessage("release_delete_failed")} />
+      ) : null}
       {publishMutation.error || deprecateMutation.error ? (
         <Alert type="error" message={tMessage("release_status_update_failed")} />
       ) : null}
@@ -369,6 +467,45 @@ export function ReleasesPage() {
       </Modal>
 
       <Modal
+        title="编辑版本"
+        open={Boolean(editingRelease)}
+        onCancel={() => {
+          setEditingRelease(null);
+          editForm.resetFields();
+        }}
+        onOk={() => editForm.submit()}
+        confirmLoading={updateMutation.isPending}
+        destroyOnClose
+      >
+        <Form<CreateReleaseFormValues>
+          form={editForm}
+          layout="vertical"
+          onFinish={(values) => updateMutation.mutate(values)}
+        >
+          <Form.Item
+            name="version"
+            label="版本号"
+            rules={[{ required: true, message: "请输入版本号" }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="version_code"
+            label="版本编号"
+            rules={[{ required: true, message: "请输入版本编号" }]}
+          >
+            <InputNumber min={1} precision={0} className="form-number" />
+          </Form.Item>
+          <Form.Item name="force_update" label="强制更新" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="changelog" label="更新说明">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
         title="版本签名"
         open={Boolean(createdRelease)}
         onCancel={() => setCreatedRelease(null)}
@@ -383,6 +520,45 @@ export function ReleasesPage() {
           <Typography.Text copyable>{createdRelease?.file.signature_kid}</Typography.Text>
           <Typography.Text type="secondary">签名（signature）</Typography.Text>
           <Typography.Text copyable>{createdRelease?.file.signature}</Typography.Text>
+        </Space>
+      </Modal>
+
+      <Modal
+        title="签名信息"
+        open={Boolean(releaseDetail)}
+        onCancel={() => setReleaseDetail(null)}
+        onOk={() => setReleaseDetail(null)}
+        width={720}
+      >
+        <Space direction="vertical" size={12} className="token-result">
+          <Typography.Text type="secondary">版本 ID（release_id）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.release.id}</Typography.Text>
+          <Typography.Text type="secondary">文件 ID（file_id）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.id}</Typography.Text>
+          <Typography.Text type="secondary">文件名（file_name）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.file_name}</Typography.Text>
+          <Typography.Text type="secondary">文件大小（file_size）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.file_size}</Typography.Text>
+          <Typography.Text type="secondary">文件哈希（sha256）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.sha256}</Typography.Text>
+          <Typography.Text type="secondary">文件签名密钥 ID（signature_kid）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.signature_kid}</Typography.Text>
+          <Typography.Text type="secondary">文件签名算法（signature_alg）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.signature_alg}</Typography.Text>
+          <Typography.Text type="secondary">文件签名（signature）</Typography.Text>
+          <Typography.Text copyable>{releaseDetail?.file.signature}</Typography.Text>
+          <Typography.Text type="secondary">版本签名密钥 ID（signature_kid）</Typography.Text>
+          <Typography.Text copyable>
+            {releaseDetail?.release.signature_kid ?? "发布后生成"}
+          </Typography.Text>
+          <Typography.Text type="secondary">版本签名算法（signature_alg）</Typography.Text>
+          <Typography.Text copyable>
+            {releaseDetail?.release.signature_alg ?? "发布后生成"}
+          </Typography.Text>
+          <Typography.Text type="secondary">版本签名（signature）</Typography.Text>
+          <Typography.Text copyable>
+            {releaseDetail?.release.signature ?? "发布后生成"}
+          </Typography.Text>
         </Space>
       </Modal>
     </section>

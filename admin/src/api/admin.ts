@@ -657,6 +657,9 @@ export interface ReleaseSummary {
   status: string;
   changelog?: string | null;
   force_update: boolean;
+  signature_kid?: string | null;
+  signature?: string | null;
+  signature_alg?: string | null;
   published_at?: string | null;
   deprecated_at?: string | null;
   created_at: string;
@@ -700,6 +703,23 @@ export interface CreateReleasePayload {
   version_code: number;
   changelog?: string;
   force_update?: boolean;
+}
+
+export interface UpdateReleasePayload {
+  version: string;
+  version_code: number;
+  changelog?: string;
+  force_update?: boolean;
+}
+
+export interface ReleaseDetailResult {
+  release: ReleaseSummary;
+  file: ReleaseFileSummary;
+}
+
+export interface DeleteReleaseResult {
+  deleted: boolean;
+  release_id: string;
 }
 
 export interface SecureScriptSummary {
@@ -1601,6 +1621,26 @@ export function createRelease(params: {
       body: JSON.stringify(params.payload)
     }
   );
+}
+
+export function getRelease(id: string): Promise<ReleaseDetailResult> {
+  return apiRequest<ReleaseDetailResult>(`/api/admin/releases/${id}`);
+}
+
+export function updateRelease(params: {
+  id: string;
+  payload: UpdateReleasePayload;
+}): Promise<{ release: ReleaseSummary }> {
+  return apiRequest<{ release: ReleaseSummary }>(`/api/admin/releases/${params.id}`, {
+    method: "PUT",
+    body: JSON.stringify(params.payload)
+  });
+}
+
+export function deleteRelease(id: string): Promise<DeleteReleaseResult> {
+  return apiRequest<DeleteReleaseResult>(`/api/admin/releases/${id}`, {
+    method: "DELETE"
+  });
 }
 
 export function publishRelease(id: string): Promise<{ release: ReleaseSummary }> {

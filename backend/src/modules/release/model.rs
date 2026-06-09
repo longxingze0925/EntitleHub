@@ -158,6 +158,22 @@ pub struct CreateReleaseInput {
     pub force_update: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateReleaseInput {
+    pub version: String,
+    pub version_code: i64,
+    pub changelog: Option<String>,
+    pub force_update: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateRelease {
+    pub version: String,
+    pub version_code: i64,
+    pub changelog: Option<String>,
+    pub force_update: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReleaseListQuery {
     pub status: Option<String>,
@@ -196,6 +212,9 @@ pub struct ReleaseSummary {
     pub status: String,
     pub changelog: Option<String>,
     pub force_update: bool,
+    pub signature_kid: Option<String>,
+    pub signature: Option<String>,
+    pub signature_alg: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
     pub deprecated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -249,6 +268,21 @@ impl NewRelease {
             tenant_id,
             app_id,
             file_id: input.file_id,
+            version,
+            version_code,
+            changelog,
+            force_update: input.force_update.unwrap_or(false),
+        })
+    }
+}
+
+impl UpdateRelease {
+    pub fn from_input(input: UpdateReleaseInput) -> Result<Self, AppError> {
+        let version = normalize_version(input.version)?;
+        let version_code = validate_version_code(input.version_code)?;
+        let changelog = clean_optional(input.changelog);
+
+        Ok(Self {
             version,
             version_code,
             changelog,
@@ -313,6 +347,9 @@ impl From<Release> for ReleaseSummary {
             status: release.status,
             changelog: release.changelog,
             force_update: release.force_update,
+            signature_kid: release.signature_kid,
+            signature: release.signature,
+            signature_alg: release.signature_alg,
             published_at: release.published_at,
             deprecated_at: release.deprecated_at,
             created_at: release.created_at,
@@ -473,7 +510,7 @@ mod tests {
     use super::{
         release_file_signature_payload, release_metadata_signature_payload,
         validate_register_release_file_input, validate_release_status_filter, CreateReleaseInput,
-        NewRelease, NewReleaseFile, RegisterReleaseFileInput,
+        NewRelease, NewReleaseFile, RegisterReleaseFileInput, UpdateRelease, UpdateReleaseInput,
     };
 
     #[test]
@@ -563,6 +600,22 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_release_normalizes_fields() {
+        let input = UpdateReleaseInput {
+            version: " 1.0.1 ".to_owned(),
+            version_code: 101,
+            changelog: Some(" fixed ".to_owned()),
+            force_update: Some(true),
+        };
+        let update = UpdateRelease::from_input(input).expect("release update should be valid");
+
+        assert_eq!(update.version, "1.0.1");
+        assert_eq!(update.version_code, 101);
+        assert_eq!(update.changelog.as_deref(), Some("fixed"));
+        assert!(update.force_update);
     }
 
     #[test]

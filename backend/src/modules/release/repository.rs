@@ -5,7 +5,7 @@ use crate::{
     error::AppError,
     modules::release::model::{
         DownloadToken, NewDownloadToken, NewRelease, NewReleaseFile, Release, ReleaseFile,
-        ReleaseListQuery, ReleaseWithFile, ValidatedDownload,
+        ReleaseListQuery, ReleaseWithFile, UpdateRelease, ValidatedDownload,
     },
 };
 
@@ -714,6 +714,57 @@ pub async fn sign_release_in_transaction(
     .map_err(map_db_error)
 }
 
+pub async fn update_release_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    release_id: Uuid,
+    input: UpdateRelease,
+) -> Result<Option<Release>, AppError> {
+    sqlx::query_as::<_, Release>(
+        r#"
+        update releases
+        set
+          version = $3,
+          version_code = $4,
+          changelog = $5,
+          force_update = $6,
+          updated_at = now()
+        where tenant_id = $1
+          and id = $2
+          and status = 'draft'
+          and deleted_at is null
+        returning
+          id,
+          tenant_id,
+          app_id,
+          file_id,
+          version,
+          version_code,
+          status,
+          changelog,
+          force_update,
+          signing_key_id,
+          signature_kid,
+          signature,
+          signature_alg,
+          published_at,
+          deprecated_at,
+          created_at,
+          updated_at,
+          deleted_at
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(release_id)
+    .bind(input.version)
+    .bind(input.version_code)
+    .bind(input.changelog)
+    .bind(input.force_update)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(map_db_error)
+}
+
 pub async fn deprecate_release_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: Uuid,
@@ -729,6 +780,49 @@ pub async fn deprecate_release_in_transaction(
         where tenant_id = $1
           and id = $2
           and status = 'published'
+          and deleted_at is null
+        returning
+          id,
+          tenant_id,
+          app_id,
+          file_id,
+          version,
+          version_code,
+          status,
+          changelog,
+          force_update,
+          signing_key_id,
+          signature_kid,
+          signature,
+          signature_alg,
+          published_at,
+          deprecated_at,
+          created_at,
+          updated_at,
+          deleted_at
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(release_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(map_db_error)
+}
+
+pub async fn delete_draft_release_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    release_id: Uuid,
+) -> Result<Option<Release>, AppError> {
+    sqlx::query_as::<_, Release>(
+        r#"
+        update releases
+        set
+          deleted_at = now(),
+          updated_at = now()
+        where tenant_id = $1
+          and id = $2
+          and status = 'draft'
           and deleted_at is null
         returning
           id,

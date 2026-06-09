@@ -28,11 +28,13 @@ use crate::{
                 validate_register_release_file_input, validate_release_status_filter,
                 CreateReleaseInput, NewRelease, NewReleaseFile, RegisterReleaseFileInput, Release,
                 ReleaseFileSummary, ReleaseListMeta, ReleaseListQuery, ReleaseSummary,
+                UpdateRelease, UpdateReleaseInput,
             },
             repository::{
                 create_release_file_in_transaction, create_release_in_transaction,
-                deprecate_release_in_transaction, publish_release_in_transaction,
-                sign_release_in_transaction, ReleaseRepository,
+                delete_draft_release_in_transaction, deprecate_release_in_transaction,
+                publish_release_in_transaction, sign_release_in_transaction,
+                update_release_in_transaction, ReleaseRepository,
             },
         },
     },
@@ -62,6 +64,18 @@ pub struct ReleaseListResponse {
 #[derive(Debug, Serialize)]
 pub struct ReleaseResponse {
     pub release: ReleaseSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReleaseDetailResponse {
+    pub release: ReleaseSummary,
+    pub file: ReleaseFileSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReleaseDeleteResponse {
+    pub deleted: bool,
+    pub release_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,6 +203,33 @@ pub async fn list_releases(
     )))
 }
 
+pub async fn get_release(
+    State(state): State<AppState>,
+    Extension(admin): Extension<AdminContext>,
+    Extension(request_id): Extension<RequestId>,
+    Path(release_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ReleaseDetailResponse>>, AppError> {
+    ensure_admin_permission(&admin, "release:read")?;
+
+    let repository = ReleaseRepository::new(state.db.clone());
+    let release = repository
+        .find_by_id(admin.tenant_id, release_id)
+        .await?
+        .ok_or_else(AppError::release_not_found)?;
+    let file = repository
+        .find_file_by_id(admin.tenant_id, release.app_id, release.file_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("release file not found"))?;
+
+    Ok(Json(ApiResponse::ok(
+        ReleaseDetailResponse {
+            release: release.into(),
+            file: file.into(),
+        },
+        request_id.to_string(),
+    )))
+}
+
 pub async fn create_release(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminContext>,
@@ -209,6 +250,47 @@ pub async fn create_release(
     let mut transaction = state.db.begin().await.map_err(map_db_error)?;
     let release = create_release_in_transaction(&mut transaction, new_release).await?;
     audit_release_create(&mut transaction, &admin, &request_id, &release).await?;
+    transaction.commit().await.map_err(map_db_error)?;
+
+    Ok(Json(ApiResponse::ok(
+        ReleaseResponse {
+            release: release.into(),
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn update_release(
+    State(state): State<AppState>,
+    Extension(admin): Extension<AdminContext>,
+    Extension(request_id): Extension<RequestId>,
+    Path(release_id): Path<Uuid>,
+    Json(payload): Json<UpdateReleaseInput>,
+) -> Result<Json<ApiResponse<ReleaseResponse>>, AppError> {
+    ensure_admin_permission(&admin, "release:update")?;
+
+    let repository = ReleaseRepository::new(state.db.clone());
+    let before = repository
+        .find_by_id(admin.tenant_id, release_id)
+        .await?
+        .ok_or_else(AppError::release_not_found)?;
+    ensure_release_state(&before, "draft", "only draft release can be updated")?;
+    let update = UpdateRelease::from_input(payload)?;
+
+    let mut transaction = state.db.begin().await.map_err(map_db_error)?;
+    let release =
+        update_release_in_transaction(&mut transaction, admin.tenant_id, release_id, update)
+            .await?
+            .ok_or_else(|| AppError::invalid_release_state("only draft release can be updated"))?;
+    audit_release_change(
+        &mut transaction,
+        &admin,
+        &request_id,
+        "release.update",
+        Some(&before),
+        &release,
+    )
+    .await?;
     transaction.commit().await.map_err(map_db_error)?;
 
     Ok(Json(ApiResponse::ok(
@@ -323,6 +405,46 @@ pub async fn deprecate_release(
     Ok(Json(ApiResponse::ok(
         ReleaseResponse {
             release: release.into(),
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn delete_release(
+    State(state): State<AppState>,
+    Extension(admin): Extension<AdminContext>,
+    Extension(request_id): Extension<RequestId>,
+    Path(release_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ReleaseDeleteResponse>>, AppError> {
+    ensure_admin_permission(&admin, "release:delete")?;
+
+    let repository = ReleaseRepository::new(state.db.clone());
+    let before = repository
+        .find_by_id(admin.tenant_id, release_id)
+        .await?
+        .ok_or_else(AppError::release_not_found)?;
+    ensure_release_state(&before, "draft", "only draft release can be deleted")?;
+
+    let mut transaction = state.db.begin().await.map_err(map_db_error)?;
+    let release =
+        delete_draft_release_in_transaction(&mut transaction, admin.tenant_id, release_id)
+            .await?
+            .ok_or_else(|| AppError::invalid_release_state("only draft release can be deleted"))?;
+    audit_release_change(
+        &mut transaction,
+        &admin,
+        &request_id,
+        "release.delete",
+        Some(&before),
+        &release,
+    )
+    .await?;
+    transaction.commit().await.map_err(map_db_error)?;
+
+    Ok(Json(ApiResponse::ok(
+        ReleaseDeleteResponse {
+            deleted: true,
+            release_id,
         },
         request_id.to_string(),
     )))
@@ -493,6 +615,34 @@ async fn audit_release_create(
             user_agent: None,
             request_id: Some(request_id.to_string()),
             before_json: None,
+            after_json: Some(release_audit_json(release)),
+            metadata_json: json!({}),
+        },
+    )
+    .await
+}
+
+async fn audit_release_change(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    admin: &AdminContext,
+    request_id: &RequestId,
+    action: &'static str,
+    before: Option<&Release>,
+    release: &Release,
+) -> Result<(), AppError> {
+    audit::record(
+        transaction,
+        AuditLogInput {
+            tenant_id: Some(admin.tenant_id),
+            actor_type: "team_member",
+            actor_id: Some(admin.team_member_id),
+            action,
+            resource_type: "release",
+            resource_id: Some(release.id),
+            ip: None,
+            user_agent: None,
+            request_id: Some(request_id.to_string()),
+            before_json: before.map(release_audit_json),
             after_json: Some(release_audit_json(release)),
             metadata_json: json!({}),
         },
