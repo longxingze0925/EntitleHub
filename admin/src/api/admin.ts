@@ -1084,6 +1084,54 @@ export function cancelSubscription(
   );
 }
 
+export function suspendSubscription(
+  id: string
+): Promise<SubscriptionMutationResult> {
+  return apiRequest<SubscriptionMutationResult>(
+    `/api/admin/subscriptions/${id}/suspend`,
+    {
+      method: "POST"
+    }
+  );
+}
+
+export function resumeSubscription(
+  id: string
+): Promise<SubscriptionMutationResult> {
+  return apiRequest<SubscriptionMutationResult>(
+    `/api/admin/subscriptions/${id}/resume`,
+    {
+      method: "POST"
+    }
+  );
+}
+
+export function renewSubscription(params: {
+  id: string;
+  expires_at: string;
+}): Promise<SubscriptionMutationResult> {
+  return apiRequest<SubscriptionMutationResult>(
+    `/api/admin/subscriptions/${params.id}/renew`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expires_at: params.expires_at })
+    }
+  );
+}
+
+export function resetSubscriptionDevices(params: {
+  id: string;
+  reason: string;
+}): Promise<SubscriptionMutationResult> {
+  return apiRequest<SubscriptionMutationResult>(
+    `/api/admin/subscriptions/${params.id}/reset-devices`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason: params.reason })
+    }
+  );
+}
+
 export function listDevices(params: {
   machine_id?: string;
   status?: string;

@@ -1553,6 +1553,66 @@ paths:
           $ref: "#/components/responses/SubscriptionMutation"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Suspend subscription
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Resume subscription
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions/{id}/renew:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Renew subscription
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionRenew"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/subscriptions/{id}/reset-devices:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Reset subscription devices
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionResetDevices"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionMutation"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/admin/devices:
     get:
       tags: [admin]
@@ -2193,6 +2253,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/SubscriptionCreateRequest"
+    SubscriptionRenew:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionRenewRequest"
+    SubscriptionResetDevices:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionResetDevicesRequest"
     CustomerCreate:
       required: true
       content:
@@ -5248,6 +5320,21 @@ components:
           type: object
           nullable: true
           additionalProperties: true
+    SubscriptionRenewRequest:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+    SubscriptionResetDevicesRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
     Customer:
       type: object
       required:

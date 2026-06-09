@@ -302,7 +302,12 @@ const ADMIN_PERMISSIONS: &[&str] = &[
     "license:reset_device",
     "subscription:read",
     "subscription:create",
+    "subscription:update",
     "subscription:cancel",
+    "subscription:renew",
+    "subscription:suspend",
+    "subscription:resume",
+    "subscription:reset_device",
     "device:read",
     "device:unbind",
     "device:blacklist",
@@ -444,14 +449,15 @@ mod tests {
 
     fn permission_migration_text() -> String {
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             include_str!("../../migrations/20260603101000_create_rbac_tables.sql"),
             include_str!("../../migrations/20260604102000_add_security_retry_event_permission.sql"),
             include_str!("../../migrations/20260604105000_add_script_deprecate_permission.sql"),
             include_str!("../../migrations/20260606150000_create_notification_channels.sql"),
             include_str!("../../migrations/20260608090000_create_ai_billing_tables.sql"),
             include_str!("../../migrations/20260608093000_create_ai_gateway_api_keys.sql"),
-            include_str!("../../migrations/20260608103000_add_ai_gateway_controls.sql")
+            include_str!("../../migrations/20260608103000_add_ai_gateway_controls.sql"),
+            include_str!("../../migrations/20260609102000_add_subscription_admin_actions.sql")
         )
     }
 

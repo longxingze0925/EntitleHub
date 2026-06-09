@@ -335,6 +335,24 @@ pub fn build(state: AppState) -> Router {
             "/api/admin/subscriptions/{id}/cancel",
             post(subscription::admin::cancel_subscription),
         )
+        .route(
+            "/api/admin/subscriptions/{id}/suspend",
+            post(subscription::admin::suspend_subscription),
+        )
+        .route(
+            "/api/admin/subscriptions/{id}/resume",
+            post(subscription::admin::resume_subscription),
+        )
+        .route(
+            "/api/admin/subscriptions/{id}/renew",
+            post(subscription::admin::renew_subscription),
+        )
+        .route(
+            "/api/admin/subscriptions/{id}/reset-devices",
+            post(subscription::admin::reset_subscription_devices).layer(DefaultBodyLimit::max(
+                subscription::admin::MAX_RESET_SUBSCRIPTION_DEVICES_BODY_BYTES,
+            )),
+        )
         .route("/api/admin/devices", get(device::admin::list_devices))
         .route(
             "/api/admin/devices/{id}",

@@ -15,7 +15,15 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Ban, Plus, RefreshCw } from "lucide-react";
+import {
+  Ban,
+  CalendarPlus,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw
+} from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -24,6 +32,10 @@ import {
   listApplications,
   listCustomers,
   listSubscriptions,
+  renewSubscription,
+  resetSubscriptionDevices,
+  resumeSubscription,
+  suspendSubscription,
   type CreateSubscriptionPayload,
   type SubscriptionSummary
 } from "../../api/admin";
@@ -48,16 +60,33 @@ interface CreateSubscriptionFormValues {
   features?: string[];
 }
 
+interface RenewSubscriptionFormValues {
+  expires_at?: Dayjs;
+}
+
+interface ResetDevicesFormValues {
+  reason?: string;
+}
+
 export function SubscriptionsPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
   const [includeHistory, setIncludeHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [renewTarget, setRenewTarget] = useState<SubscriptionSummary | null>(null);
+  const [resetDevicesTarget, setResetDevicesTarget] =
+    useState<SubscriptionSummary | null>(null);
   const [form] = Form.useForm<CreateSubscriptionFormValues>();
+  const [renewForm] = Form.useForm<RenewSubscriptionFormValues>();
+  const [resetDevicesForm] = Form.useForm<ResetDevicesFormValues>();
   const permissions = useAuthStore((state) => state.permissions);
   const canCreate = hasPermission(permissions, "subscription:create");
   const canCancel = hasPermission(permissions, "subscription:cancel");
+  const canSuspend = hasPermission(permissions, "subscription:suspend");
+  const canResume = hasPermission(permissions, "subscription:resume");
+  const canRenew = hasPermission(permissions, "subscription:renew");
+  const canResetDevice = hasPermission(permissions, "subscription:reset_device");
   const query = useQuery({
     queryKey: ["admin", "subscriptions", keyword, status, includeHistory, page],
     queryFn: () =>
@@ -90,6 +119,38 @@ export function SubscriptionsPage() {
     mutationFn: cancelSubscription,
     onSuccess: async (data) => {
       message.success(tMessage(`subscription_cancelled:${data.revoked_sessions}`));
+      await query.refetch();
+    }
+  });
+  const suspendMutation = useMutation({
+    mutationFn: suspendSubscription,
+    onSuccess: async (data) => {
+      message.success(tMessage(`subscription_suspended:${data.revoked_sessions}`));
+      await query.refetch();
+    }
+  });
+  const resumeMutation = useMutation({
+    mutationFn: resumeSubscription,
+    onSuccess: async () => {
+      message.success(tMessage("subscription_resumed"));
+      await query.refetch();
+    }
+  });
+  const renewMutation = useMutation({
+    mutationFn: renewSubscription,
+    onSuccess: async () => {
+      message.success(tMessage("subscription_renewed"));
+      setRenewTarget(null);
+      renewForm.resetFields();
+      await query.refetch();
+    }
+  });
+  const resetDevicesMutation = useMutation({
+    mutationFn: resetSubscriptionDevices,
+    onSuccess: async (data) => {
+      message.success(tMessage(`subscription_devices_reset:${data.revoked_sessions}`));
+      setResetDevicesTarget(null);
+      resetDevicesForm.resetFields();
       await query.refetch();
     }
   });
@@ -150,26 +211,74 @@ export function SubscriptionsPage() {
     {
       title: "操作",
       key: "actions",
-      width: 120,
+      width: 420,
       render: (_, record) => {
         const effectiveStatus = effectiveTemporalStatus(record);
 
-        return canCancel &&
-          record.status !== "cancelled" &&
-          effectiveStatus !== "expired" ? (
-          <ConfirmActionButton
-            title="取消订阅"
-            description="取消后订阅不再继续生效，并会撤销相关客户端会话。"
-            buttonProps={{
-              size: "small",
-              icon: <Ban size={14} />
-            }}
-            loading={cancelMutation.isPending}
-            onConfirm={() => cancelMutation.mutate(record.id)}
-          >
-            取消
-          </ConfirmActionButton>
-        ) : null;
+        return (
+          <Space wrap>
+            {canSuspend && effectiveStatus === "active" ? (
+              <ConfirmActionButton
+                title="暂停订阅"
+                description="暂停后客户仍可登录，但需要订阅的功能会立即不可用，并撤销相关客户端会话。"
+                buttonProps={{
+                  size: "small",
+                  icon: <Pause size={14} />
+                }}
+                loading={suspendMutation.isPending}
+                onConfirm={() => suspendMutation.mutate(record.id)}
+              >
+                暂停
+              </ConfirmActionButton>
+            ) : null}
+            {canResume && record.status === "suspended" ? (
+              <ConfirmActionButton
+                title="恢复订阅"
+                description="恢复后订阅重新生效；如果已到期，需要先续期。"
+                buttonProps={{
+                  size: "small",
+                  icon: <Play size={14} />
+                }}
+                loading={resumeMutation.isPending}
+                onConfirm={() => resumeMutation.mutate(record.id)}
+              >
+                恢复
+              </ConfirmActionButton>
+            ) : null}
+            {canRenew && record.status !== "cancelled" ? (
+              <Button
+                size="small"
+                icon={<CalendarPlus size={14} />}
+                onClick={() => setRenewTarget(record)}
+              >
+                续期
+              </Button>
+            ) : null}
+            {canResetDevice && record.status !== "cancelled" ? (
+              <Button
+                size="small"
+                icon={<RotateCcw size={14} />}
+                onClick={() => setResetDevicesTarget(record)}
+              >
+                重置设备
+              </Button>
+            ) : null}
+            {canCancel && record.status !== "cancelled" ? (
+              <ConfirmActionButton
+                title="取消订阅"
+                description="取消后订阅不再继续生效，并会撤销相关客户端会话。"
+                buttonProps={{
+                  size: "small",
+                  icon: <Ban size={14} />
+                }}
+                loading={cancelMutation.isPending}
+                onConfirm={() => cancelMutation.mutate(record.id)}
+              >
+                取消
+              </ConfirmActionButton>
+            ) : null}
+          </Space>
+        );
       }
     }
   ];
@@ -185,6 +294,29 @@ export function SubscriptionsPage() {
       features: cleanFeatures(values.features)
     };
     createMutation.mutate(payload);
+  };
+
+  const submitRenew = (values: RenewSubscriptionFormValues) => {
+    if (!renewTarget || !values.expires_at) {
+      return;
+    }
+
+    renewMutation.mutate({
+      id: renewTarget.id,
+      expires_at: values.expires_at.toISOString()
+    });
+  };
+
+  const submitResetDevices = (values: ResetDevicesFormValues) => {
+    const reason = clean(values.reason);
+    if (!resetDevicesTarget || !reason) {
+      return;
+    }
+
+    resetDevicesMutation.mutate({
+      id: resetDevicesTarget.id,
+      reason
+    });
   };
 
   return (
@@ -215,6 +347,7 @@ export function SubscriptionsPage() {
               tOption("active"),
               tOption("trialing"),
               tOption("past_due"),
+              tOption("suspended"),
               tOption("cancelled"),
               tOption("expired")
             ]}
@@ -253,6 +386,12 @@ export function SubscriptionsPage() {
       ) : null}
       {cancelMutation.error ? (
         <Alert type="error" message={tMessage("subscription_cancel_failed")} />
+      ) : null}
+      {suspendMutation.error ||
+      resumeMutation.error ||
+      renewMutation.error ||
+      resetDevicesMutation.error ? (
+        <Alert type="error" message={tMessage("subscription_status_update_failed")} />
       ) : null}
       <Table
         rowKey="id"
@@ -335,6 +474,64 @@ export function SubscriptionsPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Modal
+        title="续期订阅"
+        open={Boolean(renewTarget)}
+        onCancel={() => {
+          setRenewTarget(null);
+          renewForm.resetFields();
+        }}
+        onOk={() => renewForm.submit()}
+        confirmLoading={renewMutation.isPending}
+        destroyOnClose
+      >
+        <Form<RenewSubscriptionFormValues>
+          form={renewForm}
+          layout="vertical"
+          onFinish={submitRenew}
+        >
+          <Form.Item label="订阅">
+            <Typography.Text>{shortId(renewTarget?.id)}</Typography.Text>
+          </Form.Item>
+          <Form.Item
+            name="expires_at"
+            label="新的到期时间"
+            rules={[{ required: true, message: "请选择新的到期时间" }]}
+          >
+            <DatePicker showTime className="form-date" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="重置订阅设备"
+        open={Boolean(resetDevicesTarget)}
+        onCancel={() => {
+          setResetDevicesTarget(null);
+          resetDevicesForm.resetFields();
+        }}
+        onOk={() => resetDevicesForm.submit()}
+        confirmLoading={resetDevicesMutation.isPending}
+        destroyOnClose
+      >
+        <Form<ResetDevicesFormValues>
+          form={resetDevicesForm}
+          layout="vertical"
+          onFinish={submitResetDevices}
+        >
+          <Form.Item label="订阅">
+            <Typography.Text>{shortId(resetDevicesTarget?.id)}</Typography.Text>
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="原因"
+            rules={[{ required: true, message: "请输入重置原因" }]}
+          >
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </section>
   );
 }
@@ -349,4 +546,10 @@ function cleanFeatures(values?: string[]): string[] | undefined {
     .filter((value) => value.length > 0);
 
   return features && features.length > 0 ? features : undefined;
+}
+
+function clean(value?: string): string | undefined {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed : undefined;
 }
