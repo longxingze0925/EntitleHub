@@ -71,6 +71,8 @@ export function ApplicationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<ApplicationSummary | null>(null);
   const [keyTarget, setKeyTarget] = useState<ApplicationSummary | null>(null);
+  const [selectedSigningKey, setSelectedSigningKey] =
+    useState<SigningKeySummary | null>(null);
   const [secretResult, setSecretResult] = useState<
     CreateApplicationResult | RotateApplicationKeysResult | null
   >(null);
@@ -247,13 +249,19 @@ export function ApplicationsPage() {
     {
       title: "KID",
       dataIndex: "kid",
-      key: "kid"
+      key: "kid",
+      render: (value: string) => (
+        <Typography.Text copyable ellipsis>
+          {value}
+        </Typography.Text>
+      )
     },
     {
-      title: "范围",
+      title: "用途",
       dataIndex: "key_scope",
       key: "key_scope",
-      width: 130
+      width: 130,
+      render: (value: string) => signingKeyScopeLabel(value)
     },
     {
       title: "状态",
@@ -267,6 +275,20 @@ export function ApplicationsPage() {
       dataIndex: "created_at",
       key: "created_at",
       render: (value: string) => dateTime(value)
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 100,
+      render: (_, record) => (
+        <Button
+          size="small"
+          icon={<KeyRound size={14} />}
+          onClick={() => setSelectedSigningKey(record)}
+        >
+          公钥
+        </Button>
+      )
     }
   ];
 
@@ -424,24 +446,66 @@ export function ApplicationsPage() {
         open={Boolean(secretResult)}
         onCancel={() => setSecretResult(null)}
         onOk={() => setSecretResult(null)}
+        width={760}
       >
         <Space direction="vertical" size={12} className="token-result">
+          <Alert
+            type="info"
+            showIcon
+            message="应用密钥只会在创建或轮换时显示一次；签名公钥可以公开复制给客户端用于验签。"
+          />
           <Typography.Text type="secondary">应用 Key（app_key）</Typography.Text>
           <Typography.Text copyable>{secretResult?.app_key}</Typography.Text>
           <Typography.Text type="secondary">应用密钥（app_secret）</Typography.Text>
           <Typography.Text copyable>{secretResult?.app_secret}</Typography.Text>
           <Typography.Text type="secondary">签名密钥 ID（signing_kid）</Typography.Text>
           <Typography.Text copyable>{secretResult?.signing_key.kid}</Typography.Text>
+          <Typography.Text type="secondary">公开 JWKS 地址</Typography.Text>
+          <Typography.Text
+            copyable={{
+              text: secretResult ? applicationJwksUrl(secretResult.app_key) : ""
+            }}
+          >
+            {secretResult ? applicationJwksUrl(secretResult.app_key) : "-"}
+          </Typography.Text>
+          <Typography.Text type="secondary">签名公钥（public_key_pem）</Typography.Text>
+          <Typography.Paragraph
+            copyable={{ text: secretResult?.signing_key.public_key_pem ?? "" }}
+            className="public-key-block"
+          >
+            {secretResult?.signing_key.public_key_pem}
+          </Typography.Paragraph>
         </Space>
       </Modal>
 
       <Modal
-        title="签名密钥"
+        title={keyTarget ? `签名密钥：${keyTarget.name}` : "签名密钥"}
         open={Boolean(keyTarget)}
-        onCancel={() => setKeyTarget(null)}
-        onOk={() => setKeyTarget(null)}
-        width={760}
+        onCancel={() => {
+          setKeyTarget(null);
+          setSelectedSigningKey(null);
+        }}
+        onOk={() => {
+          setKeyTarget(null);
+          setSelectedSigningKey(null);
+        }}
+        width={860}
       >
+        {keyTarget ? (
+          <Alert
+            type="info"
+            showIcon
+            message="客户端建议使用公开 JWKS 地址自动获取签名公钥。"
+            description={
+              <Typography.Text
+                copyable={{ text: applicationJwksUrl(keyTarget.app_key) }}
+              >
+                {applicationJwksUrl(keyTarget.app_key)}
+              </Typography.Text>
+            }
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
         <Table
           rowKey="id"
           loading={keysQuery.isLoading}
@@ -451,8 +515,60 @@ export function ApplicationsPage() {
           locale={{ emptyText: "暂无数据" }}
         />
       </Modal>
+
+      <Modal
+        title="签名公钥"
+        open={Boolean(selectedSigningKey)}
+        onCancel={() => setSelectedSigningKey(null)}
+        onOk={() => setSelectedSigningKey(null)}
+        width={760}
+      >
+        <Space direction="vertical" size={12} className="token-result">
+          <Typography.Text type="secondary">签名密钥 ID（KID）</Typography.Text>
+          <Typography.Text copyable>{selectedSigningKey?.kid}</Typography.Text>
+          <Typography.Text type="secondary">用途</Typography.Text>
+          <Typography.Text>
+            {selectedSigningKey
+              ? signingKeyScopeLabel(selectedSigningKey.key_scope)
+              : "-"}
+          </Typography.Text>
+          {keyTarget ? (
+            <>
+              <Typography.Text type="secondary">公开 JWKS 地址</Typography.Text>
+              <Typography.Text
+                copyable={{ text: applicationJwksUrl(keyTarget.app_key) }}
+              >
+                {applicationJwksUrl(keyTarget.app_key)}
+              </Typography.Text>
+            </>
+          ) : null}
+          <Typography.Text type="secondary">签名公钥（public_key_pem）</Typography.Text>
+          <Typography.Paragraph
+            copyable={{
+              text: selectedSigningKey?.public_key_pem ?? ""
+            }}
+            className="public-key-block"
+          >
+            {selectedSigningKey?.public_key_pem}
+          </Typography.Paragraph>
+        </Space>
+      </Modal>
     </section>
   );
+}
+
+function applicationJwksUrl(appKey: string): string {
+  return `${window.location.origin}/api/client/apps/${encodeURIComponent(appKey)}/jwks`;
+}
+
+function signingKeyScopeLabel(scope: string): string {
+  const labels: Record<string, string> = {
+    app_request: "应用请求",
+    release_file: "版本文件",
+    secure_script: "安全脚本"
+  };
+
+  return labels[scope] ?? scope;
 }
 
 function ApplicationFormModal(props: {

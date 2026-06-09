@@ -298,6 +298,22 @@ body {
   font-size: 12px;
 }
 
+.public-key-block {
+  max-height: 220px;
+  margin-bottom: 0 !important;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+}
+
 .setting-json-view {
   max-height: 132px;
 }
