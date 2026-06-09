@@ -178,11 +178,16 @@ body {
   border-radius: 8px;
 }
 
-.workspace-page > .ant-table-wrapper .ant-table {
-  min-width: 760px;
+.workspace-page .ant-table-wrapper .ant-table,
+.workspace-page .ant-table-wrapper .ant-table table {
+  min-width: 1180px;
 }
 
-.workspace-page > .ant-table-wrapper .ant-table-thead > tr > th {
+.workspace-page .ant-table-wrapper .ant-table-cell {
+  white-space: nowrap;
+}
+
+.workspace-page .ant-table-wrapper .ant-table-thead > tr > th {
   position: sticky;
   top: 0;
   z-index: 5;
