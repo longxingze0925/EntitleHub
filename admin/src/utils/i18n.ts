@@ -234,7 +234,7 @@ const resourceText: Record<string, string> = {
 const permissionText: Record<string, string> = {
   "ai:api_key:update": "管理 AI API Key",
   "ai:asset:delete": "删除 AI 生成素材",
-  "ai:model:update": "管理 AI 模型价格",
+  "ai:model:update": "管理 AI 模型商品",
   "ai:provider:update": "管理 AI 渠道",
   "ai:read": "查看接口计费",
   "ai:wallet:update": "调整 AI 钱包余额",

@@ -475,6 +475,38 @@ export interface AiModel {
   updated_at: string;
 }
 
+export interface AiServerModelCapabilities {
+  ratios: string[];
+  resolutions: string[];
+  durations: number[];
+  default_duration_seconds?: number | null;
+  image_counts: number[];
+  max_images?: number | null;
+}
+
+export interface AiServerModelBilling {
+  currency: string;
+  mode: AiModelBillingMode;
+  input_1k_price_minor: number;
+  output_1k_price_minor: number;
+  request_price_minor: number;
+  image_price_minor: number;
+  second_price_minor: number;
+  minute_price_minor: number;
+}
+
+export interface AiServerModel {
+  id: string;
+  object: "model";
+  created: number;
+  owned_by: "entitlehub";
+  name: string;
+  modality: AiModelModality;
+  provider_model?: string | null;
+  billing: AiServerModelBilling;
+  capabilities: AiServerModelCapabilities;
+}
+
 export interface CreateAiModelPayload {
   code: string;
   name: string;

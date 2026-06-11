@@ -118,7 +118,7 @@ export const menuRoutes: MenuRoute[] = [
       {
         key: "ai-billing-models",
         path: "/ai-billing/models",
-        label: "模型价格",
+        label: "模型商品",
         permission: "ai:read",
         icon: <ClipboardList size={18} />
       },

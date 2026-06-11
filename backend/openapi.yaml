@@ -926,7 +926,7 @@ paths:
           $ref: "#/components/responses/ApiError"
     post:
       tags: [admin]
-      summary: Create AI model pricing
+      summary: Create AI model product, pricing, and capabilities
       security:
         - AdminSession: []
           AdminCsrf: []
@@ -940,7 +940,7 @@ paths:
       - $ref: "#/components/parameters/IdPath"
     put:
       tags: [admin]
-      summary: Update AI model pricing
+      summary: Update AI model product, pricing, and capabilities
       security:
         - AdminSession: []
           AdminCsrf: []

@@ -1,5 +1,6 @@
 import {
   Alert,
+  AutoComplete,
   Button,
   Form,
   Input,
@@ -108,8 +109,23 @@ interface ModelFormValues {
   second_price: number;
   minute_price: number;
   daily_spend_limit?: number | null;
+  ratios?: string[];
+  resolutions?: string[];
+  durations?: Array<string | number>;
+  default_duration_seconds?: number | null;
+  image_counts?: Array<string | number>;
+  max_images?: number | null;
   pricing_config_json: string;
   metadata_json: string;
+}
+
+interface ProviderModelTemplate {
+  provider_model: string;
+  name?: string;
+  modality: AiModelModality;
+  billing_mode?: AiModelBillingMode;
+  pricing_config?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 interface WalletAdjustFormValues {
@@ -186,6 +202,84 @@ const billingModeOptionsByModality: Record<
 };
 
 const defaultJson = "{\n}";
+const defaultImageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+const defaultVideoRatios = ["16:9", "9:16", "1:1"];
+const defaultImageResolutions = ["1024x1024", "768x1024", "1024x768"];
+const defaultVideoResolutions = ["720p", "1080p", "1280x720", "1920x1080"];
+const defaultVideoDurations = [5, 8, 10];
+const defaultImageCounts = [1, 2, 4];
+
+const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
+  {
+    provider_model: "GPT-Image-2",
+    name: "GPT-Image-2 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_gpt",
+      capabilities: {
+        ratios: ["1:1", "3:2", "2:3", "16:9", "9:16"],
+        image_counts: [1],
+        max_images: 1
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/53"
+    }
+  },
+  {
+    provider_model: "NanoBanana2",
+    name: "NanoBanana2 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_nanoBanana2",
+      capabilities: {
+        ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+        resolutions: ["1K", "2K", "4K"],
+        image_counts: [1],
+        max_images: 1
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/65"
+    }
+  },
+  {
+    provider_model: "google_omni",
+    name: "Google Omni 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_google_omni",
+      capabilities: {
+        resolutions: ["横版", "竖版"],
+        durations: [10],
+        default_duration_seconds: 10
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/72"
+    }
+  },
+  {
+    provider_model: "grok_imagine",
+    name: "Grok Imagine 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_grok_imagine",
+      capabilities: {
+        ratios: ["16:9", "9:16"],
+        durations: [6, 8, 10, 12, 15],
+        default_duration_seconds: 8
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/62"
+    }
+  }
+];
 
 type AiBillingSection = "providers" | "models" | "wallets" | "jobs" | "usage" | "assets";
 
@@ -195,8 +289,8 @@ const sectionTitles: Record<AiBillingSection, { title: string; subtitle: string 
     subtitle: "三方 AI 接口渠道、接口地址和密钥配置"
   },
   models: {
-    title: "模型价格",
-    subtitle: "模型代码、三方模型名和不同类型的计费规则"
+    title: "模型商品",
+    subtitle: "模型代码、三方模型名、可用参数和不同类型的计费规则"
   },
   wallets: {
     title: "客户余额",
@@ -253,6 +347,7 @@ export function AiBillingPage() {
   const heading = sectionTitles[currentSection];
   const selectedModelModality = (Form.useWatch("modality", modelForm) ??
     "text") as AiModelModality;
+  const selectedProviderId = Form.useWatch("provider_id", modelForm);
   const selectedBillingMode =
     ((Form.useWatch("billing_mode", modelForm) ??
       defaultBillingModeForModality(selectedModelModality)) as AiModelBillingMode);
@@ -262,6 +357,17 @@ export function AiBillingPage() {
     queryKey: ["admin", "ai-providers", includeHistory],
     queryFn: () => listAiProviders({ include_history: includeHistory })
   });
+  const selectedProvider = (providersQuery.data?.items ?? []).find(
+    (provider) => provider.id === selectedProviderId
+  );
+  const selectedProviderTemplates = templatesForProviderAndModality(
+    selectedProvider,
+    selectedModelModality
+  );
+  const providerModelOptions = selectedProviderTemplates.map((template) => ({
+    value: template.provider_model,
+    label: template.name ? `${template.name}（${template.provider_model}）` : template.provider_model
+  }));
 
   const modelsQuery = useQuery({
     queryKey: ["admin", "ai-models", includeHistory],
@@ -372,7 +478,7 @@ export function AiBillingPage() {
       });
     },
     onSuccess: () => {
-      message.success("AI 模型价格已保存");
+      message.success("AI 模型商品已保存");
       setModelModalOpen(false);
       setEditingModel(null);
       modelForm.resetFields();
@@ -543,13 +649,14 @@ export function AiBillingPage() {
   });
 
   const openCreateProvider = () => {
+    const kind: AiProviderKind = "openai_compatible";
     setEditingProvider(null);
     providerForm.setFieldsValue({
       name: "",
-      kind: "openai_compatible",
+      kind,
       base_url: "",
       enabled: true,
-      config_json: defaultJson
+      config_json: stringifyJson(defaultProviderConfigForKind(kind))
     });
     setProviderModalOpen(true);
   };
@@ -582,14 +689,40 @@ export function AiBillingPage() {
       second_price: 0,
       minute_price: 0,
       daily_spend_limit: null,
+      ratios: [],
+      resolutions: [],
+      durations: [],
+      default_duration_seconds: null,
+      image_counts: [],
+      max_images: null,
       pricing_config_json: defaultJson,
       metadata_json: defaultJson
     });
     setModelModalOpen(true);
   };
 
+  const applyProviderModelTemplate = (
+    template: ProviderModelTemplate | undefined,
+    options: { applyName?: boolean } = {}
+  ) => {
+    if (!template) {
+      return;
+    }
+    modelForm.setFieldsValue(modelFormValuesFromTemplate(template, options));
+  };
+
+  const clearProviderModelTemplate = (modality: AiModelModality) => {
+    modelForm.setFieldsValue({
+      provider_model: undefined,
+      pricing_config_json: defaultJson,
+      metadata_json: defaultJson,
+      ...defaultCapabilitiesForModality(modality)
+    });
+  };
+
   const openEditModel = (model: AiModel) => {
     setEditingModel(model);
+    const capabilities = modelCapabilities(model.pricing_config);
     modelForm.setFieldsValue({
       code: model.code,
       name: model.name,
@@ -609,6 +742,12 @@ export function AiBillingPage() {
         model.daily_spend_limit_minor == null
           ? null
           : minorToMoneyNumber(model.daily_spend_limit_minor),
+      ratios: capabilities.ratios,
+      resolutions: capabilities.resolutions,
+      durations: capabilities.durations.map(String),
+      default_duration_seconds: capabilities.default_duration_seconds,
+      image_counts: capabilities.image_counts.map(String),
+      max_images: capabilities.max_images,
       pricing_config_json: stringifyJson(model.pricing_config),
       metadata_json: stringifyJson(model.metadata)
     });
@@ -773,7 +912,7 @@ export function AiBillingPage() {
     {
       title: "价格",
       key: "prices",
-      width: 340,
+      width: 320,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <Typography.Text>{billingPriceSummary(record)}</Typography.Text>
@@ -784,6 +923,14 @@ export function AiBillingPage() {
             每日限额 {limitText(record.daily_spend_limit_minor, record.currency)}
           </Typography.Text>
         </Space>
+      )
+    },
+    {
+      title: "可用能力",
+      key: "capabilities",
+      width: 360,
+      render: (_, record) => (
+        <Typography.Text type="secondary">{modelCapabilitiesSummary(record)}</Typography.Text>
       )
     },
     {
@@ -1729,6 +1876,15 @@ export function AiBillingPage() {
         <Form<ProviderFormValues>
           form={providerForm}
           layout="vertical"
+          onValuesChange={(changedValues) => {
+            if (!editingProvider && "kind" in changedValues) {
+              const kind = changedValues.kind as AiProviderKind;
+              providerForm.setFieldValue(
+                "config_json",
+                stringifyJson(defaultProviderConfigForKind(kind))
+              );
+            }
+          }}
           onFinish={(values) => providerMutation.mutate(values)}
         >
           <div className="settings-grid-inner">
@@ -1736,7 +1892,18 @@ export function AiBillingPage() {
               <Input autoComplete="off" />
             </Form.Item>
             <Form.Item name="kind" label="类型" rules={[{ required: true }]}>
-              <Select disabled={Boolean(editingProvider)} options={providerKindOptions} />
+              <Select
+                disabled={Boolean(editingProvider)}
+                options={providerKindOptions}
+                onChange={(kind: AiProviderKind) => {
+                  if (!editingProvider) {
+                    providerForm.setFieldValue(
+                      "config_json",
+                      stringifyJson(defaultProviderConfigForKind(kind))
+                    );
+                  }
+                }}
+              />
             </Form.Item>
             <Form.Item name="enabled" label="启用" valuePropName="checked">
               <Switch />
@@ -1761,16 +1928,17 @@ export function AiBillingPage() {
           </Form.Item>
           <Form.Item
             name="config_json"
-            label="公开配置 JSON"
+            label="渠道配置 JSON"
+            extra="用于保存超时、查询路径和平台模型能力模板；密钥不要写在这里。"
             rules={[{ validator: validateJsonField }]}
           >
-            <Input.TextArea className="settings-json-editor" rows={8} />
+            <Input.TextArea className="settings-json-editor" rows={10} />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title={editingModel ? "编辑模型价格" : "新增模型价格"}
+        title={editingModel ? "编辑模型商品" : "新增模型商品"}
         open={modelModalOpen}
         onCancel={() => {
           setModelModalOpen(false);
@@ -1786,10 +1954,50 @@ export function AiBillingPage() {
           layout="vertical"
           onValuesChange={(changedValues) => {
             if ("modality" in changedValues) {
-              modelForm.setFieldValue(
-                "billing_mode",
-                defaultBillingModeForModality(changedValues.modality as AiModelModality)
+              const modality = changedValues.modality as AiModelModality;
+              const provider = (providersQuery.data?.items ?? []).find(
+                (item) => item.id === modelForm.getFieldValue("provider_id")
               );
+              const template = templatesForProviderAndModality(provider, modality)[0];
+              modelForm.setFieldValue("billing_mode", defaultBillingModeForModality(modality));
+              modelForm.setFieldsValue(defaultCapabilitiesForModality(modality));
+              if (template) {
+                applyProviderModelTemplate(template, {
+                  applyName: shouldReplaceModelNameWithTemplate(
+                    provider,
+                    modelForm.getFieldValue("name")
+                  )
+                });
+              } else {
+                clearProviderModelTemplate(modality);
+              }
+            }
+            if ("provider_id" in changedValues) {
+              const provider = (providersQuery.data?.items ?? []).find(
+                (item) => item.id === changedValues.provider_id
+              );
+              const template = templatesForProviderAndModality(provider, selectedModelModality)[0];
+              if (template) {
+                applyProviderModelTemplate(template, {
+                  applyName: shouldReplaceModelNameWithTemplate(
+                    provider,
+                    modelForm.getFieldValue("name")
+                  )
+                });
+              } else {
+                clearProviderModelTemplate(selectedModelModality);
+              }
+            }
+            if ("provider_model" in changedValues) {
+              const provider = (providersQuery.data?.items ?? []).find(
+                (item) => item.id === modelForm.getFieldValue("provider_id")
+              );
+              const template = findProviderModelTemplate(
+                provider,
+                selectedModelModality,
+                changedValues.provider_model
+              );
+              applyProviderModelTemplate(template, { applyName: true });
             }
           }}
           onFinish={(values) => modelMutation.mutate(values)}
@@ -1813,7 +2021,24 @@ export function AiBillingPage() {
               <Select allowClear options={providerOptions} />
             </Form.Item>
             <Form.Item name="provider_model" label="三方模型名">
-              <Input />
+              <AutoComplete
+                options={providerModelOptions}
+                placeholder={
+                  providerModelOptions.length > 0 ? "选择平台模板或手动输入" : "手动输入三方模型名"
+                }
+                filterOption={(inputValue, option) =>
+                  providerModelOptionMatchesCurrentValue(
+                    inputValue,
+                    modelForm.getFieldValue("provider_model")
+                  ) ||
+                  String(option?.value ?? "")
+                    .toLowerCase()
+                    .includes(inputValue.toLowerCase()) ||
+                  String(option?.label ?? "")
+                    .toLowerCase()
+                    .includes(inputValue.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
               <Input maxLength={3} />
@@ -1849,9 +2074,73 @@ export function AiBillingPage() {
             ) : null}
             <OptionalMoneyFormItem name="daily_spend_limit" label="每日限额" />
           </div>
+          {supportsVisualCapabilities(selectedModelModality) ? (
+            <>
+              <Typography.Title level={5}>模型能力</Typography.Title>
+              <div className="settings-grid-inner">
+                <Form.Item name="ratios" label="支持比例">
+                  <Select
+                    mode="tags"
+                    tokenSeparators={[",", "，", "\n"]}
+                    options={mergedSelectOptions(
+                      ratioOptionsForModality(selectedModelModality).map((option) => option.value),
+                      modelForm.getFieldValue("ratios")
+                    )}
+                    placeholder="例如 16:9、9:16"
+                  />
+                </Form.Item>
+                <Form.Item name="resolutions" label="支持分辨率/尺寸">
+                  <Select
+                    mode="tags"
+                    tokenSeparators={[",", "，", "\n"]}
+                    options={mergedSelectOptions(
+                      resolutionOptionsForModality(selectedModelModality).map((option) => option.value),
+                      modelForm.getFieldValue("resolutions")
+                    )}
+                    placeholder="例如 720p、1024x1024"
+                  />
+                </Form.Item>
+              </div>
+            </>
+          ) : null}
+          {selectedModelModality === "image" || selectedBillingMode === "per_image" ? (
+            <div className="settings-grid-inner">
+              <Form.Item name="image_counts" label="允许张数">
+                <Select
+                  mode="tags"
+                  tokenSeparators={[",", "，", "\n"]}
+                  options={mergedSelectOptions(defaultImageCounts, modelForm.getFieldValue("image_counts"))}
+                  placeholder="例如 1、2、4"
+                />
+              </Form.Item>
+              <Form.Item name="max_images" label="单次最多张数">
+                <InputNumber min={1} max={10} precision={0} className="form-number" />
+              </Form.Item>
+            </div>
+          ) : null}
+          {selectedModelModality === "video" ||
+          selectedBillingMode === "video_per_second" ||
+          selectedBillingMode === "video_per_request" ? (
+            <div className="settings-grid-inner">
+              <Form.Item name="durations" label="允许时长（秒）">
+                <Select
+                  mode="tags"
+                  tokenSeparators={[",", "，", "\n"]}
+                  options={mergedSelectOptions(
+                    defaultVideoDurations,
+                    modelForm.getFieldValue("durations")
+                  )}
+                  placeholder="例如 5、8、10"
+                />
+              </Form.Item>
+              <Form.Item name="default_duration_seconds" label="默认时长（秒）">
+                <InputNumber min={1} max={3600} precision={0} className="form-number" />
+              </Form.Item>
+            </div>
+          ) : null}
           <Form.Item
             name="pricing_config_json"
-            label="计费扩展 JSON"
+            label="高级配置 JSON"
             rules={[{ validator: validateJsonField }]}
           >
             <Input.TextArea className="settings-json-editor" rows={5} />
@@ -2146,6 +2435,7 @@ function buildProviderPayload(values: ProviderFormValues, editing: boolean) {
 
 function buildModelPayload(values: ModelFormValues) {
   const priceFields = priceFieldsForBillingMode(values);
+  const pricingConfig = mergeModelCapabilities(parseJsonObject(values.pricing_config_json), values);
 
   return {
     name: values.name.trim(),
@@ -2156,7 +2446,7 @@ function buildModelPayload(values: ModelFormValues) {
     ...priceFields,
     daily_spend_limit_minor:
       values.daily_spend_limit == null ? null : moneyToMinor(values.daily_spend_limit),
-    pricing_config: parseJsonObject(values.pricing_config_json),
+    pricing_config: pricingConfig,
     metadata: parseJsonObject(values.metadata_json)
   };
 }
@@ -2212,6 +2502,298 @@ function parseJsonObject(value: string): Record<string, unknown> {
   }
 
   return parsed as Record<string, unknown>;
+}
+
+function defaultProviderConfigForKind(kind: AiProviderKind): Record<string, unknown> {
+  if (kind === "wuyin_keji") {
+    return {
+      timeout_seconds: 120,
+      detail_path: "/api/async/detail",
+      detail_method: "GET",
+      detail_id_field: "id",
+      model_templates: wuyinKejiModelTemplates
+    };
+  }
+
+  return {};
+}
+
+function templatesForProviderAndModality(
+  provider: AiProvider | undefined,
+  modality: AiModelModality
+): ProviderModelTemplate[] {
+  return providerModelTemplates(provider).filter((template) => template.modality === modality);
+}
+
+function findProviderModelTemplate(
+  provider: AiProvider | undefined,
+  modality: AiModelModality,
+  providerModel: unknown
+): ProviderModelTemplate | undefined {
+  const value = String(providerModel ?? "")
+    .trim()
+    .toLowerCase();
+  if (!value) {
+    return undefined;
+  }
+
+  return templatesForProviderAndModality(provider, modality).find(
+    (template) => template.provider_model.trim().toLowerCase() === value
+  );
+}
+
+function providerModelOptionMatchesCurrentValue(inputValue: string, currentValue: unknown): boolean {
+  const input = inputValue.trim().toLowerCase();
+  const current = String(currentValue ?? "")
+    .trim()
+    .toLowerCase();
+
+  return Boolean(input && current && input === current);
+}
+
+function shouldReplaceModelNameWithTemplate(
+  provider: AiProvider | undefined,
+  currentName: unknown
+): boolean {
+  const name = String(currentName ?? "").trim();
+  if (!name) {
+    return true;
+  }
+
+  return providerModelTemplates(provider).some((template) => template.name?.trim() === name);
+}
+
+function providerModelTemplates(provider: AiProvider | undefined): ProviderModelTemplate[] {
+  if (!provider) {
+    return [];
+  }
+  const configured = parseProviderModelTemplates(provider.config.model_templates);
+  if (configured.length > 0) {
+    return configured;
+  }
+
+  return provider.kind === "wuyin_keji" ? wuyinKejiModelTemplates : [];
+}
+
+function parseProviderModelTemplates(value: unknown): ProviderModelTemplate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeProviderModelTemplate(item))
+    .filter((item): item is ProviderModelTemplate => Boolean(item));
+}
+
+function normalizeProviderModelTemplate(value: unknown): ProviderModelTemplate | undefined {
+  const source = objectValue(value);
+  if (!source) {
+    return undefined;
+  }
+  const providerModel = stringValue(source.provider_model ?? source.model);
+  const modality = stringValue(source.modality ?? source.type) as AiModelModality | undefined;
+  if (!providerModel || !modality || !modalityOptions.some((option) => option.value === modality)) {
+    return undefined;
+  }
+  const billingMode = stringValue(source.billing_mode) as AiModelBillingMode | undefined;
+  const pricingConfig = objectValue(source.pricing_config ?? source.config);
+  const metadata = objectValue(source.metadata);
+
+  return {
+    provider_model: providerModel,
+    name: stringValue(source.name),
+    modality,
+    ...(billingMode && billingModeLabels[billingMode] ? { billing_mode: billingMode } : {}),
+    ...(pricingConfig ? { pricing_config: pricingConfig } : {}),
+    ...(metadata ? { metadata } : {})
+  };
+}
+
+function modelFormValuesFromTemplate(
+  template: ProviderModelTemplate,
+  options: { applyName?: boolean } = {}
+): Partial<ModelFormValues> {
+  const pricingConfig = template.pricing_config ?? {};
+  const capabilities = modelCapabilities(pricingConfig);
+  const nextValues: Partial<ModelFormValues> = {
+    provider_model: template.provider_model,
+    billing_mode: template.billing_mode ?? defaultBillingModeForModality(template.modality),
+    pricing_config_json: stringifyJson(pricingConfig),
+    ratios: capabilities.ratios,
+    resolutions: capabilities.resolutions,
+    durations: capabilities.durations.map(String),
+    default_duration_seconds: capabilities.default_duration_seconds,
+    image_counts: capabilities.image_counts.map(String),
+    max_images: capabilities.max_images
+  };
+  if (options.applyName && template.name) {
+    nextValues.name = template.name;
+  }
+  if (template.metadata && Object.keys(template.metadata).length > 0) {
+    nextValues.metadata_json = stringifyJson(template.metadata);
+  }
+
+  return nextValues;
+}
+
+interface ModelCapabilityValues {
+  ratios: string[];
+  resolutions: string[];
+  durations: number[];
+  default_duration_seconds: number | null;
+  image_counts: number[];
+  max_images: number | null;
+}
+
+function mergeModelCapabilities(
+  config: Record<string, unknown>,
+  values: ModelFormValues
+): Record<string, unknown> {
+  const capabilities = {
+    ...objectValue(config.capabilities),
+    ratios: normalizeStringList(values.ratios),
+    resolutions: normalizeStringList(values.resolutions),
+    durations: normalizeNumberList(values.durations),
+    default_duration_seconds: normalizeOptionalNumber(values.default_duration_seconds),
+    image_counts: normalizeNumberList(values.image_counts),
+    max_images: normalizeOptionalNumber(values.max_images)
+  };
+  const cleanedCapabilities = removeEmptyObjectFields(capabilities);
+  const { capabilities: _unusedCapabilities, ...restConfig } = config;
+
+  return {
+    ...restConfig,
+    ...(Object.keys(cleanedCapabilities).length > 0 ? { capabilities: cleanedCapabilities } : {})
+  };
+}
+
+function modelCapabilities(config: Record<string, unknown>): ModelCapabilityValues {
+  const source = objectValue(config.capabilities) ?? config;
+
+  return {
+    ratios: normalizeStringList(arrayValue(source.ratios ?? source.aspect_ratios)),
+    resolutions: normalizeStringList(arrayValue(source.resolutions ?? source.sizes)),
+    durations: normalizeNumberList(arrayValue(source.durations ?? source.duration_seconds_options)),
+    default_duration_seconds: normalizeOptionalNumber(
+      source.default_duration_seconds ?? source.duration_seconds ?? source.seconds
+    ),
+    image_counts: normalizeNumberList(arrayValue(source.image_counts ?? source.counts)),
+    max_images: normalizeOptionalNumber(source.max_images ?? source.max_image_count)
+  };
+}
+
+function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<ModelFormValues> {
+  switch (modality) {
+    case "image":
+      return {
+        ratios: normalizeStringList(defaultImageRatios),
+        resolutions: normalizeStringList(defaultImageResolutions),
+        image_counts: normalizeNumberList(defaultImageCounts).map(String),
+        max_images: 4,
+        durations: [],
+        default_duration_seconds: null
+      };
+    case "video":
+      return {
+        ratios: normalizeStringList(defaultVideoRatios),
+        resolutions: normalizeStringList(defaultVideoResolutions),
+        durations: normalizeNumberList(defaultVideoDurations).map(String),
+        default_duration_seconds: 8,
+        image_counts: [],
+        max_images: null
+      };
+    default:
+      return {
+        ratios: [],
+        resolutions: [],
+        durations: [],
+        default_duration_seconds: null,
+        image_counts: [],
+        max_images: null
+      };
+  }
+}
+
+function supportsVisualCapabilities(modality: AiModelModality): boolean {
+  return modality === "image" || modality === "video" || modality === "multimodal";
+}
+
+function ratioOptionsForModality(modality: AiModelModality) {
+  const values = modality === "video" ? defaultVideoRatios : defaultImageRatios;
+
+  return values.map((value) => ({ value, label: value }));
+}
+
+function resolutionOptionsForModality(modality: AiModelModality) {
+  const values = modality === "video" ? defaultVideoResolutions : defaultImageResolutions;
+
+  return values.map((value) => ({ value, label: value }));
+}
+
+function mergedSelectOptions(...values: unknown[]): Array<{ value: string; label: string }> {
+  return normalizeStringList(values.flatMap((value) => (Array.isArray(value) ? value : [value]))).map(
+    (value) => ({ value, label: value })
+  );
+}
+
+function normalizeStringList(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : [];
+
+  return Array.from(
+    new Set(
+      items
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0)
+    )
+  );
+}
+
+function normalizeNumberList(value: unknown): number[] {
+  const items = Array.isArray(value) ? value : [];
+
+  return Array.from(
+    new Set(
+      items
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item) && item > 0)
+        .map((item) => Math.ceil(item))
+    )
+  ).sort((a, b) => a - b);
+}
+
+function normalizeOptionalNumber(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  const number = Number(value);
+
+  return Number.isFinite(number) && number > 0 ? Math.ceil(number) : null;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() || undefined : undefined;
+}
+
+function removeEmptyObjectFields(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => {
+      if (Array.isArray(item)) {
+        return item.length > 0;
+      }
+
+      return item !== null && item !== undefined && item !== "";
+    })
+  );
 }
 
 function validateJsonField(_: unknown, value?: string) {
@@ -2338,6 +2920,29 @@ function billingPriceSummary(record: AiModel): string {
     case "audio_per_request":
       return `每次音频请求 ${money(record.request_price_minor, record.currency)}`;
   }
+}
+
+function modelCapabilitiesSummary(record: AiModel): string {
+  const capabilities = modelCapabilities(record.pricing_config);
+  const parts: string[] = [];
+  if (capabilities.ratios.length > 0) {
+    parts.push(`比例 ${capabilities.ratios.join(" / ")}`);
+  }
+  if (capabilities.resolutions.length > 0) {
+    parts.push(`分辨率 ${capabilities.resolutions.join(" / ")}`);
+  }
+  if (capabilities.durations.length > 0) {
+    parts.push(`时长 ${capabilities.durations.join(" / ")} 秒`);
+  } else if (capabilities.default_duration_seconds) {
+    parts.push(`默认 ${capabilities.default_duration_seconds} 秒`);
+  }
+  if (capabilities.image_counts.length > 0) {
+    parts.push(`张数 ${capabilities.image_counts.join(" / ")}`);
+  } else if (capabilities.max_images) {
+    parts.push(`最多 ${capabilities.max_images} 张`);
+  }
+
+  return parts.length > 0 ? parts.join("；") : "未限制";
 }
 
 function ledgerTypeLabel(value: string): string {

@@ -26,6 +26,7 @@ use crate::{
     http::request_id::RequestId,
     metrics,
     modules::{
+        ai::capabilities,
         audit::{self, AuditLogInput},
         auth::session::AdminContext,
         server_api::{
@@ -501,6 +502,7 @@ async fn create_server_generation_job(
     let model_code = requested_model_code(&payload)?;
     let model = load_job_model(&state, server_key.tenant_id, model_code).await?;
     validate_generation_model(&model, job_type)?;
+    validate_generation_payload(job_type, &payload, &model)?;
     let quantity = estimated_quantity(job_type, &payload, &model)?;
     let hold_minor = estimate_generation_hold_minor(job_type, quantity, &model)?;
 
@@ -2792,8 +2794,10 @@ fn validate_generation_model(model: &JobModel, job_type: &str) -> Result<(), App
 
 fn estimated_quantity(job_type: &str, payload: &Value, model: &JobModel) -> Result<i64, AppError> {
     match job_type {
-        "image" => image_count(payload),
-        "video" if model.billing_mode == "video_per_second" => requested_video_seconds(payload),
+        "image" => capabilities::image_count(payload, MAX_IMAGE_COUNT),
+        "video" if model.billing_mode == "video_per_second" => {
+            capabilities::requested_video_seconds(payload, &model.pricing_config, MAX_VIDEO_SECONDS)
+        }
         "video" => Ok(1),
         _ => Err(AppError::validation_failed(
             "ai generation job type invalid",
@@ -2851,66 +2855,20 @@ fn charge_minor_from_admin_job(job: &AdminJobRecord) -> i64 {
     }
 }
 
-fn image_count(payload: &Value) -> Result<i64, AppError> {
-    let Some(value) = payload.get("n") else {
-        return Ok(1);
-    };
-    let Some(count) = value.as_i64() else {
-        return Err(AppError::validation_failed(
-            "image count n must be an integer",
-        ));
-    };
-    if !(1..=MAX_IMAGE_COUNT).contains(&count) {
-        return Err(AppError::validation_failed(format!(
-            "image count n must be between 1 and {MAX_IMAGE_COUNT}"
-        )));
-    }
-
-    Ok(count)
-}
-
-fn requested_video_seconds(payload: &Value) -> Result<i64, AppError> {
-    let seconds = optional_video_seconds(payload)?
-        .or_else(|| {
-            payload
-                .get("video")
-                .and_then(|video| optional_video_seconds(video).ok())
-                .flatten()
-        })
-        .unwrap_or(8);
-    if !(1..=MAX_VIDEO_SECONDS).contains(&seconds) {
-        return Err(AppError::validation_failed(format!(
-            "video duration must be between 1 and {MAX_VIDEO_SECONDS} seconds"
-        )));
-    }
-
-    Ok(seconds)
-}
-
-fn optional_video_seconds(value: &Value) -> Result<Option<i64>, AppError> {
-    for key in ["duration", "duration_seconds", "seconds"] {
-        if let Some(raw) = value.get(key) {
-            return value_to_positive_seconds(raw)
-                .map(Some)
-                .ok_or_else(|| AppError::validation_failed("video duration is invalid"));
+fn validate_generation_payload(
+    job_type: &str,
+    payload: &Value,
+    model: &JobModel,
+) -> Result<(), AppError> {
+    match job_type {
+        "image" => {
+            capabilities::validate_image_payload(payload, &model.pricing_config, MAX_IMAGE_COUNT)
         }
+        "video" => capabilities::validate_video_payload(payload, &model.pricing_config),
+        _ => Err(AppError::validation_failed(
+            "ai generation job type invalid",
+        )),
     }
-
-    Ok(None)
-}
-
-fn value_to_positive_seconds(value: &Value) -> Option<i64> {
-    if let Some(value) = value.as_i64() {
-        return (value > 0).then_some(value);
-    }
-    if let Some(value) = value.as_f64() {
-        return (value.is_finite() && value > 0.0).then_some(value.ceil() as i64);
-    }
-    value
-        .as_str()
-        .and_then(|value| value.trim().parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .map(|value| value.ceil() as i64)
 }
 
 fn requested_model_code(payload: &Value) -> Result<&str, AppError> {
@@ -3432,9 +3390,11 @@ fn map_db_error(error: sqlx::Error) -> AppError {
 mod tests {
     use serde_json::json;
 
+    use crate::modules::ai::capabilities;
+
     use super::{
-        collect_asset_urls, estimated_quantity, provider_job_id_from_body, requested_video_seconds,
-        wuyin_status_from_body, JobModel, ProviderJobStatus,
+        collect_asset_urls, estimated_quantity, provider_job_id_from_body, wuyin_status_from_body,
+        JobModel, ProviderJobStatus, MAX_VIDEO_SECONDS,
     };
 
     #[test]
@@ -3492,12 +3452,21 @@ mod tests {
     #[test]
     fn video_duration_uses_common_fields() {
         assert_eq!(
-            requested_video_seconds(&json!({"model": "x", "duration": 3.2})).expect("seconds"),
+            capabilities::requested_video_seconds(
+                &json!({"model": "x", "duration": 3.2}),
+                &json!({}),
+                MAX_VIDEO_SECONDS
+            )
+            .expect("seconds"),
             4
         );
         assert_eq!(
-            requested_video_seconds(&json!({"model": "x", "video": {"seconds": "8"}}))
-                .expect("seconds"),
+            capabilities::requested_video_seconds(
+                &json!({"model": "x", "video": {"seconds": "8"}}),
+                &json!({}),
+                MAX_VIDEO_SECONDS
+            )
+            .expect("seconds"),
             8
         );
     }

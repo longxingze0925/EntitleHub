@@ -13,6 +13,7 @@ use crate::{
     error::{ApiResponse, AppError},
     http::request_id::RequestId,
     modules::{
+        ai::capabilities::validate_capabilities_config,
         audit::{self, AuditLogInput},
         auth::session::AdminContext,
     },
@@ -1818,11 +1819,7 @@ fn normalize_create_model_input(
             payload.daily_spend_limit_minor,
             "ai model daily spend limit",
         )?,
-        pricing_config: normalize_public_json(
-            payload.pricing_config,
-            "ai model pricing config",
-            MAX_CONFIG_BYTES,
-        )?,
+        pricing_config: normalize_model_pricing_config(payload.pricing_config)?,
         metadata: normalize_public_json(payload.metadata, "ai model metadata", MAX_CONFIG_BYTES)?,
     })
 }
@@ -1903,9 +1900,7 @@ fn normalize_update_model_input(
             None => before.daily_spend_limit_minor,
         },
         pricing_config: match payload.pricing_config {
-            Some(pricing_config) => {
-                normalize_public_json(pricing_config, "ai model pricing config", MAX_CONFIG_BYTES)?
-            }
+            Some(pricing_config) => normalize_model_pricing_config(pricing_config)?,
             None => before.pricing_config.clone(),
         },
         metadata: match payload.metadata {
@@ -2029,6 +2024,13 @@ fn normalize_nonnegative_price(value: i64) -> Result<i64, AppError> {
             "ai model price cannot be negative",
         ));
     }
+
+    Ok(value)
+}
+
+fn normalize_model_pricing_config(value: Value) -> Result<Value, AppError> {
+    let value = normalize_public_json(value, "ai model pricing config", MAX_CONFIG_BYTES)?;
+    validate_capabilities_config(&value)?;
 
     Ok(value)
 }

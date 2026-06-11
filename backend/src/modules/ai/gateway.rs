@@ -29,7 +29,10 @@ use crate::{
     http::request_id::RequestId,
     metrics::{self, AiGatewayRequestStatus},
     modules::{
-        ai::api_keys::{authenticate_api_key, AiApiKeyContext},
+        ai::{
+            api_keys::{authenticate_api_key, AiApiKeyContext},
+            capabilities,
+        },
         client_auth::session::{ensure_active_subscription, ClientContext},
         server_api::{
             ai_invoke_scope, authenticate_server_key, customer_id_from_headers,
@@ -372,6 +375,7 @@ async fn image_generations_for_caller(
     let model_code = requested_model_code(&payload)?;
     let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
     validate_model_for_images(&model)?;
+    capabilities::validate_image_payload(&payload, &model.pricing_config, MAX_IMAGE_COUNT)?;
 
     let hold_minor = estimate_image_hold_minor(&payload, &model)?;
     let reservation = reserve_wallet_and_create_usage(
@@ -525,6 +529,7 @@ async fn video_generations_for_caller(
     let model_code = requested_model_code(&payload)?;
     let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
     validate_model_for_videos(&model)?;
+    capabilities::validate_video_payload(&payload, &model.pricing_config)?;
 
     let hold_minor = estimate_video_hold_minor(&payload, &model)?;
     let reservation = reserve_wallet_and_create_usage(
@@ -798,6 +803,18 @@ async fn list_models_for_caller(
         r#"
         select
           m.code,
+          m.name,
+          m.modality,
+          m.provider_model,
+          m.currency,
+          m.billing_mode,
+          m.input_1k_price_minor,
+          m.output_1k_price_minor,
+          m.request_price_minor,
+          m.image_price_minor,
+          m.second_price_minor,
+          m.minute_price_minor,
+          m.pricing_config_json as pricing_config,
           m.created_at
         from ai_models m
         join ai_providers p
@@ -816,14 +833,29 @@ async fn list_models_for_caller(
     let data = models
         .into_iter()
         .map(|model| {
-            json!({
+            let capabilities = capabilities::model_capabilities_json(&model.pricing_config)?;
+            Ok(json!({
                 "id": model.code,
                 "object": "model",
                 "created": model.created_at.timestamp(),
                 "owned_by": "entitlehub",
-            })
+                "name": model.name,
+                "modality": model.modality,
+                "provider_model": model.provider_model,
+                "billing": {
+                    "currency": model.currency,
+                    "mode": model.billing_mode,
+                    "input_1k_price_minor": model.input_1k_price_minor,
+                    "output_1k_price_minor": model.output_1k_price_minor,
+                    "request_price_minor": model.request_price_minor,
+                    "image_price_minor": model.image_price_minor,
+                    "second_price_minor": model.second_price_minor,
+                    "minute_price_minor": model.minute_price_minor,
+                },
+                "capabilities": capabilities,
+            }))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, AppError>>()?;
     metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Success);
 
     Ok((
@@ -951,6 +983,18 @@ struct IdempotentUsageRecord {
 #[derive(Debug, Clone, FromRow)]
 struct GatewayModelSummary {
     code: String,
+    name: String,
+    modality: String,
+    provider_model: Option<String>,
+    currency: String,
+    billing_mode: String,
+    input_1k_price_minor: i64,
+    output_1k_price_minor: i64,
+    request_price_minor: i64,
+    image_price_minor: i64,
+    second_price_minor: i64,
+    minute_price_minor: i64,
+    pricing_config: Value,
     created_at: DateTime<Utc>,
 }
 
@@ -2340,7 +2384,7 @@ fn estimate_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, App
 }
 
 fn estimate_image_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, AppError> {
-    let count = image_count(payload)?;
+    let count = capabilities::image_count(payload, MAX_IMAGE_COUNT)?;
     let image_minor = model
         .image_price_minor
         .checked_mul(count)
@@ -2371,7 +2415,11 @@ fn estimate_video_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i6
     match model.billing_mode.as_str() {
         "video_per_request" => Ok(model.request_price_minor),
         "video_per_second" => {
-            let seconds = requested_video_seconds(payload)?;
+            let seconds = capabilities::requested_video_seconds(
+                payload,
+                &model.pricing_config,
+                MAX_VIDEO_SECONDS,
+            )?;
             model
                 .request_price_minor
                 .checked_add(
@@ -2404,45 +2452,17 @@ fn calculate_video_charge_minor(model: &GatewayModel, provider_body: &Value) -> 
     }
 }
 
-fn requested_video_seconds(payload: &Value) -> Result<i64, AppError> {
-    let seconds = match optional_video_seconds(payload)? {
-        Some(seconds) => seconds,
-        None => match payload.get("video") {
-            Some(video) => optional_video_seconds(video)?.unwrap_or(8),
-            None => 8,
-        },
-    };
-    if !(1..=MAX_VIDEO_SECONDS).contains(&seconds) {
-        return Err(AppError::validation_failed(format!(
-            "video duration must be between 1 and {MAX_VIDEO_SECONDS} seconds"
-        )));
-    }
-
-    Ok(seconds)
-}
-
-fn optional_video_seconds(value: &Value) -> Result<Option<i64>, AppError> {
-    for key in ["duration", "duration_seconds", "seconds"] {
-        if let Some(raw) = value.get(key) {
-            return value_to_positive_seconds(raw)
-                .map(Some)
-                .ok_or_else(|| AppError::validation_failed("video duration is invalid"));
-        }
-    }
-
-    Ok(None)
-}
-
 fn video_seconds_from_response(provider_body: &Value) -> Option<i64> {
     find_positive_seconds(provider_body).filter(|seconds| (1..=MAX_VIDEO_SECONDS).contains(seconds))
 }
 
 fn video_seconds_from_pricing_config(config: &Value) -> Option<i64> {
-    config
+    let source = config.get("capabilities").unwrap_or(config);
+    source
         .get("default_duration_seconds")
-        .or_else(|| config.get("duration_seconds"))
-        .or_else(|| config.get("seconds"))
-        .and_then(value_to_positive_seconds)
+        .or_else(|| source.get("duration_seconds"))
+        .or_else(|| source.get("seconds"))
+        .and_then(capabilities::value_to_positive_seconds)
         .filter(|seconds| (1..=MAX_VIDEO_SECONDS).contains(seconds))
 }
 
@@ -2450,7 +2470,10 @@ fn find_positive_seconds(value: &Value) -> Option<i64> {
     match value {
         Value::Object(object) => {
             for key in ["duration", "duration_seconds", "seconds"] {
-                if let Some(seconds) = object.get(key).and_then(value_to_positive_seconds) {
+                if let Some(seconds) = object
+                    .get(key)
+                    .and_then(capabilities::value_to_positive_seconds)
+                {
                     return Some(seconds);
                 }
             }
@@ -2461,20 +2484,6 @@ fn find_positive_seconds(value: &Value) -> Option<i64> {
     }
 }
 
-fn value_to_positive_seconds(value: &Value) -> Option<i64> {
-    if let Some(value) = value.as_i64() {
-        return (value > 0).then_some(value);
-    }
-    if let Some(value) = value.as_f64() {
-        return (value.is_finite() && value > 0.0).then_some(value.ceil() as i64);
-    }
-    value
-        .as_str()
-        .and_then(|value| value.trim().parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .map(|value| value.ceil() as i64)
-}
-
 fn estimate_embedding_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, AppError> {
     let input_tokens = estimate_embedding_input_tokens(payload)?;
     let input_minor = token_price_minor(input_tokens, model.input_1k_price_minor)?;
@@ -2483,24 +2492,6 @@ fn estimate_embedding_hold_minor(payload: &Value, model: &GatewayModel) -> Resul
         .request_price_minor
         .checked_add(input_minor)
         .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large"))
-}
-
-fn image_count(payload: &Value) -> Result<i64, AppError> {
-    let Some(value) = payload.get("n") else {
-        return Ok(1);
-    };
-    let Some(count) = value.as_i64() else {
-        return Err(AppError::validation_failed(
-            "image count n must be an integer",
-        ));
-    };
-    if !(1..=MAX_IMAGE_COUNT).contains(&count) {
-        return Err(AppError::validation_failed(format!(
-            "image count n must be between 1 and {MAX_IMAGE_COUNT}"
-        )));
-    }
-
-    Ok(count)
 }
 
 fn calculate_actual_charge_minor(model: &GatewayModel, usage: TokenUsage) -> Option<i64> {
@@ -2626,7 +2617,7 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
-    use crate::modules::client_auth::session::ClientContext;
+    use crate::modules::{ai::capabilities, client_auth::session::ClientContext};
 
     use super::{
         calculate_actual_charge_minor, calculate_embedding_charge_minor,
@@ -2634,9 +2625,9 @@ mod tests {
         decode_base64_image_asset, ensure_daily_limit_available, ensure_provider_asset_url_allowed,
         ensure_wallet_ai_enabled, estimate_embedding_hold_minor, estimate_hold_minor,
         estimate_image_hold_minor, estimate_video_hold_minor, extension_for_mime, idempotency_key,
-        image_count, normalize_mime_type, provider_payload, provider_timeout,
-        requested_video_seconds, settle_charge, token_price_minor, token_usage_from_response,
-        GatewayCaller, GatewayModel, WalletRecord,
+        normalize_mime_type, provider_payload, provider_timeout, settle_charge, token_price_minor,
+        token_usage_from_response, GatewayCaller, GatewayModel, WalletRecord, MAX_IMAGE_COUNT,
+        MAX_VIDEO_SECONDS,
     };
 
     #[test]
@@ -2744,7 +2735,10 @@ mod tests {
             "n": 3
         });
 
-        assert_eq!(image_count(&payload).expect("count"), 3);
+        assert_eq!(
+            capabilities::image_count(&payload, MAX_IMAGE_COUNT).expect("count"),
+            3
+        );
         assert_eq!(
             estimate_image_hold_minor(&payload, &model).expect("hold"),
             850
@@ -2792,7 +2786,11 @@ mod tests {
             "data": [{ "video_url": "https://cdn.example.com/video.mp4", "duration_seconds": 6 }]
         });
 
-        assert_eq!(requested_video_seconds(&payload).expect("seconds"), 8);
+        assert_eq!(
+            capabilities::requested_video_seconds(&payload, &json!({}), MAX_VIDEO_SECONDS)
+                .expect("seconds"),
+            8
+        );
         assert_eq!(
             estimate_video_hold_minor(&payload, &per_second).expect("hold"),
             300
@@ -2822,17 +2820,35 @@ mod tests {
     #[test]
     fn video_duration_accepts_common_fields_and_rejects_invalid_values() {
         assert_eq!(
-            requested_video_seconds(&json!({"model": "video", "duration_seconds": 3.2}))
-                .expect("seconds"),
+            capabilities::requested_video_seconds(
+                &json!({"model": "video", "duration_seconds": 3.2}),
+                &json!({}),
+                MAX_VIDEO_SECONDS
+            )
+            .expect("seconds"),
             4
         );
         assert_eq!(
-            requested_video_seconds(&json!({"model": "video", "video": {"seconds": "12"}}))
-                .expect("seconds"),
+            capabilities::requested_video_seconds(
+                &json!({"model": "video", "video": {"seconds": "12"}}),
+                &json!({}),
+                MAX_VIDEO_SECONDS
+            )
+            .expect("seconds"),
             12
         );
-        assert!(requested_video_seconds(&json!({"model": "video", "duration": 0})).is_err());
-        assert!(requested_video_seconds(&json!({"model": "video", "duration": 3601})).is_err());
+        assert!(capabilities::requested_video_seconds(
+            &json!({"model": "video", "duration": 0}),
+            &json!({}),
+            MAX_VIDEO_SECONDS
+        )
+        .is_err());
+        assert!(capabilities::requested_video_seconds(
+            &json!({"model": "video", "duration": 3601}),
+            &json!({}),
+            MAX_VIDEO_SECONDS
+        )
+        .is_err());
     }
 
     #[test]
@@ -2856,9 +2872,9 @@ mod tests {
 
     #[test]
     fn image_count_rejects_out_of_range_values() {
-        assert!(image_count(&json!({"n": 0})).is_err());
-        assert!(image_count(&json!({"n": 11})).is_err());
-        assert!(image_count(&json!({"n": "2"})).is_err());
+        assert!(capabilities::image_count(&json!({"n": 0}), MAX_IMAGE_COUNT).is_err());
+        assert!(capabilities::image_count(&json!({"n": 11}), MAX_IMAGE_COUNT).is_err());
+        assert!(capabilities::image_count(&json!({"n": "2"}), MAX_IMAGE_COUNT).is_err());
     }
 
     #[test]

@@ -57,12 +57,12 @@ Authorization: Bearer ehsk_...
 X-EntitleHub-Customer-Id: <customer_id>
 ```
 
-### 2.3 配置 AI 渠道和模型价格
+### 2.3 配置 AI 渠道和模型商品
 
 在后台 `接口计费` 下配置：
 
 - AI 渠道：第三方平台地址、类型、密钥和公开配置。
-- 模型价格：对外模型代码、三方模型名、计费方式和售价。
+- 模型商品：对外模型代码、三方模型名、可用比例、分辨率、时长、张数、计费方式和售价。
 - 客户余额：客户 AI 钱包余额、每日限额、是否冻结 AI 权限。
 - 客户订阅：客户必须有 active/trialing 且未过期订阅，AI API 才能使用。
 
@@ -72,6 +72,14 @@ X-EntitleHub-Customer-Id: <customer_id>
 - 图片：按张。
 - 视频：按秒或按次。
 - 音频：按秒、按分钟或按次。
+
+模型商品原则：
+
+- Web 产品只使用 EntitleHub 的模型代码，不直接使用第三方真实模型名。
+- 图片模型可配置允许比例、分辨率、单次张数和最大张数。
+- 视频模型可配置允许比例、分辨率、允许时长和默认时长。
+- 影织这类 Web 产品应该先调用模型列表接口，再按返回能力渲染前端选项。
+- EntitleHub 会在服务端强校验比例、分辨率、时长、张数，不能只靠前端限制。
 
 ## 3. 服务端同步 AI 接口
 
@@ -87,6 +95,49 @@ Authorization: Bearer ehsk_...
 X-EntitleHub-Customer-Id: uuid
 Content-Type: application/json
 ```
+
+### 3.1 获取可用模型商品
+
+影织后端启动时或定时刷新时调用：
+
+```http
+GET /api/server/ai/v1/models
+Authorization: Bearer ehsk_...
+X-EntitleHub-Customer-Id: uuid
+```
+
+响应中的 `data` 会返回可用模型商品：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "yingzhi-video-fast",
+      "object": "model",
+      "name": "影织快速视频",
+      "modality": "video",
+      "provider_model": "google_omni",
+      "billing": {
+        "currency": "CNY",
+        "mode": "video_per_second",
+        "second_price_minor": 20,
+        "request_price_minor": 0
+      },
+      "capabilities": {
+        "ratios": ["16:9", "9:16", "1:1"],
+        "resolutions": ["720p", "1080p"],
+        "durations": [5, 8, 10],
+        "default_duration_seconds": 8,
+        "image_counts": [],
+        "max_images": null
+      }
+    }
+  ]
+}
+```
+
+影织前端应该只展示 `capabilities` 里允许的选项。提交任务时只传 `id` 里的模型代码，例如 `yingzhi-video-fast`。
 
 示例：
 
@@ -147,7 +198,8 @@ Content-Type: application/json
   "model": "google-omni",
   "prompt": "一个 8 秒产品展示视频",
   "duration": 8,
-  "size": "1280x720"
+  "ratio": "16:9",
+  "resolution": "1080p"
 }
 ```
 
@@ -297,6 +349,7 @@ async function getGenerationJob(input: {
 | 客户 AI 钱包余额不足 | 引导充值 |
 | 客户 AI 权限被冻结 | 提示账号 AI 功能不可用 |
 | 日限额超出 | 提示今日额度已用完 |
+| 比例、分辨率、时长、张数不在模型能力范围内 | 重新拉取模型列表，按后台允许选项提交 |
 | 三方失败 | 展示失败，余额一般已释放 |
 | `timeout_review` | 展示处理中，并通知后台人工查看 |
 
@@ -399,6 +452,7 @@ EntitleHub 负责平台级校验和钱包扣费，但你的业务后端仍要防
 - 业务后端所有请求都传 `X-EntitleHub-Customer-Id`。
 - 客户订阅、钱包余额、AI 权限冻结流程已在后台验证。
 - 图片/视频异步任务使用 `/images/jobs`、`/videos/jobs`。
+- 图片/视频前端选项来自 `/api/server/ai/v1/models` 的 `capabilities`，不要在影织写死。
 - 业务后端保存 EntitleHub `job.id`，不要只保存三方任务 ID。
 - 任务轮询有退避策略，不要高频打满。
 - 客户可见素材 URL 使用 EntitleHub 返回的 `asset_urls`。
