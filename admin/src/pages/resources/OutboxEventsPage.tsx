@@ -134,7 +134,7 @@ export function OutboxEventsPage() {
           <Typography.Title level={2}>任务队列</Typography.Title>
           <Typography.Text type="secondary">后台任务、执行状态和重试记录</Typography.Text>
         </div>
-        <Space>
+        <Space className="page-heading-actions">
           <Input.Search
             allowClear
             placeholder="状态"

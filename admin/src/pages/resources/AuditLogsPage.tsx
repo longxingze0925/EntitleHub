@@ -151,7 +151,70 @@ export function AuditLogsPage() {
           <Typography.Title level={2}>审计日志</Typography.Title>
           <Typography.Text type="secondary">关键后台操作、资源变更和追踪信息</Typography.Text>
         </div>
-        <Space>
+        <Space className="page-heading-actions">
+          <Input
+            allowClear
+            placeholder="操作者 ID"
+            value={draftFilters.actor_id}
+            onChange={(event) =>
+              setDraftFilters((current) => ({ ...current, actor_id: event.target.value }))
+            }
+            onPressEnter={applyFilters}
+            className="audit-filter-input"
+          />
+          <Input
+            allowClear
+            placeholder="动作"
+            value={draftFilters.action}
+            onChange={(event) =>
+              setDraftFilters((current) => ({ ...current, action: event.target.value }))
+            }
+            onPressEnter={applyFilters}
+            className="audit-filter-input"
+          />
+          <Input
+            allowClear
+            placeholder="资源类型"
+            value={draftFilters.resource_type}
+            onChange={(event) =>
+              setDraftFilters((current) => ({
+                ...current,
+                resource_type: event.target.value
+              }))
+            }
+            onPressEnter={applyFilters}
+            className="audit-filter-input"
+          />
+          <Input
+            allowClear
+            placeholder="资源 ID"
+            value={draftFilters.resource_id}
+            onChange={(event) =>
+              setDraftFilters((current) => ({ ...current, resource_id: event.target.value }))
+            }
+            onPressEnter={applyFilters}
+            className="audit-filter-input"
+          />
+          <RangePicker
+            showTime
+            value={dateRange}
+            onChange={(values) => {
+              const nextRange: AuditDateRange = values ? [values[0], values[1]] : null;
+              setDateRange(nextRange);
+              setDraftFilters((current) => ({
+                ...current,
+                start_at: nextRange?.[0]?.toISOString(),
+                end_at: nextRange?.[1]?.toISOString()
+              }));
+            }}
+            className="audit-range-filter"
+          />
+          <Button type="primary" icon={<Search size={16} />} onClick={applyFilters}>
+            查询
+          </Button>
+          <Button icon={<X size={16} />} onClick={resetFilters}>
+            清空
+          </Button>
           <Button icon={<RefreshCw size={16} />} onClick={() => query.refetch()} />
           <Button
             icon={<Download size={16} />}
@@ -162,71 +225,6 @@ export function AuditLogsPage() {
             导出
           </Button>
         </Space>
-      </div>
-      <div className="audit-filter-bar">
-        <Input
-          allowClear
-          placeholder="操作者 ID"
-          value={draftFilters.actor_id}
-          onChange={(event) =>
-            setDraftFilters((current) => ({ ...current, actor_id: event.target.value }))
-          }
-          onPressEnter={applyFilters}
-          className="audit-filter-input"
-        />
-        <Input
-          allowClear
-          placeholder="动作"
-          value={draftFilters.action}
-          onChange={(event) =>
-            setDraftFilters((current) => ({ ...current, action: event.target.value }))
-          }
-          onPressEnter={applyFilters}
-          className="audit-filter-input"
-        />
-        <Input
-          allowClear
-          placeholder="资源类型"
-          value={draftFilters.resource_type}
-          onChange={(event) =>
-            setDraftFilters((current) => ({
-              ...current,
-              resource_type: event.target.value
-            }))
-          }
-          onPressEnter={applyFilters}
-          className="audit-filter-input"
-        />
-        <Input
-          allowClear
-          placeholder="资源 ID"
-          value={draftFilters.resource_id}
-          onChange={(event) =>
-            setDraftFilters((current) => ({ ...current, resource_id: event.target.value }))
-          }
-          onPressEnter={applyFilters}
-          className="audit-filter-input"
-        />
-        <RangePicker
-          showTime
-          value={dateRange}
-          onChange={(values) => {
-            const nextRange: AuditDateRange = values ? [values[0], values[1]] : null;
-            setDateRange(nextRange);
-            setDraftFilters((current) => ({
-              ...current,
-              start_at: nextRange?.[0]?.toISOString(),
-              end_at: nextRange?.[1]?.toISOString()
-            }));
-          }}
-          className="audit-range-filter"
-        />
-        <Button type="primary" icon={<Search size={16} />} onClick={applyFilters}>
-          查询
-        </Button>
-        <Button icon={<X size={16} />} onClick={resetFilters}>
-          清空
-        </Button>
       </div>
       {query.error ? (
         <Alert type="error" message={tMessage("audit_logs_load_failed")} />

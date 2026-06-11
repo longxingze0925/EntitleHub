@@ -217,6 +217,9 @@ pub struct UpdateAiWalletAccessRequest {
 pub struct AiWalletLedgerEntry {
     pub id: Uuid,
     pub customer_id: Uuid,
+    pub customer_email: Option<String>,
+    pub customer_name: Option<String>,
+    pub currency: String,
     pub entry_type: String,
     pub amount_minor: i64,
     pub balance_after_minor: i64,
@@ -243,6 +246,9 @@ pub struct AiWalletLedgerListResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct LedgerListQuery {
+    pub customer_id: Option<Uuid>,
+    pub entry_type: Option<String>,
+    pub reference_id: Option<String>,
     pub page: Option<i64>,
     pub page_size: Option<i64>,
 }
@@ -773,6 +779,39 @@ pub async fn list_ai_wallet_ledger(
     let (page, page_size) = normalize_page(query.page, query.page_size);
     let items =
         list_wallet_ledger_entries(&state, admin.tenant_id, customer_id, page, page_size).await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiWalletLedgerListResponse {
+            items,
+            meta: ListMeta { page, page_size },
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn list_ai_wallet_ledger_entries(
+    State(state): State<AppState>,
+    Extension(admin): Extension<AdminContext>,
+    Extension(request_id): Extension<RequestId>,
+    Query(query): Query<LedgerListQuery>,
+) -> Result<Json<ApiResponse<AiWalletLedgerListResponse>>, AppError> {
+    ensure_admin_permission(&admin, "ai:read")?;
+    let entry_type = clean_optional_text(query.entry_type.as_deref())
+        .as_deref()
+        .map(normalize_ledger_entry_type)
+        .transpose()?;
+    let reference_id = clean_optional_text(query.reference_id.as_deref());
+    let (page, page_size) = normalize_page(query.page, query.page_size);
+    let items = list_wallet_ledger_entries_for_tenant(
+        &state,
+        admin.tenant_id,
+        query.customer_id,
+        entry_type.as_deref(),
+        reference_id.as_deref(),
+        page,
+        page_size,
+    )
+    .await?;
 
     Ok(Json(ApiResponse::ok(
         AiWalletLedgerListResponse {
@@ -1540,6 +1579,9 @@ async fn insert_wallet_ledger_entry(
         returning
           id,
           customer_id,
+          null::text as customer_email,
+          null::text as customer_name,
+          $11::text as currency,
           entry_type,
           amount_minor,
           balance_after_minor,
@@ -1562,6 +1604,7 @@ async fn insert_wallet_ledger_entry(
     .bind(reason)
     .bind(metadata)
     .bind(created_by)
+    .bind(&wallet.currency)
     .fetch_one(&mut **transaction)
     .await
     .map_err(map_db_error)
@@ -1578,27 +1621,90 @@ async fn list_wallet_ledger_entries(
     sqlx::query_as::<_, AiWalletLedgerEntry>(
         r#"
         select
-          id,
-          customer_id,
-          entry_type,
-          amount_minor,
-          balance_after_minor,
-          held_after_minor,
-          reason,
-          reference_type,
-          reference_id,
-          metadata_json as metadata,
-          created_by,
-          created_at
-        from ai_wallet_ledger_entries
-        where tenant_id = $1
-          and customer_id = $2
-        order by created_at desc, id desc
+          l.id,
+          l.customer_id,
+          c.email as customer_email,
+          c.name as customer_name,
+          w.currency,
+          l.entry_type,
+          l.amount_minor,
+          l.balance_after_minor,
+          l.held_after_minor,
+          l.reason,
+          l.reference_type,
+          l.reference_id,
+          l.metadata_json as metadata,
+          l.created_by,
+          l.created_at
+        from ai_wallet_ledger_entries l
+        join ai_wallets w
+          on w.tenant_id = l.tenant_id
+         and w.id = l.wallet_id
+        join customers c
+          on c.tenant_id = l.tenant_id
+         and c.id = l.customer_id
+        where l.tenant_id = $1
+          and l.customer_id = $2
+        order by l.created_at desc, l.id desc
         limit $3 offset $4
         "#,
     )
     .bind(tenant_id)
     .bind(customer_id)
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(map_db_error)
+}
+
+async fn list_wallet_ledger_entries_for_tenant(
+    state: &AppState,
+    tenant_id: Uuid,
+    customer_id: Option<Uuid>,
+    entry_type: Option<&str>,
+    reference_id: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<Vec<AiWalletLedgerEntry>, AppError> {
+    let offset = (page - 1) * page_size;
+    sqlx::query_as::<_, AiWalletLedgerEntry>(
+        r#"
+        select
+          l.id,
+          l.customer_id,
+          c.email as customer_email,
+          c.name as customer_name,
+          w.currency,
+          l.entry_type,
+          l.amount_minor,
+          l.balance_after_minor,
+          l.held_after_minor,
+          l.reason,
+          l.reference_type,
+          l.reference_id,
+          l.metadata_json as metadata,
+          l.created_by,
+          l.created_at
+        from ai_wallet_ledger_entries l
+        join ai_wallets w
+          on w.tenant_id = l.tenant_id
+         and w.id = l.wallet_id
+        join customers c
+          on c.tenant_id = l.tenant_id
+         and c.id = l.customer_id
+        where l.tenant_id = $1
+          and ($2::uuid is null or l.customer_id = $2)
+          and ($3::text is null or l.entry_type = $3)
+          and ($4::text is null or l.reference_id = $4)
+        order by l.created_at desc, l.id desc
+        limit $5 offset $6
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(customer_id)
+    .bind(entry_type)
+    .bind(reference_id)
     .bind(page_size)
     .bind(offset)
     .fetch_all(&state.db)
@@ -1955,6 +2061,23 @@ fn normalize_adjustment_amount(amount_minor: i64) -> Result<i64, AppError> {
 
 fn normalize_reason(value: &str) -> Result<String, AppError> {
     normalize_name(value, "ai wallet adjustment reason", MAX_REASON_LEN)
+}
+
+fn normalize_ledger_entry_type(value: &str) -> Result<String, AppError> {
+    let value = value.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "credit" | "debit" | "hold" | "capture" | "release" | "refund" | "adjustment" => Ok(value),
+        _ => Err(AppError::validation_failed(
+            "ai wallet ledger entry type is invalid",
+        )),
+    }
+}
+
+fn clean_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn normalize_public_json(value: Value, label: &str, max_bytes: usize) -> Result<Value, AppError> {

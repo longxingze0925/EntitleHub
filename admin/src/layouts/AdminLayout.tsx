@@ -1,11 +1,12 @@
 import { Button, Drawer, Layout, Menu, Space, Typography } from "antd";
+import type { MenuProps } from "antd";
 import { LogOut, Menu as MenuIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { logout } from "../api/auth";
-import { menuRoutes } from "../routes/menu";
+import { flatMenuRoutes, menuRoutes, type MenuRoute } from "../routes/menu";
 import { useAuthStore } from "../stores/authStore";
 import { hasPermission } from "../utils/permissions";
 
@@ -19,28 +20,32 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [openMenuKeys, setOpenMenuKeys] = useState<string[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, tenant, permissions, clear } = useAuthStore();
 
   const visibleRoutes = useMemo(
+    () => filterVisibleRoutes(menuRoutes, permissions),
+    [permissions]
+  );
+  const visibleFlatRoutes = useMemo(
     () =>
-      menuRoutes.filter((route) =>
+      flatMenuRoutes.filter((route) =>
         hasPermission(permissions, route.permission)
       ),
     [permissions]
   );
   const selectedKey =
-    visibleRoutes.find((route) => route.path === location.pathname)?.key ??
+    visibleFlatRoutes.find((route) => route.path === location.pathname)?.key ??
     "dashboard";
+  const activeOpenKeys = useMemo(
+    () => parentKeysForPath(visibleRoutes, location.pathname),
+    [location.pathname, visibleRoutes]
+  );
   const menuItems = useMemo(
-    () =>
-      visibleRoutes.map((route) => ({
-        key: route.key,
-        icon: route.icon,
-        label: <Link to={route.path}>{route.label}</Link>
-      })),
+    () => visibleRoutes.map(toMenuItem),
     [visibleRoutes]
   );
 
@@ -56,6 +61,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (activeOpenKeys.length === 0) {
+      return;
+    }
+
+    setOpenMenuKeys((current) =>
+      Array.from(new Set([...current, ...activeOpenKeys]))
+    );
+  }, [activeOpenKeys]);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -82,6 +97,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
+          openKeys={openMenuKeys}
+          onOpenChange={(keys) => setOpenMenuKeys(keys)}
           items={menuItems}
         />
       </Sider>
@@ -98,7 +115,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <span>EH</span>
           <strong>EntitleHub</strong>
         </div>
-        <Menu mode="inline" selectedKeys={[selectedKey]} items={menuItems} />
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          openKeys={openMenuKeys}
+          onOpenChange={(keys) => setOpenMenuKeys(keys)}
+          items={menuItems}
+        />
       </Drawer>
 
       <Layout>
@@ -133,4 +156,54 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </Layout>
     </Layout>
   );
+}
+
+function filterVisibleRoutes(routes: MenuRoute[], permissions: string[]): MenuRoute[] {
+  const visibleRoutes: MenuRoute[] = [];
+
+  for (const route of routes) {
+    const children = route.children
+      ? filterVisibleRoutes(route.children, permissions)
+      : undefined;
+    const visible = hasPermission(permissions, route.permission);
+
+    if (visible || children?.length) {
+      visibleRoutes.push({
+        ...route,
+        children
+      });
+    }
+  }
+
+  return visibleRoutes;
+}
+
+function toMenuItem(route: MenuRoute): NonNullable<MenuProps["items"]>[number] {
+  return {
+    key: route.key,
+    icon: route.icon,
+    label: route.children?.length ? (
+      route.label
+    ) : (
+      <Link to={route.path}>{route.label}</Link>
+    ),
+    children: route.children?.map(toMenuItem)
+  };
+}
+
+function parentKeysForPath(routes: MenuRoute[], path: string): string[] {
+  for (const route of routes) {
+    if (route.children?.some((child) => child.path === path)) {
+      return [route.key];
+    }
+
+    if (route.children?.length) {
+      const nested = parentKeysForPath(route.children, path);
+      if (nested.length > 0) {
+        return [route.key, ...nested];
+      }
+    }
+  }
+
+  return [];
 }

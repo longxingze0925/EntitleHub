@@ -23,6 +23,7 @@ import { PasswordResetPage } from "../pages/login/PasswordResetPage";
 import { TeamInvitationAcceptPage } from "../pages/login/TeamInvitationAcceptPage";
 import { ApplicationsPage } from "../pages/resources/ApplicationsPage";
 import { AiBillingPage } from "../pages/resources/AiBillingPage";
+import { AiWalletLedgerPage } from "../pages/resources/AiWalletLedgerPage";
 import { AuditLogsPage } from "../pages/resources/AuditLogsPage";
 import { CustomersPage } from "../pages/resources/CustomersPage";
 import { DevicesPage } from "../pages/resources/DevicesPage";
@@ -36,7 +37,7 @@ import { SubscriptionsPage } from "../pages/resources/SubscriptionsPage";
 import { SystemSettingsPage } from "../pages/resources/SystemSettingsPage";
 import { SecurityPage } from "../pages/security/SecurityPage";
 import { TeamPage } from "../pages/resources/TeamPage";
-import { menuRoutes } from "../routes/menu";
+import { flatMenuRoutes } from "../routes/menu";
 import { useAuthStore } from "../stores/authStore";
 import { hasPermission } from "../utils/permissions";
 import { requiresMfaForRole } from "../utils/security";
@@ -88,7 +89,7 @@ function ProtectedRoutes() {
     return <Navigate to="/security" replace />;
   }
 
-  const currentRoute = menuRoutes.find(
+  const currentRoute = flatMenuRoutes.find(
     (route) => route.path === location.pathname
   );
   if (currentRoute && !hasPermission(permissions, currentRoute.permission)) {
@@ -139,16 +140,26 @@ export function App() {
           <Route path="roles" element={<RolesPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="apps" element={<ApplicationsPage />} />
-          <Route path="ai-billing" element={<AiBillingPage />} />
+          <Route path="ai-billing" element={<Navigate to="/ai-billing/providers" replace />} />
+          <Route path="ai-billing/providers" element={<AiBillingPage />} />
+          <Route path="ai-billing/models" element={<AiBillingPage />} />
+          <Route path="ai-billing/wallets" element={<AiBillingPage />} />
+          <Route path="ai-billing/usage" element={<Navigate to="/logs/ai-usage" replace />} />
+          <Route path="ai-billing/assets" element={<Navigate to="/logs/ai-assets" replace />} />
           <Route path="licenses" element={<LicensesPage />} />
           <Route path="subscriptions" element={<SubscriptionsPage />} />
           <Route path="devices" element={<DevicesPage />} />
           <Route path="releases" element={<ReleasesPage />} />
           <Route path="scripts" element={<ScriptsPage />} />
-          <Route path="audit" element={<AuditLogsPage />} />
+          <Route path="tasks" element={<OutboxEventsPage />} />
+          <Route path="logs/ai-usage" element={<AiBillingPage />} />
+          <Route path="logs/billing-ledger" element={<AiWalletLedgerPage />} />
+          <Route path="logs/ai-assets" element={<AiBillingPage />} />
+          <Route path="logs/audit" element={<AuditLogsPage />} />
+          <Route path="audit" element={<Navigate to="/logs/audit" replace />} />
           <Route path="system-settings" element={<SystemSettingsPage />} />
           <Route path="notification-channels" element={<NotificationChannelsPage />} />
-          <Route path="outbox" element={<OutboxEventsPage />} />
+          <Route path="outbox" element={<Navigate to="/tasks" replace />} />
           <Route path="security" element={<SecurityPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

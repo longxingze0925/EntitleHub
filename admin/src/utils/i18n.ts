@@ -98,6 +98,7 @@ const messageText: Record<string, string> = {
   license_invalid: "授权无效",
   license_not_found: "授权不存在",
   licenses_load_failed: "授权列表加载失败",
+  ai_wallet_ledger_load_failed: "计费流水加载失败",
   jwt_key_rotated: "JWT 密钥已轮换，已停用 {count} 个旧密钥",
   member_disabled: "成员已禁用，已撤销 {count} 个会话",
   member_invited: "成员已邀请",

@@ -9,7 +9,6 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -19,6 +18,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Coins, History, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   adjustAiWallet,
@@ -164,7 +164,33 @@ const billingModeOptionsByModality: Record<
 
 const defaultJson = "{\n}";
 
+type AiBillingSection = "providers" | "models" | "wallets" | "usage" | "assets";
+
+const sectionTitles: Record<AiBillingSection, { title: string; subtitle: string }> = {
+  providers: {
+    title: "渠道管理",
+    subtitle: "三方 AI 接口渠道、接口地址和密钥配置"
+  },
+  models: {
+    title: "模型价格",
+    subtitle: "模型代码、三方模型名和不同类型的计费规则"
+  },
+  wallets: {
+    title: "客户余额",
+    subtitle: "客户 AI 余额、每日限额和权限冻结"
+  },
+  usage: {
+    title: "调用日志",
+    subtitle: "AI 请求、扣费、退款和失败状态"
+  },
+  assets: {
+    title: "缓存素材",
+    subtitle: "生成图片、视频、音频等素材缓存"
+  }
+};
+
 export function AiBillingPage() {
+  const location = useLocation();
   const [providerForm] = Form.useForm<ProviderFormValues>();
   const [modelForm] = Form.useForm<ModelFormValues>();
   const [walletForm] = Form.useForm<WalletAdjustFormValues>();
@@ -193,6 +219,8 @@ export function AiBillingPage() {
   const canDeleteAsset = hasPermission(permissions, "ai:asset:delete");
   // API Key is reserved for future OpenAPI/server integrations; normal clients use session auth.
   const showOpenApiKeyManagement = false;
+  const currentSection = aiBillingSectionFromPath(location.pathname);
+  const heading = sectionTitles[currentSection];
   const selectedModelModality = (Form.useWatch("modality", modelForm) ??
     "text") as AiModelModality;
   const selectedBillingMode =
@@ -1166,29 +1194,60 @@ export function AiBillingPage() {
       : wallet.customer_email
   }));
 
+  const refreshCurrentSection = () => {
+    switch (currentSection) {
+      case "providers":
+        providersQuery.refetch();
+        return;
+      case "models":
+        modelsQuery.refetch();
+        return;
+      case "wallets":
+        walletsQuery.refetch();
+        return;
+      case "usage":
+        usageRecordsQuery.refetch();
+        return;
+      case "assets":
+        assetsQuery.refetch();
+        return;
+    }
+  };
+
   return (
     <section className="workspace-page ai-billing-page">
       <div className="page-heading">
         <div>
-          <Typography.Title level={2}>接口计费</Typography.Title>
-          <Typography.Text type="secondary">渠道、模型价格、客户余额</Typography.Text>
+          <Typography.Title level={2}>{heading.title}</Typography.Title>
+          <Typography.Text type="secondary">{heading.subtitle}</Typography.Text>
         </div>
-        <Space>
+        <Space className="page-heading-actions">
           <HistoryToggle checked={includeHistory} onChange={setIncludeHistory} />
           <Button
-            aria-label="刷新接口计费数据"
+            aria-label={`刷新${heading.title}数据`}
             icon={<RefreshCw size={16} />}
-            onClick={() => {
-              providersQuery.refetch();
-              modelsQuery.refetch();
-              walletsQuery.refetch();
-              if (showOpenApiKeyManagement) {
-                apiKeysQuery.refetch();
-              }
-              usageRecordsQuery.refetch();
-              assetsQuery.refetch();
-            }}
+            onClick={refreshCurrentSection}
           />
+          {currentSection === "providers" ? (
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              disabled={!canUpdateProvider}
+              onClick={openCreateProvider}
+            >
+              新增渠道
+            </Button>
+          ) : null}
+          {currentSection === "models" ? (
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              disabled={!canUpdateModel}
+              onClick={openCreateModel}
+            >
+              新增模型
+            </Button>
+          ) : null}
         </Space>
       </div>
 
@@ -1241,140 +1300,91 @@ export function AiBillingPage() {
         />
       ) : null}
 
-      <Tabs
-        items={[
-          {
-            key: "providers",
-            label: "渠道",
-            children: (
-              <>
-                <div className="table-toolbar">
-                  <Button
-                    type="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canUpdateProvider}
-                    onClick={openCreateProvider}
-                  >
-                    新增渠道
-                  </Button>
-                </div>
-                <Table
-                  rowKey="id"
-                  loading={providersQuery.isLoading}
-                  columns={providerColumns}
-                  dataSource={providersQuery.data?.items ?? []}
-                  pagination={false}
-                  scroll={AI_TABLE_SCROLL}
-                  locale={{ emptyText: "暂无数据" }}
-                />
-              </>
-            )
-          },
-          {
-            key: "models",
-            label: "模型价格",
-            children: (
-              <>
-                <div className="table-toolbar">
-                  <Button
-                    type="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canUpdateModel}
-                    onClick={openCreateModel}
-                  >
-                    新增模型
-                  </Button>
-                </div>
-                <Table
-                  rowKey="id"
-                  loading={modelsQuery.isLoading}
-                  columns={modelColumns}
-                  dataSource={modelsQuery.data?.items ?? []}
-                  pagination={false}
-                  scroll={AI_TABLE_SCROLL}
-                  locale={{ emptyText: "暂无数据" }}
-                />
-              </>
-            )
-          },
-          {
-            key: "wallets",
-            label: "客户余额",
-            children: (
-              <Table
-                rowKey="customer_id"
-                loading={walletsQuery.isLoading}
-                columns={walletColumns}
-                dataSource={walletsQuery.data?.items ?? []}
-                pagination={false}
-                scroll={AI_TABLE_SCROLL}
-                locale={{ emptyText: "暂无数据" }}
-              />
-            )
-          },
-          ...(showOpenApiKeyManagement
-            ? [
-                {
-                  key: "api-keys",
-                  label: "开放接口 Key",
-                  children: (
-                    <>
-                      <div className="table-toolbar">
-                        <Button
-                          type="primary"
-                          icon={<KeyRound size={16} />}
-                          disabled={!canUpdateApiKey}
-                          onClick={openCreateApiKey}
-                        >
-                          生成接口 Key
-                        </Button>
-                      </div>
-                      <Table
-                        rowKey="id"
-                        loading={apiKeysQuery.isLoading}
-                        columns={apiKeyColumns}
-                        dataSource={apiKeysQuery.data?.items ?? []}
-                        pagination={false}
-                        scroll={AI_TABLE_SCROLL}
-                        locale={{ emptyText: "暂无数据" }}
-                      />
-                    </>
-                  )
-                }
-              ]
-            : []),
-          {
-            key: "usage-records",
-            label: "调用记录",
-            children: (
-              <Table
-                rowKey="id"
-                loading={usageRecordsQuery.isLoading}
-                columns={usageColumns}
-                dataSource={usageRecordsQuery.data?.items ?? []}
-                pagination={false}
-                scroll={AI_TABLE_SCROLL}
-                locale={{ emptyText: "暂无数据" }}
-              />
-            )
-          },
-          {
-            key: "assets",
-            label: "缓存素材",
-            children: (
-              <Table
-                rowKey="id"
-                loading={assetsQuery.isLoading}
-                columns={assetColumns}
-                dataSource={assetsQuery.data?.items ?? []}
-                pagination={false}
-                scroll={AI_TABLE_SCROLL}
-                locale={{ emptyText: "暂无数据" }}
-              />
-            )
-          }
-        ]}
-      />
+      {currentSection === "providers" ? (
+        <>
+          <Table
+            rowKey="id"
+            loading={providersQuery.isLoading}
+            columns={providerColumns}
+            dataSource={providersQuery.data?.items ?? []}
+            pagination={false}
+            scroll={AI_TABLE_SCROLL}
+            locale={{ emptyText: "暂无数据" }}
+          />
+        </>
+      ) : null}
+
+      {currentSection === "models" ? (
+        <>
+          <Table
+            rowKey="id"
+            loading={modelsQuery.isLoading}
+            columns={modelColumns}
+            dataSource={modelsQuery.data?.items ?? []}
+            pagination={false}
+            scroll={AI_TABLE_SCROLL}
+            locale={{ emptyText: "暂无数据" }}
+          />
+        </>
+      ) : null}
+
+      {currentSection === "wallets" ? (
+        <Table
+          rowKey="customer_id"
+          loading={walletsQuery.isLoading}
+          columns={walletColumns}
+          dataSource={walletsQuery.data?.items ?? []}
+          pagination={false}
+          scroll={AI_TABLE_SCROLL}
+          locale={{ emptyText: "暂无数据" }}
+        />
+      ) : null}
+
+      {showOpenApiKeyManagement ? (
+        <div hidden>
+          <Button
+            type="primary"
+            icon={<KeyRound size={16} />}
+            disabled={!canUpdateApiKey}
+            onClick={openCreateApiKey}
+          >
+            生成接口 Key
+          </Button>
+          <Table
+            rowKey="id"
+            loading={apiKeysQuery.isLoading}
+            columns={apiKeyColumns}
+            dataSource={apiKeysQuery.data?.items ?? []}
+            pagination={false}
+            scroll={AI_TABLE_SCROLL}
+            locale={{ emptyText: "暂无数据" }}
+          />
+        </div>
+      ) : null}
+
+      {currentSection === "usage" ? (
+        <Table
+          rowKey="id"
+          loading={usageRecordsQuery.isLoading}
+          columns={usageColumns}
+          dataSource={usageRecordsQuery.data?.items ?? []}
+          pagination={false}
+          scroll={AI_TABLE_SCROLL}
+          locale={{ emptyText: "暂无数据" }}
+        />
+      ) : null}
+
+      {currentSection === "assets" ? (
+        <Table
+          rowKey="id"
+          loading={assetsQuery.isLoading}
+          columns={assetColumns}
+          dataSource={assetsQuery.data?.items ?? []}
+          pagination={false}
+          scroll={AI_TABLE_SCROLL}
+          locale={{ emptyText: "暂无数据" }}
+        />
+      ) : null}
 
       <Modal
         title={editingProvider ? "编辑 AI 渠道" : "新增 AI 渠道"}
@@ -1687,6 +1697,29 @@ function OptionalMoneyFormItem({ name, label }: { name: keyof ModelFormValues; l
       <InputNumber min={0} precision={2} className="form-number" placeholder="留空表示不限" />
     </Form.Item>
   );
+}
+
+function aiBillingSectionFromPath(pathname: string): AiBillingSection {
+  if (pathname === "/logs/ai-usage") {
+    return "usage";
+  }
+  if (pathname === "/logs/ai-assets") {
+    return "assets";
+  }
+  if (pathname.endsWith("/models")) {
+    return "models";
+  }
+  if (pathname.endsWith("/wallets")) {
+    return "wallets";
+  }
+  if (pathname.endsWith("/usage")) {
+    return "usage";
+  }
+  if (pathname.endsWith("/assets")) {
+    return "assets";
+  }
+
+  return "providers";
 }
 
 function buildProviderPayload(values: ProviderFormValues, editing: boolean) {

@@ -530,6 +530,9 @@ export interface AiWallet {
 export interface AiWalletLedgerEntry {
   id: string;
   customer_id: string;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  currency: string;
   entry_type: string;
   amount_minor: number;
   balance_after_minor: number;
@@ -1477,6 +1480,24 @@ export function listAiWalletLedger(params: {
 }): Promise<ListResponse<AiWalletLedgerEntry>> {
   return apiRequest<ListResponse<AiWalletLedgerEntry>>(
     `/api/admin/ai/customers/${params.customerId}/wallet/ledger${query({
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 20
+    })}`
+  );
+}
+
+export function listAiWalletLedgerEntries(params: {
+  customer_id?: string;
+  entry_type?: string;
+  reference_id?: string;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<ListResponse<AiWalletLedgerEntry>> {
+  return apiRequest<ListResponse<AiWalletLedgerEntry>>(
+    `/api/admin/ai/wallet-ledger${query({
+      customer_id: params.customer_id,
+      entry_type: params.entry_type,
+      reference_id: params.reference_id,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20
     })}`

@@ -166,6 +166,23 @@ body {
   justify-content: flex-end;
 }
 
+.page-heading-actions {
+  min-width: 0;
+  max-width: min(100%, 1500px);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.page-heading > .page-heading-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.page-heading-actions .ant-space-item {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .workspace-page > .ant-alert {
   flex: 0 0 auto;
 }
@@ -466,6 +483,15 @@ body {
   .page-heading .ant-space {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .page-heading-actions {
+    overflow-x: visible;
+  }
+
+  .page-heading > .page-heading-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .table-search,

@@ -138,6 +138,10 @@ pub fn build(state: AppState) -> Router {
         .route("/api/admin/ai/models/{id}", put(ai::admin::update_ai_model))
         .route("/api/admin/ai/wallets", get(ai::admin::list_ai_wallets))
         .route(
+            "/api/admin/ai/wallet-ledger",
+            get(ai::admin::list_ai_wallet_ledger_entries),
+        )
+        .route(
             "/api/admin/ai/api-keys",
             get(ai::api_keys::list_ai_api_keys),
         )
