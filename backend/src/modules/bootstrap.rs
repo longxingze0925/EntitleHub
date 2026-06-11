@@ -330,6 +330,8 @@ const ADMIN_PERMISSIONS: &[&str] = &[
     "system:read",
     "system:update",
     "ai:read",
+    "ai:job:read",
+    "ai:job:update",
     "ai:api_key:update",
     "ai:asset:delete",
     "ai:provider:update",
@@ -352,6 +354,8 @@ const DEVELOPER_PERMISSIONS: &[&str] = &[
     "script:create",
     "device:read",
     "ai:read",
+    "ai:job:read",
+    "ai:job:update",
 ];
 
 const VIEWER_PERMISSIONS: &[&str] = &[
@@ -365,6 +369,7 @@ const VIEWER_PERMISSIONS: &[&str] = &[
     "script:read",
     "audit:read",
     "ai:read",
+    "ai:job:read",
     "notification:read",
 ];
 
@@ -455,7 +460,7 @@ mod tests {
 
     fn permission_migration_text() -> String {
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             include_str!("../../migrations/20260603101000_create_rbac_tables.sql"),
             include_str!("../../migrations/20260604102000_add_security_retry_event_permission.sql"),
             include_str!("../../migrations/20260604105000_add_script_deprecate_permission.sql"),
@@ -466,7 +471,8 @@ mod tests {
             include_str!("../../migrations/20260609102000_add_subscription_admin_actions.sql"),
             include_str!("../../migrations/20260609113000_grant_release_update_delete.sql"),
             include_str!("../../migrations/20260610100000_create_server_api_keys.sql"),
-            include_str!("../../migrations/20260611120000_create_ai_generation_jobs.sql")
+            include_str!("../../migrations/20260611120000_create_ai_generation_jobs.sql"),
+            include_str!("../../migrations/20260611143000_add_ai_generation_job_actions.sql")
         )
     }
 

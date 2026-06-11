@@ -169,6 +169,26 @@ pub fn build(state: AppState) -> Router {
             "/api/admin/ai/generation-jobs",
             get(ai::jobs::list_ai_generation_jobs),
         )
+        .route(
+            "/api/admin/ai/generation-jobs/{id}",
+            get(ai::jobs::get_ai_generation_job),
+        )
+        .route(
+            "/api/admin/ai/generation-jobs/{id}/retry-poll",
+            post(ai::jobs::retry_ai_generation_job_poll),
+        )
+        .route(
+            "/api/admin/ai/generation-jobs/{id}/retry-cache",
+            post(ai::jobs::retry_ai_generation_job_cache),
+        )
+        .route(
+            "/api/admin/ai/generation-jobs/{id}/fail-release",
+            post(ai::jobs::fail_ai_generation_job_release),
+        )
+        .route(
+            "/api/admin/ai/generation-jobs/{id}/refund",
+            post(ai::jobs::refund_ai_generation_job),
+        )
         .route("/api/admin/ai/assets", get(ai::assets::list_ai_assets))
         .route(
             "/api/admin/ai/assets/{id}",

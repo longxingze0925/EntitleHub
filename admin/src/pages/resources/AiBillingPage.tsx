@@ -16,7 +16,19 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Coins, History, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Ban,
+  Coins,
+  Eye,
+  History,
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Trash2,
+  Undo2
+} from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -26,6 +38,8 @@ import {
   createAiModel,
   createAiProvider,
   deleteAiAsset,
+  failReleaseAiGenerationJob,
+  getAiGenerationJob,
   listAiApiKeys,
   listAiAssets,
   listAiGenerationJobs,
@@ -34,6 +48,9 @@ import {
   listAiUsageRecords,
   listAiWalletLedger,
   listAiWallets,
+  refundAiGenerationJob,
+  retryAiGenerationJobCache,
+  retryAiGenerationJobPoll,
   revokeAiApiKey,
   updateAiApiKey,
   updateAiModel,
@@ -44,6 +61,7 @@ import {
   type AiAssetStatus,
   type AiAssetType,
   type AiGenerationJob,
+  type AiGenerationJobDetail,
   type AiGenerationJobStatus,
   type AiGenerationJobType,
   type AiApiKey,
@@ -218,6 +236,8 @@ export function AiBillingPage() {
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [editingApiKey, setEditingApiKey] = useState<AiApiKey | null>(null);
   const [selectedWallet, setSelectedWallet] = useState<AiWallet | null>(null);
+  const [selectedGenerationJob, setSelectedGenerationJob] = useState<AiGenerationJob | null>(null);
+  const [generationJobDetailOpen, setGenerationJobDetailOpen] = useState(false);
   const [includeHistory, setIncludeHistory] = useState(false);
   const queryClient = useQueryClient();
   const permissions = useAuthStore((state) => state.permissions);
@@ -226,6 +246,7 @@ export function AiBillingPage() {
   const canUpdateWallet = hasPermission(permissions, "ai:wallet:update");
   const canUpdateApiKey = hasPermission(permissions, "ai:api_key:update");
   const canDeleteAsset = hasPermission(permissions, "ai:asset:delete");
+  const canUpdateJob = hasPermission(permissions, "ai:job:update");
   // API Key is reserved for future OpenAPI/server integrations; normal clients use session auth.
   const showOpenApiKeyManagement = false;
   const currentSection = aiBillingSectionFromPath(location.pathname);
@@ -268,6 +289,12 @@ export function AiBillingPage() {
     queryFn: () => listAiGenerationJobs({ page: 1, page_size: 50 })
   });
 
+  const generationJobDetailQuery = useQuery({
+    queryKey: ["admin", "ai-generation-job", selectedGenerationJob?.id],
+    queryFn: () => getAiGenerationJob(selectedGenerationJob?.id ?? ""),
+    enabled: generationJobDetailOpen && Boolean(selectedGenerationJob)
+  });
+
   const assetsQuery = useQuery({
     queryKey: ["admin", "ai-assets"],
     queryFn: () => listAiAssets({ page: 1, page_size: 50 })
@@ -283,6 +310,17 @@ export function AiBillingPage() {
       }),
     enabled: ledgerModalOpen && Boolean(selectedWallet)
   });
+
+  const invalidateGenerationJobData = (jobId?: string) => {
+    void queryClient.invalidateQueries({ queryKey: ["admin", "ai-generation-jobs"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "ai-usage-records"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "ai-wallets"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "ai-wallet-ledger"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "ai-assets"] });
+    if (jobId) {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "ai-generation-job", jobId] });
+    }
+  };
 
   const providerMutation = useMutation({
     mutationFn: (values: ProviderFormValues) => {
@@ -397,6 +435,53 @@ export function AiBillingPage() {
     onSuccess: (_, variables) => {
       message.success(variables.ai_enabled ? "AI 权限已恢复" : "AI 权限已冻结");
       queryClient.invalidateQueries({ queryKey: ["admin", "ai-wallets"] });
+    }
+  });
+
+  const retryJobPollMutation = useMutation({
+    mutationFn: (job: AiGenerationJob) =>
+      retryAiGenerationJobPoll(job.id, "后台手动重新查询第三方任务"),
+    onSuccess: (_, job) => {
+      message.success("已重新加入查询队列");
+      invalidateGenerationJobData(job.id);
+    },
+    onError: (error) => {
+      message.error(tApiError(error));
+    }
+  });
+
+  const retryJobCacheMutation = useMutation({
+    mutationFn: (job: AiGenerationJob) =>
+      retryAiGenerationJobCache(job.id, "后台手动重新缓存生成素材"),
+    onSuccess: (_, job) => {
+      message.success("已重新执行素材缓存");
+      invalidateGenerationJobData(job.id);
+    },
+    onError: (error) => {
+      message.error(tApiError(error));
+    }
+  });
+
+  const failReleaseJobMutation = useMutation({
+    mutationFn: (job: AiGenerationJob) =>
+      failReleaseAiGenerationJob(job.id, "后台手动标记失败并释放预扣"),
+    onSuccess: (_, job) => {
+      message.success("任务已标记失败，预扣已释放");
+      invalidateGenerationJobData(job.id);
+    },
+    onError: (error) => {
+      message.error(tApiError(error));
+    }
+  });
+
+  const refundJobMutation = useMutation({
+    mutationFn: (job: AiGenerationJob) => refundAiGenerationJob(job.id, "后台人工退款"),
+    onSuccess: (_, job) => {
+      message.success("任务已人工退款");
+      invalidateGenerationJobData(job.id);
+    },
+    onError: (error) => {
+      message.error(tApiError(error));
     }
   });
 
@@ -543,6 +628,11 @@ export function AiBillingPage() {
   const openLedger = (wallet: AiWallet) => {
     setSelectedWallet(wallet);
     setLedgerModalOpen(true);
+  };
+
+  const openGenerationJobDetail = (job: AiGenerationJob) => {
+    setSelectedGenerationJob(job);
+    setGenerationJobDetailOpen(true);
   };
 
   const openWalletQuota = (wallet: AiWallet) => {
@@ -1206,6 +1296,91 @@ export function AiBillingPage() {
       key: "created_at",
       width: 180,
       render: (value: string) => dateTime(value)
+    },
+    {
+      title: "操作",
+      key: "actions",
+      fixed: "right",
+      width: canUpdateJob ? 430 : 100,
+      render: (_, record) => (
+        <Space size={8} wrap={false}>
+          <Tooltip title="查看详情">
+            <Button
+              size="small"
+              icon={<Eye size={14} />}
+              onClick={() => openGenerationJobDetail(record)}
+            >
+              查看
+            </Button>
+          </Tooltip>
+          {canUpdateJob ? (
+            <>
+              <ConfirmActionButton
+                title="重新查询第三方任务"
+                description="任务会重新进入查询队列，状态以三方接口返回为准。"
+                confirmText="重新查询"
+                okText="重新查询"
+                loading={retryJobPollMutation.isPending}
+                buttonProps={{
+                  size: "small",
+                  icon: <RefreshCw size={14} />,
+                  disabled: !canRetryGenerationJobPoll(record)
+                }}
+                onConfirm={() => retryJobPollMutation.mutate(record)}
+              >
+                重新查询
+              </ConfirmActionButton>
+              <ConfirmActionButton
+                title="重新缓存生成素材"
+                description="会使用三方返回结果重新下载并缓存素材，已扣费任务不能重复缓存。"
+                confirmText="重新缓存"
+                okText="重新缓存"
+                loading={retryJobCacheMutation.isPending}
+                buttonProps={{
+                  size: "small",
+                  icon: <RotateCw size={14} />,
+                  disabled: !canRetryGenerationJobCache(record)
+                }}
+                onConfirm={() => retryJobCacheMutation.mutate(record)}
+              >
+                重新缓存
+              </ConfirmActionButton>
+              <ConfirmActionButton
+                title="标记失败并释放预扣"
+                description="仅适用于未结算任务，已扣费任务请走人工退款。"
+                confirmText="标记失败"
+                okText="标记失败"
+                loading={failReleaseJobMutation.isPending}
+                buttonProps={{
+                  danger: true,
+                  size: "small",
+                  icon: <Ban size={14} />,
+                  disabled: !canFailReleaseGenerationJob(record)
+                }}
+                onConfirm={() => failReleaseJobMutation.mutate(record)}
+              >
+                标记失败
+              </ConfirmActionButton>
+              <ConfirmActionButton
+                title="人工退款"
+                description="会把已扣费用退回客户 AI 余额，并记录退款流水。"
+                confirmText="人工退款"
+                okText="退款"
+                loading={refundJobMutation.isPending}
+                buttonProps={{
+                  danger: true,
+                  size: "small",
+                  icon: <Undo2 size={14} />,
+                  disabled: !canRefundGenerationJob(record)
+                }}
+                onConfirm={() => refundJobMutation.mutate(record)}
+              >
+                退款
+              </ConfirmActionButton>
+            </>
+          ) : null}
+        </Space>
+      )
     }
   ];
 
@@ -1832,6 +2007,23 @@ export function AiBillingPage() {
         </Form>
       </Modal>
 
+      <Modal
+        title={selectedGenerationJob ? `生成任务：${selectedGenerationJob.id}` : "生成任务详情"}
+        open={generationJobDetailOpen}
+        onCancel={() => setGenerationJobDetailOpen(false)}
+        footer={null}
+        width={900}
+        destroyOnHidden
+      >
+        {generationJobDetailQuery.isLoading ? (
+          <Typography.Text type="secondary">加载中...</Typography.Text>
+        ) : generationJobDetailQuery.data?.job ? (
+          <GenerationJobDetailView job={generationJobDetailQuery.data.job} />
+        ) : (
+          <Typography.Text type="secondary">暂无数据</Typography.Text>
+        )}
+      </Modal>
+
     </section>
   );
 }
@@ -1849,6 +2041,59 @@ function OptionalMoneyFormItem({ name, label }: { name: keyof ModelFormValues; l
     <Form.Item name={name} label={label}>
       <InputNumber min={0} precision={2} className="form-number" placeholder="留空表示不限" />
     </Form.Item>
+  );
+}
+
+function GenerationJobDetailView({ job }: { job: AiGenerationJobDetail }) {
+  const detailItems = [
+    ["客户", job.customer_name || job.customer_email || "-"],
+    ["任务类型", generationJobTypeLabel(job.job_type)],
+    ["任务状态", generationJobStatusLabel(job.status)],
+    ["模型", job.model_code ?? "-"],
+    ["渠道", job.provider_name ?? "-"],
+    ["三方任务", job.provider_job_id ?? "-"],
+    ["三方状态", job.provider_status ?? "-"],
+    ["计费", `${billingModeLabel(job.charge_mode as AiModelBillingMode)} x ${job.quantity}`],
+    ["预扣", money(job.held_minor, job.currency)],
+    ["扣费", money(job.charged_minor, job.currency)],
+    ["退款", money(job.refunded_minor, job.currency)],
+    ["尝试次数", String(job.attempts)],
+    ["提交时间", job.submitted_at ? dateTime(job.submitted_at) : "-"],
+    ["完成时间", job.completed_at ? dateTime(job.completed_at) : "-"],
+    ["下次查询", job.next_poll_at ? dateTime(job.next_poll_at) : "-"],
+    ["异常原因", job.failure_reason ?? "-"]
+  ];
+
+  return (
+    <Space direction="vertical" size={16} className="settings-stack">
+      <div className="settings-grid-inner">
+        {detailItems.map(([label, value]) => (
+          <Space key={label} direction="vertical" size={2}>
+            <Typography.Text type="secondary">{label}</Typography.Text>
+            <Typography.Text copyable={label === "三方任务" && value !== "-"}>{value}</Typography.Text>
+          </Space>
+        ))}
+      </div>
+      <JsonBlock title="请求参数" value={job.request_payload} />
+      <JsonBlock title="三方提交返回" value={job.provider_submit_response} />
+      <JsonBlock title="三方结果返回" value={job.provider_result_response} />
+      <JsonBlock
+        title="缓存素材"
+        value={{
+          result: job.result,
+          asset_urls: job.asset_urls
+        }}
+      />
+    </Space>
+  );
+}
+
+function JsonBlock({ title, value }: { title: string; value: unknown }) {
+  return (
+    <Space direction="vertical" size={6} className="settings-stack">
+      <Typography.Text strong>{title}</Typography.Text>
+      <pre className="json-view">{stringifyJson(value)}</pre>
+    </Space>
   );
 }
 
@@ -2003,6 +2248,33 @@ function limitText(value: number | null | undefined, currency: string): string {
 
 function isAiWalletEnabled(wallet: AiWallet): boolean {
   return wallet.ai_enabled !== false;
+}
+
+function canRetryGenerationJobPoll(job: AiGenerationJob): boolean {
+  return (
+    Boolean(job.provider_job_id) &&
+    ["submitted", "running", "caching", "timeout_review"].includes(job.status)
+  );
+}
+
+function canRetryGenerationJobCache(job: AiGenerationJob): boolean {
+  return (
+    job.charged_minor <= 0 &&
+    ["caching", "timeout_review", "failed", "provider_failed"].includes(job.status)
+  );
+}
+
+function canFailReleaseGenerationJob(job: AiGenerationJob): boolean {
+  return (
+    job.charged_minor <= 0 &&
+    ["submitted", "running", "caching", "timeout_review", "provider_failed", "failed"].includes(
+      job.status
+    )
+  );
+}
+
+function canRefundGenerationJob(job: AiGenerationJob): boolean {
+  return job.status === "succeeded" && job.charged_minor > job.refunded_minor;
 }
 
 function formatBytes(value?: number | null): string {

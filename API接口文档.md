@@ -2946,6 +2946,45 @@ X-EntitleHub-Customer-Id: uuid
 - 任务查询默认使用 `GET /api/async/detail?id=<task_id>`；如三方要求 POST，可在渠道配置中设置 `detail_method: "POST"`、`detail_path`、`detail_id_field`。
 - 模型 `provider_model` 可用 `google_omni`、`grok_imagine`、`image_gpt`、`image_nanoBanana2`；也可以在模型 `pricing_config.submit_path` 显式配置提交路径。
 
+### 18.10.5 后台生成任务处理
+
+后台生成任务用于运维处理异步图片/视频任务异常，包括查看三方原始返回、重新查询三方、重新缓存素材、失败释放预扣和人工退款。
+
+```http
+GET /api/admin/ai/generation-jobs?page=1&page_size=50
+GET /api/admin/ai/generation-jobs/{id}
+POST /api/admin/ai/generation-jobs/{id}/retry-poll
+POST /api/admin/ai/generation-jobs/{id}/retry-cache
+POST /api/admin/ai/generation-jobs/{id}/fail-release
+POST /api/admin/ai/generation-jobs/{id}/refund
+```
+
+认证：后台 session；操作类接口需要 CSRF。
+
+权限：
+
+```text
+ai:job:read
+ai:job:update
+```
+
+操作请求：
+
+```json
+{
+  "reason": "后台人工处理原因"
+}
+```
+
+说明：
+
+- 详情接口会返回 `request_payload`、`provider_submit_response`、`provider_result_response`，用于排查三方任务状态。
+- `retry-poll` 只把任务重新加入查询队列，最终状态仍以三方查询接口返回为准。
+- `retry-cache` 使用已保存的三方结果重新下载并缓存素材；已成功扣费的任务不能重复缓存，避免重复扣费。
+- `fail-release` 只适用于未结算任务，会把冻结余额释放回客户可用余额，并把任务标记为失败。
+- `refund` 只适用于已成功扣费任务，会把已扣金额退回客户 AI 余额，写入退款流水，并保留后台审计日志。
+- Viewer 角色只能查看任务；Owner、Admin、Developer 可以执行处理动作。
+
 ### 18.11 OpenAI 兼容 Chat Completions 网关
 
 ```http

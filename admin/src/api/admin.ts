@@ -718,6 +718,12 @@ export interface AiGenerationJob {
   updated_at: string;
 }
 
+export interface AiGenerationJobDetail extends AiGenerationJob {
+  provider_submit_response?: Record<string, unknown> | null;
+  provider_result_response?: Record<string, unknown> | null;
+  request_payload: Record<string, unknown>;
+}
+
 export interface OutboxEventSummary {
   id: string;
   tenant_id?: string | null;
@@ -1697,6 +1703,59 @@ export function listAiGenerationJobs(params: {
       page_size: params.page_size ?? 50
     })}`
   );
+}
+
+export function getAiGenerationJob(id: string): Promise<{ job: AiGenerationJobDetail }> {
+  return apiRequest<{ job: AiGenerationJobDetail }>(`/api/admin/ai/generation-jobs/${id}`);
+}
+
+export function retryAiGenerationJobPoll(
+  id: string,
+  reason?: string
+): Promise<{ job: AiGenerationJob }> {
+  return apiRequest<{ job: AiGenerationJob }>(
+    `/api/admin/ai/generation-jobs/${id}/retry-poll`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    }
+  );
+}
+
+export function retryAiGenerationJobCache(
+  id: string,
+  reason?: string
+): Promise<{ job: AiGenerationJob }> {
+  return apiRequest<{ job: AiGenerationJob }>(
+    `/api/admin/ai/generation-jobs/${id}/retry-cache`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    }
+  );
+}
+
+export function failReleaseAiGenerationJob(
+  id: string,
+  reason?: string
+): Promise<{ job: AiGenerationJob }> {
+  return apiRequest<{ job: AiGenerationJob }>(
+    `/api/admin/ai/generation-jobs/${id}/fail-release`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    }
+  );
+}
+
+export function refundAiGenerationJob(
+  id: string,
+  reason?: string
+): Promise<{ job: AiGenerationJob }> {
+  return apiRequest<{ job: AiGenerationJob }>(`/api/admin/ai/generation-jobs/${id}/refund`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
 }
 
 export function listOutboxEvents(params: {

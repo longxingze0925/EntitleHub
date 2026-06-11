@@ -1107,6 +1107,75 @@ paths:
           $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [admin]
+      summary: Get AI asynchronous generation job detail
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs/{id}/retry-poll:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Retry polling AI asynchronous generation job
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs/{id}/retry-cache:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Retry caching AI asynchronous generation job assets
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs/{id}/fail-release:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Mark AI asynchronous generation job failed and release hold
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs/{id}/refund:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Refund AI asynchronous generation job
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/admin/ai/assets:
     get:
       tags: [admin]
