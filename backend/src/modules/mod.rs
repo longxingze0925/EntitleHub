@@ -13,6 +13,7 @@ pub mod outbox;
 pub mod platform;
 pub mod release;
 pub mod secure_script;
+pub mod server_api;
 pub mod subscription;
 pub mod system;
 pub mod team;

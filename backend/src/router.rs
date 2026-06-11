@@ -10,7 +10,7 @@ use crate::{
     metrics,
     modules::{
         ai, application, audit, auth, client_auth, customer, device, iam, license, notification,
-        outbox, platform, release, secure_script, subscription, system, team, tenant,
+        outbox, platform, release, secure_script, server_api, subscription, system, team, tenant,
     },
     state::AppState,
 };
@@ -161,6 +161,18 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/api/admin/ai/assets/{id}",
             delete(ai::assets::delete_ai_asset),
+        )
+        .route(
+            "/api/admin/server-api-keys",
+            get(server_api::list_server_api_keys).post(server_api::create_server_api_key),
+        )
+        .route(
+            "/api/admin/server-api-keys/{id}",
+            put(server_api::update_server_api_key),
+        )
+        .route(
+            "/api/admin/server-api-keys/{id}/revoke",
+            post(server_api::revoke_server_api_key),
         )
         .route(
             "/api/admin/ai/customers/{id}/wallet/adjust",
@@ -420,6 +432,22 @@ pub fn build(state: AppState) -> Router {
             post(notification::alertmanager::receive_alertmanager_webhook),
         )
         .route("/api/ai/assets/{id}", get(ai::gateway::get_asset))
+        .route(
+            "/api/server/ai/v1/chat/completions",
+            post(ai::gateway::server_chat_completions),
+        )
+        .route(
+            "/api/server/ai/v1/embeddings",
+            post(ai::gateway::server_embeddings),
+        )
+        .route(
+            "/api/server/ai/v1/images/generations",
+            post(ai::gateway::server_image_generations),
+        )
+        .route(
+            "/api/server/ai/v1/models",
+            get(ai::gateway::server_list_models),
+        )
         .route("/v1/chat/completions", post(ai::gateway::chat_completions))
         .route("/v1/embeddings", post(ai::gateway::embeddings))
         .route(

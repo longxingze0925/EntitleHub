@@ -18,6 +18,8 @@ tags:
   - name: admin-auth
   - name: admin
   - name: ai-gateway
+  - name: client-ai
+  - name: server-ai
   - name: client-auth
   - name: client
 paths:
@@ -190,6 +192,96 @@ paths:
       summary: OpenAI-compatible model list for enabled EntitleHub AI models
       security:
         - AiApiKey: []
+      responses:
+        "200":
+          description: Provider-compatible model list response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/server/ai/v1/chat/completions:
+    post:
+      tags: [server-ai]
+      summary: Server-to-server chat completion gateway with customer subscription and wallet billing
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible chat completion response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/embeddings:
+    post:
+      tags: [server-ai]
+      summary: Server-to-server embeddings gateway with customer subscription and wallet billing
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible embeddings response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/images/generations:
+    post:
+      tags: [server-ai]
+      summary: Server-to-server image generation gateway with asset caching and wallet billing
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible image generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/models:
+    get:
+      tags: [server-ai]
+      summary: Server-to-server model list for enabled EntitleHub AI models
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
       responses:
         "200":
           description: Provider-compatible model list response
@@ -846,6 +938,63 @@ paths:
     delete:
       tags: [admin]
       summary: Delete AI cached asset
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/server-api-keys:
+    get:
+      tags: [admin]
+      summary: List server API keys
+      security:
+        - AdminSession: []
+      parameters:
+        - name: app_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IncludeHistoryQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [admin]
+      summary: Create server API key
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/server-api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [admin]
+      summary: Update server API key
+      security:
+        - AdminSession: []
+          AdminCsrf: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/server-api-keys/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [admin]
+      summary: Revoke server API key
       security:
         - AdminSession: []
           AdminCsrf: []
@@ -1999,6 +2148,14 @@ components:
       type: http
       scheme: bearer
       bearerFormat: EHAI_API_KEY
+    ServerApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: EHSK_SERVER_KEY
+    ServerCustomerId:
+      type: apiKey
+      in: header
+      name: X-EntitleHub-Customer-Id
   parameters:
     IdPath:
       name: id

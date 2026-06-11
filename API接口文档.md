@@ -2756,6 +2756,103 @@ ai:api_key:update
 - 字段均为可选；`expires_at` 或 `daily_spend_limit_minor` 传 `null` 表示清空。
 - 更新不会返回明文 Key。
 
+### 18.10.2 服务端 Server Key 管理
+
+Server Key 用于 Web 后端、业务服务端调用 EntitleHub。它绑定到一个应用，不绑定单个客户；调用时由业务后端通过请求头传入本次实际消费的客户 ID。浏览器和移动端页面不能保存或直连使用 Server Key。
+
+```http
+GET /api/admin/server-api-keys?include_history=false&app_id=uuid
+POST /api/admin/server-api-keys
+PUT /api/admin/server-api-keys/{id}
+POST /api/admin/server-api-keys/{id}/revoke
+```
+
+认证：后台 session；创建、更新、吊销需要 CSRF。
+
+权限：
+
+```text
+server_api_key:read
+server_api_key:update
+```
+
+创建请求：
+
+```json
+{
+  "app_id": "uuid",
+  "name": "影织 Web 后端",
+  "scopes": ["ai:invoke"],
+  "expires_at": null
+}
+```
+
+创建响应：
+
+```json
+{
+  "server_api_key": {
+    "id": "uuid",
+    "app_id": "uuid",
+    "app_name": "影织",
+    "app_key": "app_xxx",
+    "name": "影织 Web 后端",
+    "key_prefix": "ehsk_xxxxxxxxxxxxx",
+    "status": "active",
+    "scopes": ["ai:invoke"],
+    "expires_at": null,
+    "last_used_at": null,
+    "created_at": "...",
+    "revoked_at": null
+  },
+  "plain_key": "ehsk_..."
+}
+```
+
+说明：
+
+- `plain_key` 只返回一次，数据库只保存 hash。
+- Server Key 只能为 active 应用创建；应用禁用、Key 过期或吊销后立即不可用。
+- 当前作用域为 `ai:invoke`，后续视频、文件等能力可以继续扩展 scope。
+- 生产建议一个产品后端使用一个 Server Key；多产品分别创建，避免一个 Key 横跨所有产品。
+
+### 18.10.3 Web 后端 AI 转发入口
+
+Web 产品推荐由“你的业务后端”调用 EntitleHub，浏览器只登录你的业务系统，不保存 EntitleHub Server Key。
+
+```http
+POST /api/server/ai/v1/chat/completions
+POST /api/server/ai/v1/embeddings
+POST /api/server/ai/v1/images/generations
+GET /api/server/ai/v1/models
+Authorization: Bearer ehsk_...
+X-EntitleHub-Customer-Id: uuid
+Content-Type: application/json
+```
+
+调用规则：
+
+- `Authorization` 使用后台创建的 Server Key。
+- `X-EntitleHub-Customer-Id` 是本次消费的客户 ID。
+- Server Key 绑定的应用下，客户必须有 active/trialing 且未过期的订阅，否则返回订阅不可用。
+- 客户必须是 active，且 AI 钱包未冻结、余额足够。
+- 计费、失败退款、图片缓存、模型校验和 `/v1/...` 客户级 AI API Key 网关一致。
+- 幂等键仍使用 `Idempotency-Key`；服务端入口写入独立 endpoint，例如 `/api/server/ai/v1/chat/completions`，不会和客户端或客户级 `/v1` 入口互相重放。
+
+示例：
+
+```bash
+curl https://your-domain.example/api/server/ai/v1/chat/completions \
+  -H "Authorization: Bearer ehsk_..." \
+  -H "X-EntitleHub-Customer-Id: 00000000-0000-0000-0000-000000000001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 128
+  }'
+```
+
 ### 18.11 OpenAI 兼容 Chat Completions 网关
 
 ```http

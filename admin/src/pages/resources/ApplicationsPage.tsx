@@ -9,24 +9,41 @@ import {
   Select,
   Space,
   Table,
+  Tag,
   Typography,
   message
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Archive, Edit3, KeyRound, List, Plus, Power, PowerOff, RefreshCw } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Archive,
+  Ban,
+  Edit3,
+  KeyRound,
+  List,
+  Pencil,
+  Plus,
+  Power,
+  PowerOff,
+  RefreshCw
+} from "lucide-react";
 import { useState } from "react";
 
 import {
   createApplication,
+  createServerApiKey,
   listApplicationSigningKeys,
   listApplications,
+  listServerApiKeys,
+  revokeServerApiKey,
   rotateApplicationKeys,
+  updateServerApiKey,
   updateApplication,
   type ApplicationSummary,
   type CreateApplicationPayload,
   type CreateApplicationResult,
   type RotateApplicationKeysResult,
+  type ServerApiKey,
   type SigningKeySummary,
   type UpdateApplicationPayload
 } from "../../api/admin";
@@ -51,6 +68,14 @@ interface ApplicationFormValues {
   max_devices_default?: number | null;
 }
 
+interface ServerApiKeyFormValues {
+  name: string;
+}
+
+interface ServerApiKeyEditFormValues {
+  name: string;
+}
+
 const authModeOptions = [
   tOption("both"),
   tOption("license"),
@@ -64,6 +89,7 @@ const statusOptions = [
 ];
 
 export function ApplicationsPage() {
+  const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string | undefined>();
   const [includeHistory, setIncludeHistory] = useState(false);
@@ -71,18 +97,28 @@ export function ApplicationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<ApplicationSummary | null>(null);
   const [keyTarget, setKeyTarget] = useState<ApplicationSummary | null>(null);
+  const [serverKeyTarget, setServerKeyTarget] = useState<ApplicationSummary | null>(null);
   const [selectedSigningKey, setSelectedSigningKey] =
     useState<SigningKeySummary | null>(null);
   const [secretResult, setSecretResult] = useState<
     CreateApplicationResult | RotateApplicationKeysResult | null
   >(null);
+  const [serverApiKeyModalOpen, setServerApiKeyModalOpen] = useState(false);
+  const [serverApiKeyEditModalOpen, setServerApiKeyEditModalOpen] = useState(false);
+  const [generatedServerApiKey, setGeneratedServerApiKey] = useState<string | null>(null);
+  const [editingServerApiKey, setEditingServerApiKey] = useState<ServerApiKey | null>(null);
   const [createForm] = Form.useForm<ApplicationFormValues>();
   const [editForm] = Form.useForm<ApplicationFormValues>();
+  const [serverApiKeyForm] = Form.useForm<ServerApiKeyFormValues>();
+  const [serverApiKeyEditForm] = Form.useForm<ServerApiKeyEditFormValues>();
   const permissions = useAuthStore((state) => state.permissions);
   const canCreate = hasPermission(permissions, "app:create");
   const canUpdate = hasPermission(permissions, "app:update");
   const canReadKey = hasPermission(permissions, "app:read_key");
   const canRotateKey = hasPermission(permissions, "app:rotate_key");
+  const canReadServerApiKey = hasPermission(permissions, "server_api_key:read");
+  const canUpdateServerApiKey = hasPermission(permissions, "server_api_key:update");
+  const showServerApiKeyManagement = canReadServerApiKey || canUpdateServerApiKey;
   const query = useQuery({
     queryKey: ["admin", "apps", keyword, status, includeHistory, page],
     queryFn: () =>
@@ -98,6 +134,15 @@ export function ApplicationsPage() {
     queryKey: ["admin", "app-signing-keys", keyTarget?.id],
     queryFn: () => listApplicationSigningKeys(keyTarget!.id),
     enabled: Boolean(keyTarget)
+  });
+  const serverApiKeysQuery = useQuery({
+    queryKey: ["admin", "server-api-keys", serverKeyTarget?.id, includeHistory],
+    queryFn: () =>
+      listServerApiKeys({
+        app_id: serverKeyTarget!.id,
+        include_history: includeHistory
+      }),
+    enabled: Boolean(serverKeyTarget) && showServerApiKeyManagement
   });
   const createMutation = useMutation({
     mutationFn: createApplication,
@@ -125,6 +170,53 @@ export function ApplicationsPage() {
       setSecretResult(data);
       await query.refetch();
       await keysQuery.refetch();
+    }
+  });
+  const serverApiKeyMutation = useMutation({
+    mutationFn: (values: ServerApiKeyFormValues) => {
+      if (!serverKeyTarget) {
+        throw new Error("application not selected");
+      }
+
+      return createServerApiKey({
+        app_id: serverKeyTarget.id,
+        name: values.name.trim(),
+        scopes: ["ai:invoke"]
+      });
+    },
+    onSuccess: async (result) => {
+      message.success("服务端 Key 已生成");
+      setGeneratedServerApiKey(result.plain_key);
+      await queryClient.invalidateQueries({ queryKey: ["admin", "server-api-keys"] });
+    }
+  });
+  const updateServerApiKeyMutation = useMutation({
+    mutationFn: (values: ServerApiKeyEditFormValues) => {
+      if (!editingServerApiKey) {
+        throw new Error("server api key not selected");
+      }
+
+      return updateServerApiKey({
+        id: editingServerApiKey.id,
+        payload: {
+          name: values.name.trim(),
+          scopes: ["ai:invoke"]
+        }
+      });
+    },
+    onSuccess: async () => {
+      message.success("服务端 Key 已更新");
+      setServerApiKeyEditModalOpen(false);
+      setEditingServerApiKey(null);
+      serverApiKeyEditForm.resetFields();
+      await queryClient.invalidateQueries({ queryKey: ["admin", "server-api-keys"] });
+    }
+  });
+  const revokeServerApiKeyMutation = useMutation({
+    mutationFn: (id: string) => revokeServerApiKey(id),
+    onSuccess: async () => {
+      message.success("服务端 Key 已吊销");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "server-api-keys"] });
     }
   });
 
@@ -170,7 +262,7 @@ export function ApplicationsPage() {
     {
       title: "操作",
       key: "actions",
-      width: 430,
+      width: 540,
       render: (_, record) => (
         <Space>
           {canUpdate ? (
@@ -224,6 +316,15 @@ export function ApplicationsPage() {
           {canReadKey ? (
             <Button size="small" icon={<List size={14} />} onClick={() => setKeyTarget(record)}>
               密钥
+            </Button>
+          ) : null}
+          {showServerApiKeyManagement ? (
+            <Button
+              size="small"
+              icon={<KeyRound size={14} />}
+              onClick={() => setServerKeyTarget(record)}
+            >
+              服务端 Key
             </Button>
           ) : null}
           {canRotateKey ? (
@@ -292,6 +393,101 @@ export function ApplicationsPage() {
     }
   ];
 
+  const serverApiKeyColumns: ColumnsType<ServerApiKey> = [
+    {
+      title: "名称",
+      dataIndex: "name",
+      key: "name",
+      width: 220,
+      render: (value: string) => (
+        <Typography.Text ellipsis title={value}>
+          {value}
+        </Typography.Text>
+      )
+    },
+    {
+      title: "Key 前缀",
+      dataIndex: "key_prefix",
+      key: "key_prefix",
+      width: 180,
+      render: (value: string) => <Typography.Text code>{value}</Typography.Text>
+    },
+    {
+      title: "权限",
+      dataIndex: "scopes",
+      key: "scopes",
+      width: 130,
+      render: (value: string[]) => (
+        <Space size={4} wrap>
+          {value.map((scope) => (
+            <Tag key={scope}>{scopeLabel(scope)}</Tag>
+          ))}
+        </Space>
+      )
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      key: "status",
+      width: 100,
+      render: (value: string) => (
+        <Tag color={value === "active" ? "green" : "default"}>
+          {value === "active" ? "启用" : "已吊销"}
+        </Tag>
+      )
+    },
+    {
+      title: "最近使用",
+      dataIndex: "last_used_at",
+      key: "last_used_at",
+      width: 180,
+      render: (value?: string | null) => (value ? dateTime(value) : "-")
+    },
+    {
+      title: "创建时间",
+      dataIndex: "created_at",
+      key: "created_at",
+      width: 180,
+      render: (value: string) => dateTime(value)
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 150,
+      render: (_, record) => (
+        <Space size={6}>
+          <Button
+            aria-label={`编辑服务端 Key ${record.name}`}
+            size="small"
+            icon={<Pencil size={14} />}
+            disabled={!canUpdateServerApiKey || record.status !== "active"}
+            onClick={() => openEditServerApiKey(record)}
+          >
+            编辑
+          </Button>
+          {record.status === "active" ? (
+            <ConfirmActionButton
+              title="吊销服务端 Key"
+              description="吊销后，使用这个 Key 的服务端应用将无法继续调用 AI 接口。"
+              confirmText="吊销"
+              okText="吊销"
+              loading={revokeServerApiKeyMutation.isPending}
+              buttonProps={{
+                size: "small",
+                danger: true,
+                disabled: !canUpdateServerApiKey,
+                icon: <Ban size={14} />
+              }}
+              onConfirm={() => revokeServerApiKeyMutation.mutate(record.id)}
+            >
+              吊销
+            </ConfirmActionButton>
+          ) : null}
+        </Space>
+      )
+    }
+  ];
+
   const openEdit = (app: ApplicationSummary) => {
     setEditingApp(app);
     editForm.setFieldsValue({
@@ -341,6 +537,22 @@ export function ApplicationsPage() {
         status: nextStatus
       }
     });
+  };
+
+  const openCreateServerApiKey = () => {
+    setGeneratedServerApiKey(null);
+    serverApiKeyForm.setFieldsValue({
+      name: "生产服务端 Key"
+    });
+    setServerApiKeyModalOpen(true);
+  };
+
+  const openEditServerApiKey = (serverApiKey: ServerApiKey) => {
+    setEditingServerApiKey(serverApiKey);
+    serverApiKeyEditForm.setFieldsValue({
+      name: serverApiKey.name
+    });
+    setServerApiKeyEditModalOpen(true);
   };
 
   return (
@@ -401,6 +613,12 @@ export function ApplicationsPage() {
       ) : null}
       {rotateMutation.error ? (
         <Alert type="error" message={tMessage("application_rotate_keys_failed")} />
+      ) : null}
+      {serverApiKeysQuery.error ||
+      serverApiKeyMutation.error ||
+      updateServerApiKeyMutation.error ||
+      revokeServerApiKeyMutation.error ? (
+        <Alert type="error" message="服务端 Key 操作失败，请稍后重试" />
       ) : null}
       <Table
         rowKey="id"
@@ -517,6 +735,47 @@ export function ApplicationsPage() {
       </Modal>
 
       <Modal
+        title={serverKeyTarget ? `服务端 Key：${serverKeyTarget.name}` : "服务端 Key"}
+        open={Boolean(serverKeyTarget)}
+        onCancel={() => {
+          setServerKeyTarget(null);
+          setGeneratedServerApiKey(null);
+          setServerApiKeyModalOpen(false);
+          setServerApiKeyEditModalOpen(false);
+          setEditingServerApiKey(null);
+        }}
+        footer={null}
+        width={980}
+      >
+        <Space direction="vertical" size={12} className="settings-stack">
+          <Alert
+            type="info"
+            showIcon
+            message="服务端 Key 用于后端服务调用 `/api/server/ai/v1/*`，客户端和浏览器前端不应保存它。"
+          />
+          <div className="table-toolbar">
+            <Button
+              type="primary"
+              icon={<KeyRound size={16} />}
+              disabled={!canUpdateServerApiKey || serverKeyTarget?.status !== "active"}
+              onClick={openCreateServerApiKey}
+            >
+              生成服务端 Key
+            </Button>
+          </div>
+          <Table
+            rowKey="id"
+            loading={serverApiKeysQuery.isLoading}
+            columns={serverApiKeyColumns}
+            dataSource={serverApiKeysQuery.data?.items ?? []}
+            pagination={false}
+            scroll={{ x: "max-content" }}
+            locale={{ emptyText: "暂无数据" }}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
         title="签名公钥"
         open={Boolean(selectedSigningKey)}
         onCancel={() => setSelectedSigningKey(null)}
@@ -552,6 +811,76 @@ export function ApplicationsPage() {
             {selectedSigningKey?.public_key_pem}
           </Typography.Paragraph>
         </Space>
+      </Modal>
+
+      <Modal
+        title={serverKeyTarget ? `生成服务端 Key：${serverKeyTarget.name}` : "生成服务端 Key"}
+        open={serverApiKeyModalOpen}
+        onCancel={() => {
+          setServerApiKeyModalOpen(false);
+          setGeneratedServerApiKey(null);
+          serverApiKeyForm.resetFields();
+        }}
+        onOk={() => serverApiKeyForm.submit()}
+        okButtonProps={{ disabled: Boolean(generatedServerApiKey) }}
+        confirmLoading={serverApiKeyMutation.isPending}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={12} className="settings-stack">
+          {generatedServerApiKey ? (
+            <Alert
+              type="success"
+              showIcon
+              message="请立即复制保存，关闭后不会再次显示明文 Key。"
+              description={
+                <Typography.Paragraph copyable className="api-key-preview">
+                  {generatedServerApiKey}
+                </Typography.Paragraph>
+              }
+            />
+          ) : null}
+          <Form<ServerApiKeyFormValues>
+            form={serverApiKeyForm}
+            layout="vertical"
+            onFinish={(values) => serverApiKeyMutation.mutate(values)}
+          >
+            <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+              <Input placeholder="例如：影织生产服务端" />
+            </Form.Item>
+            <Typography.Text type="secondary">
+              当前 Key 固定绑定到这个应用，并仅允许服务端发起 AI 调用。
+            </Typography.Text>
+          </Form>
+        </Space>
+      </Modal>
+
+      <Modal
+        title={
+          editingServerApiKey
+            ? `编辑服务端 Key：${editingServerApiKey.key_prefix}`
+            : "编辑服务端 Key"
+        }
+        open={serverApiKeyEditModalOpen}
+        onCancel={() => {
+          setServerApiKeyEditModalOpen(false);
+          setEditingServerApiKey(null);
+        }}
+        onOk={() => serverApiKeyEditForm.submit()}
+        confirmLoading={updateServerApiKeyMutation.isPending}
+        destroyOnHidden
+      >
+        <Form<ServerApiKeyEditFormValues>
+          form={serverApiKeyEditForm}
+          layout="vertical"
+          onFinish={(values) => updateServerApiKeyMutation.mutate(values)}
+        >
+          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Typography.Text type="secondary">
+            当前权限固定为 AI 调用。需要停用时请直接吊销并重新生成。
+          </Typography.Text>
+        </Form>
       </Modal>
     </section>
   );
@@ -649,4 +978,12 @@ function clean(value?: string): string | undefined {
 
 function cleanNumber(value?: number | null): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function scopeLabel(value: string): string {
+  const labels: Record<string, string> = {
+    "ai:invoke": "AI 调用"
+  };
+
+  return labels[value] ?? value;
 }

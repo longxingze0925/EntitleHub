@@ -588,6 +588,39 @@ export interface CreateAiApiKeyResult {
   plain_key: string;
 }
 
+export interface ServerApiKey {
+  id: string;
+  app_id: string;
+  app_name: string;
+  app_key: string;
+  name: string;
+  key_prefix: string;
+  status: string;
+  scopes: string[];
+  expires_at?: string | null;
+  last_used_at?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+}
+
+export interface CreateServerApiKeyPayload {
+  app_id: string;
+  name: string;
+  scopes?: string[];
+  expires_at?: string | null;
+}
+
+export interface UpdateServerApiKeyPayload {
+  name?: string;
+  scopes?: string[];
+  expires_at?: string | null;
+}
+
+export interface CreateServerApiKeyResult {
+  server_api_key: ServerApiKey;
+  plain_key: string;
+}
+
 export type AiAssetType = "image" | "video" | "audio" | "file";
 export type AiAssetStatus = "caching" | "ready" | "failed" | "deleted";
 
@@ -1491,6 +1524,49 @@ export function updateAiApiKey(params: {
 export function revokeAiApiKey(id: string): Promise<{ api_key: AiApiKey }> {
   return apiRequest<{ api_key: AiApiKey }>(
     `/api/admin/ai/api-keys/${id}/revoke`,
+    {
+      method: "POST"
+    }
+  );
+}
+
+export function listServerApiKeys(params: {
+  include_history?: boolean;
+  app_id?: string;
+} = {}): Promise<{ items: ServerApiKey[] }> {
+  return apiRequest<{ items: ServerApiKey[] }>(
+    `/api/admin/server-api-keys${query({
+      include_history: params.include_history,
+      app_id: params.app_id
+    })}`
+  );
+}
+
+export function createServerApiKey(
+  payload: CreateServerApiKeyPayload
+): Promise<CreateServerApiKeyResult> {
+  return apiRequest<CreateServerApiKeyResult>("/api/admin/server-api-keys", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateServerApiKey(params: {
+  id: string;
+  payload: UpdateServerApiKeyPayload;
+}): Promise<{ server_api_key: ServerApiKey }> {
+  return apiRequest<{ server_api_key: ServerApiKey }>(
+    `/api/admin/server-api-keys/${params.id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(params.payload)
+    }
+  );
+}
+
+export function revokeServerApiKey(id: string): Promise<{ server_api_key: ServerApiKey }> {
+  return apiRequest<{ server_api_key: ServerApiKey }>(
+    `/api/admin/server-api-keys/${id}/revoke`,
     {
       method: "POST"
     }

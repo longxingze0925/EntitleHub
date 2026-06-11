@@ -31,6 +31,10 @@ use crate::{
     modules::{
         ai::api_keys::{authenticate_api_key, AiApiKeyContext},
         client_auth::session::{ensure_active_subscription, ClientContext},
+        server_api::{
+            ai_invoke_scope, authenticate_server_key, customer_id_from_headers,
+            ensure_server_customer_subscription, ServerApiKeyContext,
+        },
     },
     rate_limit,
     state::AppState,
@@ -85,6 +89,15 @@ struct BillingReservation {
     usage_id: Uuid,
     wallet_id: Uuid,
     held_minor: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChargeSettlement {
+    requested_minor: i64,
+    captured_minor: i64,
+    released_minor: i64,
+    additional_minor: i64,
+    shortfall_minor: i64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -147,6 +160,28 @@ impl GatewayCaller {
             source: "client_session",
         })
     }
+
+    fn from_server_key(server_key: &ServerApiKeyContext, customer_id: Uuid) -> Self {
+        Self {
+            tenant_id: server_key.tenant_id,
+            customer_id,
+            api_key_id: None,
+            rate_limit_key: format!(
+                "server_key:{}:customer:{}",
+                server_key.server_key_id, customer_id
+            ),
+            api_key_daily_spend_limit_minor: None,
+            source: "server_key",
+        }
+    }
+}
+
+fn gateway_endpoint(caller: &GatewayCaller, openai_endpoint: &'static str) -> String {
+    if caller.source == "server_key" {
+        format!("/api/server/ai{openai_endpoint}")
+    } else {
+        openai_endpoint.to_owned()
+    }
 }
 
 pub async fn chat_completions(
@@ -171,6 +206,19 @@ pub async fn client_chat_completions(
     chat_completions_for_caller(state, request_id, headers, payload, caller).await
 }
 
+pub async fn server_chat_completions(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    let customer_id = customer_id_from_headers(&headers)?;
+    ensure_server_customer_subscription(&state, &server_key, customer_id).await?;
+    let caller = GatewayCaller::from_server_key(&server_key, customer_id);
+    chat_completions_for_caller(state, request_id, headers, payload, caller).await
+}
+
 async fn chat_completions_for_caller(
     state: AppState,
     request_id: RequestId,
@@ -179,10 +227,10 @@ async fn chat_completions_for_caller(
     caller: GatewayCaller,
 ) -> Result<Response, AppError> {
     check_gateway_rate_limit(&state, &caller).await?;
-    let endpoint = "/v1/chat/completions";
+    let endpoint = gateway_endpoint(&caller, "/v1/chat/completions");
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, &endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
@@ -197,7 +245,7 @@ async fn chat_completions_for_caller(
         &caller,
         &model,
         &request_id.to_string(),
-        endpoint,
+        &endpoint,
         hold_minor,
         &payload,
         idempotency_key.as_deref(),
@@ -207,14 +255,13 @@ async fn chat_completions_for_caller(
     let provider_started = Instant::now();
     let provider_result =
         forward_openai_compatible_json(&state, &model, payload, "chat/completions").await;
-    metrics::record_ai_gateway_provider_duration(endpoint, provider_started.elapsed());
+    metrics::record_ai_gateway_provider_duration(&endpoint, provider_started.elapsed());
 
     match provider_result {
         Ok(provider_response) if provider_response.status.is_success() => {
             let usage = token_usage_from_response(&provider_response.body);
-            let charge_minor = calculate_actual_charge_minor(&model, usage)
-                .unwrap_or(reservation.held_minor)
-                .min(reservation.held_minor);
+            let charge_minor =
+                calculate_actual_charge_minor(&model, usage).unwrap_or(reservation.held_minor);
             capture_usage(
                 &state,
                 &reservation,
@@ -226,8 +273,8 @@ async fn chat_completions_for_caller(
                 &provider_response.body,
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Success);
-            metrics::record_ai_gateway_charged(endpoint, charge_minor);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Success);
+            metrics::record_ai_gateway_charged(&endpoint, charge_minor);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -245,7 +292,7 @@ async fn chat_completions_for_caller(
                 "AI 请求失败，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::ProviderError);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::ProviderError);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -263,7 +310,7 @@ async fn chat_completions_for_caller(
                 "AI 请求异常，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Error);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
 
             Err(error)
         }
@@ -292,6 +339,19 @@ pub async fn client_image_generations(
     image_generations_for_caller(state, request_id, headers, payload, caller).await
 }
 
+pub async fn server_image_generations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    let customer_id = customer_id_from_headers(&headers)?;
+    ensure_server_customer_subscription(&state, &server_key, customer_id).await?;
+    let caller = GatewayCaller::from_server_key(&server_key, customer_id);
+    image_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
 async fn image_generations_for_caller(
     state: AppState,
     request_id: RequestId,
@@ -300,10 +360,10 @@ async fn image_generations_for_caller(
     caller: GatewayCaller,
 ) -> Result<Response, AppError> {
     check_gateway_rate_limit(&state, &caller).await?;
-    let endpoint = "/v1/images/generations";
+    let endpoint = gateway_endpoint(&caller, "/v1/images/generations");
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, &endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
@@ -317,7 +377,7 @@ async fn image_generations_for_caller(
         &caller,
         &model,
         &request_id.to_string(),
-        endpoint,
+        &endpoint,
         hold_minor,
         &payload,
         idempotency_key.as_deref(),
@@ -327,7 +387,7 @@ async fn image_generations_for_caller(
     let provider_started = Instant::now();
     let provider_result =
         forward_openai_compatible_json(&state, &model, payload, "images/generations").await;
-    metrics::record_ai_gateway_provider_duration(endpoint, provider_started.elapsed());
+    metrics::record_ai_gateway_provider_duration(&endpoint, provider_started.elapsed());
 
     match provider_result {
         Ok(mut provider_response) if provider_response.status.is_success() => {
@@ -349,13 +409,12 @@ async fn image_generations_for_caller(
                 )
                 .await?;
                 metrics::record_ai_gateway_asset_cache_failure();
-                metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Error);
+                metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
 
                 return Err(error);
             }
             let charge_minor = calculate_image_charge_minor(&model, &provider_response.body)
-                .unwrap_or(reservation.held_minor)
-                .min(reservation.held_minor);
+                .unwrap_or(reservation.held_minor);
             capture_usage(
                 &state,
                 &reservation,
@@ -367,8 +426,8 @@ async fn image_generations_for_caller(
                 &provider_response.body,
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Success);
-            metrics::record_ai_gateway_charged(endpoint, charge_minor);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Success);
+            metrics::record_ai_gateway_charged(&endpoint, charge_minor);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -386,7 +445,7 @@ async fn image_generations_for_caller(
                 "AI 图片请求失败，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::ProviderError);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::ProviderError);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -404,7 +463,7 @@ async fn image_generations_for_caller(
                 "AI 图片请求异常，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Error);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
 
             Err(error)
         }
@@ -433,6 +492,19 @@ pub async fn client_embeddings(
     embeddings_for_caller(state, request_id, headers, payload, caller).await
 }
 
+pub async fn server_embeddings(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    let customer_id = customer_id_from_headers(&headers)?;
+    ensure_server_customer_subscription(&state, &server_key, customer_id).await?;
+    let caller = GatewayCaller::from_server_key(&server_key, customer_id);
+    embeddings_for_caller(state, request_id, headers, payload, caller).await
+}
+
 async fn embeddings_for_caller(
     state: AppState,
     request_id: RequestId,
@@ -441,10 +513,10 @@ async fn embeddings_for_caller(
     caller: GatewayCaller,
 ) -> Result<Response, AppError> {
     check_gateway_rate_limit(&state, &caller).await?;
-    let endpoint = "/v1/embeddings";
+    let endpoint = gateway_endpoint(&caller, "/v1/embeddings");
     let idempotency_key = idempotency_key(&headers)?;
     if let Some(response) =
-        find_idempotent_response(&state, &caller, endpoint, idempotency_key.as_deref()).await?
+        find_idempotent_response(&state, &caller, &endpoint, idempotency_key.as_deref()).await?
     {
         return Ok(response);
     }
@@ -458,7 +530,7 @@ async fn embeddings_for_caller(
         &caller,
         &model,
         &request_id.to_string(),
-        endpoint,
+        &endpoint,
         hold_minor,
         &payload,
         idempotency_key.as_deref(),
@@ -468,14 +540,13 @@ async fn embeddings_for_caller(
     let provider_started = Instant::now();
     let provider_result =
         forward_openai_compatible_json(&state, &model, payload, "embeddings").await;
-    metrics::record_ai_gateway_provider_duration(endpoint, provider_started.elapsed());
+    metrics::record_ai_gateway_provider_duration(&endpoint, provider_started.elapsed());
 
     match provider_result {
         Ok(provider_response) if provider_response.status.is_success() => {
             let usage = token_usage_from_response(&provider_response.body);
-            let charge_minor = calculate_embedding_charge_minor(&model, usage)
-                .unwrap_or(reservation.held_minor)
-                .min(reservation.held_minor);
+            let charge_minor =
+                calculate_embedding_charge_minor(&model, usage).unwrap_or(reservation.held_minor);
             capture_usage(
                 &state,
                 &reservation,
@@ -487,8 +558,8 @@ async fn embeddings_for_caller(
                 &provider_response.body,
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Success);
-            metrics::record_ai_gateway_charged(endpoint, charge_minor);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Success);
+            metrics::record_ai_gateway_charged(&endpoint, charge_minor);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -506,7 +577,7 @@ async fn embeddings_for_caller(
                 "AI Embeddings 请求失败，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::ProviderError);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::ProviderError);
 
             Ok(provider_json_response(
                 provider_response.status,
@@ -524,7 +595,7 @@ async fn embeddings_for_caller(
                 "AI Embeddings 请求异常，释放预扣金额",
             )
             .await?;
-            metrics::record_ai_gateway_request(endpoint, AiGatewayRequestStatus::Error);
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
 
             Err(error)
         }
@@ -550,9 +621,21 @@ pub async fn client_list_models(
     list_models_for_caller(state, endpoint, caller).await
 }
 
+pub async fn server_list_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let endpoint = "/api/server/ai/v1/models";
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    let customer_id = customer_id_from_headers(&headers)?;
+    ensure_server_customer_subscription(&state, &server_key, customer_id).await?;
+    let caller = GatewayCaller::from_server_key(&server_key, customer_id);
+    list_models_for_caller(state, endpoint, caller).await
+}
+
 async fn list_models_for_caller(
     state: AppState,
-    endpoint: &'static str,
+    endpoint: &str,
     caller: GatewayCaller,
 ) -> Result<Response, AppError> {
     check_gateway_rate_limit(&state, &caller).await?;
@@ -1015,26 +1098,36 @@ async fn capture_usage(
 ) -> Result<(), AppError> {
     let mut transaction = state.db.begin().await.map_err(map_db_error)?;
     let wallet = find_wallet_by_id_for_update(&mut transaction, reservation.wallet_id).await?;
+    let settlement = settle_charge(
+        charge_minor,
+        reservation.held_minor,
+        wallet.balance_minor,
+        wallet.held_minor,
+    );
     let updated_wallet = update_wallet_capture(
         &mut transaction,
         wallet.id,
         reservation.held_minor,
-        charge_minor,
+        settlement.captured_minor,
     )
     .await?;
-    if charge_minor > 0 {
+    if settlement.captured_minor > 0 {
         insert_wallet_ledger_entry(
             &mut transaction,
             wallet.tenant_id,
             &updated_wallet,
             "capture",
-            -charge_minor,
+            -settlement.captured_minor,
             "AI 请求成功结算",
             reservation.usage_id,
             json!({
                 "model": model.code,
                 "held_minor": reservation.held_minor,
-                "released_minor": reservation.held_minor - charge_minor,
+                "requested_minor": settlement.requested_minor,
+                "captured_minor": settlement.captured_minor,
+                "released_minor": settlement.released_minor,
+                "additional_minor": settlement.additional_minor,
+                "shortfall_minor": settlement.shortfall_minor,
             }),
         )
         .await?;
@@ -1059,7 +1152,8 @@ async fn capture_usage(
         provider_status,
         provider_request_id,
         usage,
-        charge_minor,
+        settlement.captured_minor,
+        settlement_metadata(settlement),
         provider_body,
     )
     .await?;
@@ -1268,6 +1362,41 @@ async fn update_wallet_capture(
     .map_err(map_db_error)
 }
 
+fn settle_charge(
+    requested_minor: i64,
+    reservation_held_minor: i64,
+    wallet_balance_minor: i64,
+    wallet_held_minor: i64,
+) -> ChargeSettlement {
+    let requested_minor = requested_minor.max(0);
+    let reservation_held_minor = reservation_held_minor.max(0);
+    let available_minor = wallet_balance_minor
+        .saturating_sub(wallet_held_minor)
+        .max(0);
+    let max_capturable_minor = reservation_held_minor.saturating_add(available_minor);
+    let captured_minor = requested_minor.min(max_capturable_minor);
+
+    ChargeSettlement {
+        requested_minor,
+        captured_minor,
+        released_minor: (reservation_held_minor - captured_minor).max(0),
+        additional_minor: (captured_minor - reservation_held_minor).max(0),
+        shortfall_minor: (requested_minor - captured_minor).max(0),
+    }
+}
+
+fn settlement_metadata(settlement: ChargeSettlement) -> Value {
+    json!({
+        "billing_settlement": {
+            "requested_minor": settlement.requested_minor,
+            "captured_minor": settlement.captured_minor,
+            "released_minor": settlement.released_minor,
+            "additional_minor": settlement.additional_minor,
+            "shortfall_minor": settlement.shortfall_minor,
+        }
+    })
+}
+
 async fn insert_usage_record(
     transaction: &mut Transaction<'_, Postgres>,
     usage_id: Uuid,
@@ -1375,6 +1504,7 @@ async fn update_usage_succeeded(
     provider_request_id: Option<&str>,
     usage: TokenUsage,
     charged_minor: i64,
+    settlement_metadata: Value,
     provider_body: &Value,
 ) -> Result<(), AppError> {
     sqlx::query(
@@ -1387,7 +1517,8 @@ async fn update_usage_succeeded(
             completion_tokens = $5,
             total_tokens = $6,
             charged_minor = $7,
-            provider_raw_response = $8,
+            metadata_json = metadata_json || $8::jsonb,
+            provider_raw_response = $9,
             completed_at = now()
         where id = $1
         "#,
@@ -1399,6 +1530,7 @@ async fn update_usage_succeeded(
     .bind(usage.completion_tokens)
     .bind(usage.total_tokens)
     .bind(charged_minor)
+    .bind(settlement_metadata)
     .bind(provider_body)
     .execute(&mut **transaction)
     .await
@@ -2118,8 +2250,8 @@ mod tests {
         ensure_daily_limit_available, ensure_provider_asset_url_allowed, ensure_wallet_ai_enabled,
         estimate_embedding_hold_minor, estimate_hold_minor, estimate_image_hold_minor,
         extension_for_mime, idempotency_key, image_count, normalize_mime_type, provider_payload,
-        provider_timeout, token_price_minor, token_usage_from_response, GatewayCaller,
-        GatewayModel, WalletRecord,
+        provider_timeout, settle_charge, token_price_minor, token_usage_from_response,
+        GatewayCaller, GatewayModel, WalletRecord,
     };
 
     #[test]
@@ -2159,6 +2291,27 @@ mod tests {
             calculate_actual_charge_minor(&model, usage).expect("charge"),
             100 + 200 + 600
         );
+    }
+
+    #[test]
+    fn settlement_can_capture_more_than_reserved_when_balance_is_available() {
+        let settlement = settle_charge(200, 137, 1000, 137);
+
+        assert_eq!(settlement.requested_minor, 200);
+        assert_eq!(settlement.captured_minor, 200);
+        assert_eq!(settlement.additional_minor, 63);
+        assert_eq!(settlement.released_minor, 0);
+        assert_eq!(settlement.shortfall_minor, 0);
+    }
+
+    #[test]
+    fn settlement_does_not_consume_other_holds() {
+        let settlement = settle_charge(500, 100, 500, 300);
+
+        assert_eq!(settlement.captured_minor, 300);
+        assert_eq!(settlement.additional_minor, 200);
+        assert_eq!(settlement.released_minor, 0);
+        assert_eq!(settlement.shortfall_minor, 200);
     }
 
     #[test]

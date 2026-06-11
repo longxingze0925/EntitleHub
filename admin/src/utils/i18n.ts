@@ -298,6 +298,8 @@ const permissionText: Record<string, string> = {
   "security:revoke_session": "撤销会话",
   "security:rotate_key": "轮换安全密钥",
   "security:view_events": "查看安全事件",
+  "server_api_key:read": "查看服务端 Key",
+  "server_api_key:update": "管理服务端 Key",
   "subscription:cancel": "取消订阅",
   "subscription:create": "创建订阅",
   "subscription:read": "查看订阅",
