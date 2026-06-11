@@ -87,6 +87,11 @@ pub fn build_image_generations_body(payload: &serde_json::Value) -> SdkResult<Ve
     serialize_ai_json_payload(payload, "image_generations")
 }
 
+pub fn build_video_generations_body(payload: &serde_json::Value) -> SdkResult<Vec<u8>> {
+    validate_ai_json_payload(payload, "video_generations")?;
+    serialize_ai_json_payload(payload, "video_generations")
+}
+
 pub fn build_embeddings_body(payload: &serde_json::Value) -> SdkResult<Vec<u8>> {
     validate_ai_json_payload(payload, "embeddings")?;
     serialize_ai_json_payload(payload, "embeddings")
@@ -111,6 +116,33 @@ pub fn image_urls_from_response(body: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+pub fn video_urls_from_response(body: &serde_json::Value) -> Vec<String> {
+    let mut urls = Vec::new();
+    collect_video_urls(body, &mut urls);
+    urls
+}
+
+fn collect_video_urls(value: &serde_json::Value, urls: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for key in ["url", "video_url", "output_url", "download_url"] {
+                if let Some(url) = object.get(key).and_then(serde_json::Value::as_str) {
+                    urls.push(url.to_owned());
+                }
+            }
+            for nested in object.values() {
+                collect_video_urls(nested, urls);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_video_urls(item, urls);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn validate_ai_json_payload(payload: &serde_json::Value, field: &'static str) -> SdkResult<()> {
@@ -163,8 +195,8 @@ mod tests {
 
     use super::{
         build_chat_completions_body, build_embeddings_body, build_image_generations_body,
-        image_urls_from_response, usage_id_from_headers, AiGatewayJsonResponse,
-        AiModelListResponse,
+        build_video_generations_body, image_urls_from_response, usage_id_from_headers,
+        video_urls_from_response, AiGatewayJsonResponse, AiModelListResponse,
     };
 
     #[test]
@@ -174,12 +206,19 @@ mod tests {
             "messages": [{ "role": "user", "content": "hello" }]
         });
         let image = json!({ "model": "image-test", "prompt": "logo", "n": 1 });
+        let video = json!({ "model": "video-test", "prompt": "intro", "duration": 8 });
         let embeddings = json!({ "model": "embed-test", "input": "hello" });
 
         assert!(build_chat_completions_body(&chat).expect("chat body").len() > 10);
         assert!(
             build_image_generations_body(&image)
                 .expect("image body")
+                .len()
+                > 10
+        );
+        assert!(
+            build_video_generations_body(&video)
+                .expect("video body")
                 .len()
                 > 10
         );
@@ -259,6 +298,24 @@ mod tests {
         assert_eq!(
             image_urls_from_response(&body),
             vec!["https://example.com/api/ai/assets/1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn video_urls_are_extracted_from_common_response_shapes() {
+        let body = json!({
+            "data": [
+                { "video_url": "/api/ai/assets/video-1" },
+                { "output": { "download_url": "/api/ai/assets/video-2" } }
+            ]
+        });
+
+        assert_eq!(
+            video_urls_from_response(&body),
+            vec![
+                "/api/ai/assets/video-1".to_owned(),
+                "/api/ai/assets/video-2".to_owned()
+            ]
         );
     }
 }

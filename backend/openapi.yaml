@@ -110,6 +110,14 @@ paths:
               schema:
                 type: string
                 format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+            video/webm:
+              schema:
+                type: string
+                format: binary
             application/octet-stream:
               schema:
                 type: string
@@ -179,6 +187,29 @@ paths:
       responses:
         "200":
           description: Provider-compatible image generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /v1/videos/generations:
+    post:
+      tags: [ai-gateway]
+      summary: OpenAI-compatible video generation gateway with EntitleHub API key billing and asset caching
+      security:
+        - AiApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible video generation response with cached EntitleHub asset URLs
           content:
             application/json:
               schema:
@@ -275,6 +306,88 @@ paths:
                 additionalProperties: true
         default:
           $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/images/jobs:
+    post:
+      tags: [server-ai]
+      summary: Create asynchronous image generation job
+      description: Reserves customer wallet balance, submits an async image task to the configured provider, and returns the EntitleHub job state.
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/videos/generations:
+    post:
+      tags: [server-ai]
+      summary: Server-to-server video generation gateway with asset caching and wallet billing
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible video generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/videos/jobs:
+    post:
+      tags: [server-ai]
+      summary: Create asynchronous video generation job
+      description: Reserves customer wallet balance, submits an async video task to the configured provider, and returns the EntitleHub job state.
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-ai]
+      summary: Get asynchronous AI generation job
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/server/ai/v1/models:
     get:
       tags: [server-ai]
@@ -358,6 +471,30 @@ paths:
       responses:
         "200":
           description: Provider-compatible image generation response with cached EntitleHub asset URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/client/ai/v1/videos/generations:
+    post:
+      tags: [client-ai]
+      summary: Client session video generation gateway with EntitleHub wallet billing and asset caching
+      security:
+        - ClientBearer: []
+          DeviceSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Provider-compatible video generation response with cached EntitleHub asset URLs
           content:
             application/json:
               schema:
@@ -825,6 +962,34 @@ paths:
           $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/admin/ai/wallet-ledger:
+    get:
+      tags: [admin]
+      summary: List AI wallet ledger entries across tenant
+      security:
+        - AdminSession: []
+      parameters:
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: entry_type
+          in: query
+          schema:
+            type: string
+            enum: [credit, debit, hold, capture, release, refund, adjustment]
+        - name: reference_id
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/admin/ai/api-keys:
     get:
       tags: [admin]
@@ -891,6 +1056,45 @@ paths:
           in: query
           schema:
             type: string
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/admin/ai/generation-jobs:
+    get:
+      tags: [admin]
+      summary: List AI asynchronous generation jobs
+      security:
+        - AdminSession: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - pending
+              - submitted
+              - running
+              - provider_succeeded
+              - caching
+              - succeeded
+              - provider_failed
+              - failed
+              - timeout_review
+              - cancelled
+        - name: job_type
+          in: query
+          schema:
+            type: string
+            enum: [image, video]
         - name: customer_id
           in: query
           schema:
@@ -2218,6 +2422,13 @@ components:
       schema:
         type: boolean
         default: false
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 200
   requestBodies:
     AdminChangePassword:
       required: true

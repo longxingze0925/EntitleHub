@@ -434,6 +434,7 @@ mod tests {
     const HANDLER_PERMISSION_SOURCES: &[&str] = &[
         include_str!("ai/admin.rs"),
         include_str!("ai/api_keys.rs"),
+        include_str!("ai/jobs.rs"),
         include_str!("ai/usage.rs"),
         include_str!("application/admin.rs"),
         include_str!("audit/admin.rs"),
@@ -454,7 +455,7 @@ mod tests {
 
     fn permission_migration_text() -> String {
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             include_str!("../../migrations/20260603101000_create_rbac_tables.sql"),
             include_str!("../../migrations/20260604102000_add_security_retry_event_permission.sql"),
             include_str!("../../migrations/20260604105000_add_script_deprecate_permission.sql"),
@@ -464,7 +465,8 @@ mod tests {
             include_str!("../../migrations/20260608103000_add_ai_gateway_controls.sql"),
             include_str!("../../migrations/20260609102000_add_subscription_admin_actions.sql"),
             include_str!("../../migrations/20260609113000_grant_release_update_delete.sql"),
-            include_str!("../../migrations/20260610100000_create_server_api_keys.sql")
+            include_str!("../../migrations/20260610100000_create_server_api_keys.sql"),
+            include_str!("../../migrations/20260611120000_create_ai_generation_jobs.sql")
         )
     }
 

@@ -167,6 +167,13 @@ export const menuRoutes: MenuRoute[] = [
         icon: <Inbox size={18} />
       },
       {
+        key: "logs-ai-jobs",
+        path: "/logs/ai-jobs",
+        label: "生成任务",
+        permission: "ai:job:read",
+        icon: <ClipboardList size={18} />
+      },
+      {
         key: "logs-ai-usage",
         path: "/logs/ai-usage",
         label: "调用日志",

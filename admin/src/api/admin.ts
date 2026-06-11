@@ -401,7 +401,8 @@ export type AiProviderKind =
   | "gemini"
   | "deepseek"
   | "image"
-  | "video";
+  | "video"
+  | "wuyin_keji";
 
 export interface AiProvider {
   id: string;
@@ -669,6 +670,52 @@ export interface AiUsageRecord {
   metadata: Record<string, unknown>;
   created_at: string;
   completed_at?: string | null;
+}
+
+export type AiGenerationJobStatus =
+  | "pending"
+  | "submitted"
+  | "running"
+  | "provider_succeeded"
+  | "caching"
+  | "succeeded"
+  | "provider_failed"
+  | "failed"
+  | "timeout_review"
+  | "cancelled";
+
+export type AiGenerationJobType = "image" | "video";
+
+export interface AiGenerationJob {
+  id: string;
+  customer_id: string;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  provider_name?: string | null;
+  model_code?: string | null;
+  usage_id?: string | null;
+  request_id?: string | null;
+  idempotency_key?: string | null;
+  job_type: AiGenerationJobType;
+  status: AiGenerationJobStatus;
+  provider_status?: string | null;
+  provider_job_id?: string | null;
+  provider_request_id?: string | null;
+  result?: Record<string, unknown> | null;
+  asset_urls: string[];
+  charge_mode: string;
+  quantity: number;
+  held_minor: number;
+  charged_minor: number;
+  refunded_minor: number;
+  currency: string;
+  failure_reason?: string | null;
+  attempts: number;
+  next_poll_at?: string | null;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface OutboxEventSummary {
@@ -1627,6 +1674,24 @@ export function listAiUsageRecords(params: {
   return apiRequest<ListResponse<AiUsageRecord>>(
     `/api/admin/ai/usage-records${query({
       status: params.status,
+      customer_id: params.customer_id,
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 50
+    })}`
+  );
+}
+
+export function listAiGenerationJobs(params: {
+  status?: string;
+  job_type?: string;
+  customer_id?: string;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<ListResponse<AiGenerationJob>> {
+  return apiRequest<ListResponse<AiGenerationJob>>(
+    `/api/admin/ai/generation-jobs${query({
+      status: params.status,
+      job_type: params.job_type,
       customer_id: params.customer_id,
       page: params.page ?? 1,
       page_size: params.page_size ?? 50

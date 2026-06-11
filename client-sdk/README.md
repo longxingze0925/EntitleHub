@@ -70,6 +70,7 @@ POST   /api/client/devices/self/rotate-key
 GET    /api/client/ai/v1/models
 POST   /api/client/ai/v1/chat/completions
 POST   /api/client/ai/v1/images/generations
+POST   /api/client/ai/v1/videos/generations
 POST   /api/client/ai/v1/embeddings
 ```
 
@@ -179,7 +180,7 @@ Client AI calls use the signed client routes and return raw provider-compatible 
 ```rust
 use client_sdk::{
     ai::{AiGatewayJsonResponse, AiModelListResponse},
-    client::{ai_chat_completions_request, ai_models_request, ProtectedClientRequestContext},
+    client::{ai_chat_completions_request, ai_models_request, ai_video_generations_request, ProtectedClientRequestContext},
 };
 
 let context = ProtectedClientRequestContext {
@@ -208,9 +209,31 @@ let chat = AiGatewayJsonResponse::from_json_with_usage_id(
     &chat_response_body,
     response_headers.get("x-entitlehub-usage-id"),
 )?;
+
+let video_request = ai_video_generations_request(
+    context,
+    &serde_json::json!({
+        "model": "video-test",
+        "prompt": "short intro",
+        "duration": 8
+    }),
+    Some("idempotency-key-2"),
+    |session| refresh_session(session),
+)?;
+// Send POST video_request.path with video_request.body and video_request.headers.
 ```
 
-The backend handles balance checks, subscription gating, provider forwarding, and image caching. For image responses, `ai::image_urls_from_response` extracts URLs after the backend has replaced provider assets with EntitleHub asset URLs.
+The backend handles balance checks, subscription gating, provider forwarding, and image/video caching. For image responses, `ai::image_urls_from_response` extracts URLs after the backend has replaced provider assets with EntitleHub asset URLs. For video responses, `ai::video_urls_from_response` extracts cached EntitleHub asset URLs from common provider response shapes.
+
+For Web products, do not put EntitleHub Server Keys in the browser. Keep the Server Key in your business backend and call the server-side async generation routes:
+
+```text
+POST /api/server/ai/v1/images/jobs
+POST /api/server/ai/v1/videos/jobs
+GET  /api/server/ai/v1/jobs/{job_id}
+```
+
+Those routes are designed for async providers such as image/video task APIs. EntitleHub reserves wallet balance when the job is created, polls the provider result, caches generated assets under `/api/ai/assets/{id}`, and only captures the charge after the assets are ready.
 
 ## Device Key Rotation
 

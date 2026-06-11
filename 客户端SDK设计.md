@@ -543,6 +543,22 @@ SDK 行为：
 - 授权过期时标记本地功能不可用，不应仅因为无订阅就清理登录 session。
 - 网络失败时可按 offline_tolerance 使用缓存。
 
+客户端 AI 网关 SDK 封装：
+
+```text
+GET  /api/client/ai/v1/models
+POST /api/client/ai/v1/chat/completions
+POST /api/client/ai/v1/images/generations
+POST /api/client/ai/v1/videos/generations
+POST /api/client/ai/v1/embeddings
+```
+
+说明：
+
+- 图片和视频结果由后端缓存为 `/api/ai/assets/{id}`，客户端不接触三方素材 URL 或三方密钥。
+- 桌面客户端 SDK 面向“设备 + 客户登录”的客户端路由，只封装同步 AI 网关。
+- Web 产品长期商用接入应由业务后端持有 EntitleHub Server Key，调用 `/api/server/ai/v1/images/jobs`、`/api/server/ai/v1/videos/jobs` 和 `/api/server/ai/v1/jobs/{job_id}`；浏览器不保存 Server Key。
+
 ## 15. 离线容忍
 
 SDK 可以支持离线容忍，但必须有限制。

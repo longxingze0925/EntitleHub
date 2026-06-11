@@ -152,6 +152,7 @@ export function App() {
           <Route path="releases" element={<ReleasesPage />} />
           <Route path="scripts" element={<ScriptsPage />} />
           <Route path="tasks" element={<OutboxEventsPage />} />
+          <Route path="logs/ai-jobs" element={<AiBillingPage />} />
           <Route path="logs/ai-usage" element={<AiBillingPage />} />
           <Route path="logs/billing-ledger" element={<AiWalletLedgerPage />} />
           <Route path="logs/ai-assets" element={<AiBillingPage />} />

@@ -17,9 +17,10 @@ use crate::state::AppState;
 const DURATION_BUCKETS_SECONDS: [f64; 10] =
     [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0];
 const NOTIFICATION_KIND_LABELS: [&str; 4] = ["webhook", "email", "pagerduty", "unknown"];
-const AI_GATEWAY_ENDPOINT_LABELS: [&str; 6] = [
+const AI_GATEWAY_ENDPOINT_LABELS: [&str; 7] = [
     "chat_completions",
     "image_generations",
+    "video_generations",
     "embeddings",
     "models",
     "assets",
@@ -546,12 +547,25 @@ fn notification_kind_index(kind: &str) -> usize {
 
 fn ai_gateway_endpoint_index(endpoint: &str) -> usize {
     match endpoint {
-        "/v1/chat/completions" | "chat_completions" => 0,
-        "/v1/images/generations" | "image_generations" => 1,
-        "/v1/embeddings" | "embeddings" => 2,
-        "/v1/models" | "models" => 3,
-        "/api/ai/assets/{id}" | "assets" => 4,
-        _ => 5,
+        "/v1/chat/completions"
+        | "/api/server/ai/v1/chat/completions"
+        | "/api/client/ai/v1/chat/completions"
+        | "chat_completions" => 0,
+        "/v1/images/generations"
+        | "/api/server/ai/v1/images/generations"
+        | "/api/client/ai/v1/images/generations"
+        | "image_generations" => 1,
+        "/v1/videos/generations"
+        | "/api/server/ai/v1/videos/generations"
+        | "/api/client/ai/v1/videos/generations"
+        | "video_generations" => 2,
+        "/v1/embeddings"
+        | "/api/server/ai/v1/embeddings"
+        | "/api/client/ai/v1/embeddings"
+        | "embeddings" => 3,
+        "/v1/models" | "/api/server/ai/v1/models" | "/api/client/ai/v1/models" | "models" => 4,
+        "/api/ai/assets/{id}" | "assets" => 5,
+        _ => 6,
     }
 }
 

@@ -45,7 +45,9 @@ const DEFAULT_COMPLETION_TOKEN_BUDGET: i64 = 4096;
 const MAX_COMPLETION_TOKEN_BUDGET: i64 = 128_000;
 const MAX_PROMPT_TOKEN_ESTIMATE: i64 = 512_000;
 const MAX_IMAGE_COUNT: i64 = 10;
-const MAX_AI_ASSET_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_IMAGE_ASSET_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_VIDEO_ASSET_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_VIDEO_SECONDS: i64 = 3600;
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 200;
 
 #[derive(Debug, Clone, FromRow)]
@@ -461,6 +463,159 @@ async fn image_generations_for_caller(
                 None,
                 None,
                 "AI 图片请求异常，释放预扣金额",
+            )
+            .await?;
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
+
+            Err(error)
+        }
+    }
+}
+
+pub async fn video_generations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let caller = GatewayCaller::from_api_key(authenticate_api_key(&state, &headers).await?);
+    video_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
+pub async fn client_video_generations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(client): Extension<ClientContext>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    ensure_active_subscription(&client)?;
+    let caller = GatewayCaller::from_client_context(&client)?;
+    video_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
+pub async fn server_video_generations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Response, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    let customer_id = customer_id_from_headers(&headers)?;
+    ensure_server_customer_subscription(&state, &server_key, customer_id).await?;
+    let caller = GatewayCaller::from_server_key(&server_key, customer_id);
+    video_generations_for_caller(state, request_id, headers, payload, caller).await
+}
+
+async fn video_generations_for_caller(
+    state: AppState,
+    request_id: RequestId,
+    headers: HeaderMap,
+    payload: Value,
+    caller: GatewayCaller,
+) -> Result<Response, AppError> {
+    check_gateway_rate_limit(&state, &caller).await?;
+    let endpoint = gateway_endpoint(&caller, "/v1/videos/generations");
+    let idempotency_key = idempotency_key(&headers)?;
+    if let Some(response) =
+        find_idempotent_response(&state, &caller, &endpoint, idempotency_key.as_deref()).await?
+    {
+        return Ok(response);
+    }
+    let model_code = requested_model_code(&payload)?;
+    let model = load_gateway_model(&state, caller.tenant_id, model_code).await?;
+    validate_model_for_videos(&model)?;
+
+    let hold_minor = estimate_video_hold_minor(&payload, &model)?;
+    let reservation = reserve_wallet_and_create_usage(
+        &state,
+        &caller,
+        &model,
+        &request_id.to_string(),
+        &endpoint,
+        hold_minor,
+        &payload,
+        idempotency_key.as_deref(),
+    )
+    .await?;
+
+    let provider_started = Instant::now();
+    let provider_result =
+        forward_openai_compatible_json(&state, &model, payload, "videos/generations").await;
+    metrics::record_ai_gateway_provider_duration(&endpoint, provider_started.elapsed());
+
+    match provider_result {
+        Ok(mut provider_response) if provider_response.status.is_success() => {
+            if let Err(error) = cache_video_assets(
+                &state,
+                caller.tenant_id,
+                reservation.usage_id,
+                &mut provider_response.body,
+            )
+            .await
+            {
+                release_usage(
+                    &state,
+                    &reservation,
+                    provider_response.status.as_u16() as i32,
+                    provider_response.provider_request_id.as_deref(),
+                    Some(&provider_response.body),
+                    "AI 视频缓存失败，释放预扣金额",
+                )
+                .await?;
+                metrics::record_ai_gateway_asset_cache_failure();
+                metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
+
+                return Err(error);
+            }
+            let charge_minor = calculate_video_charge_minor(&model, &provider_response.body)
+                .unwrap_or(reservation.held_minor);
+            capture_usage(
+                &state,
+                &reservation,
+                &model,
+                provider_response.status.as_u16() as i32,
+                provider_response.provider_request_id.as_deref(),
+                TokenUsage::default(),
+                charge_minor,
+                &provider_response.body,
+            )
+            .await?;
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Success);
+            metrics::record_ai_gateway_charged(&endpoint, charge_minor);
+
+            Ok(provider_json_response(
+                provider_response.status,
+                provider_response.body,
+                reservation.usage_id,
+            ))
+        }
+        Ok(provider_response) => {
+            release_usage(
+                &state,
+                &reservation,
+                provider_response.status.as_u16() as i32,
+                provider_response.provider_request_id.as_deref(),
+                Some(&provider_response.body),
+                "AI 视频请求失败，释放预扣金额",
+            )
+            .await?;
+            metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::ProviderError);
+
+            Ok(provider_json_response(
+                provider_response.status,
+                provider_response.body,
+                reservation.usage_id,
+            ))
+        }
+        Err(error) => {
+            release_usage(
+                &state,
+                &reservation,
+                0,
+                None,
+                None,
+                "AI 视频请求异常，释放预扣金额",
             )
             .await?;
             metrics::record_ai_gateway_request(&endpoint, AiGatewayRequestStatus::Error);
@@ -1619,6 +1774,34 @@ fn validate_model_for_images(model: &GatewayModel) -> Result<(), AppError> {
     Ok(())
 }
 
+fn validate_model_for_videos(model: &GatewayModel) -> Result<(), AppError> {
+    if model.provider_kind != "openai_compatible" {
+        return Err(AppError::validation_failed(
+            "ai provider is not openai compatible",
+        ));
+    }
+    if !matches!(model.modality.as_str(), "video" | "multimodal") {
+        return Err(AppError::validation_failed(
+            "ai model does not support video generations",
+        ));
+    }
+    if !matches!(
+        model.billing_mode.as_str(),
+        "video_per_second" | "video_per_request"
+    ) {
+        return Err(AppError::validation_failed(
+            "ai video model billing mode must be video_per_second or video_per_request",
+        ));
+    }
+    if model.provider_secret_encrypted.is_none() {
+        return Err(AppError::validation_failed(
+            "ai provider api key is not configured",
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_model_for_embeddings(model: &GatewayModel) -> Result<(), AppError> {
     if model.provider_kind != "openai_compatible" {
         return Err(AppError::validation_failed(
@@ -1711,7 +1894,7 @@ async fn cache_image_assets(
             continue;
         };
         if let Some(provider_url) = object.get("url").and_then(Value::as_str) {
-            let asset = download_provider_asset(provider_url).await?;
+            let asset = download_provider_asset(provider_url, MAX_IMAGE_ASSET_BYTES).await?;
             let public_url = store_ai_asset(
                 state,
                 tenant_id,
@@ -1751,12 +1934,92 @@ async fn cache_image_assets(
     Ok(())
 }
 
+async fn cache_video_assets(
+    state: &AppState,
+    tenant_id: Uuid,
+    usage_id: Uuid,
+    body: &mut Value,
+) -> Result<(), AppError> {
+    let mut cached_count = 0;
+    cache_video_assets_in_value(state, tenant_id, usage_id, body, &mut cached_count).await?;
+    if cached_count == 0 {
+        return Err(AppError::dependency(
+            "ai video response did not include cacheable video urls",
+        ));
+    }
+
+    Ok(())
+}
+
+async fn cache_video_assets_in_value(
+    state: &AppState,
+    tenant_id: Uuid,
+    usage_id: Uuid,
+    value: &mut Value,
+    cached_count: &mut usize,
+) -> Result<(), AppError> {
+    match value {
+        Value::Object(object) => {
+            for key in ["url", "video_url", "output_url", "download_url"] {
+                let Some(provider_url) = object.get(key).and_then(Value::as_str).map(str::to_owned)
+                else {
+                    continue;
+                };
+                if !is_http_asset_url(&provider_url) {
+                    continue;
+                }
+                let asset = download_provider_asset(&provider_url, MAX_VIDEO_ASSET_BYTES).await?;
+                let public_url = store_ai_asset(
+                    state,
+                    tenant_id,
+                    usage_id,
+                    "video",
+                    Some(provider_url),
+                    asset.mime_type,
+                    asset.bytes,
+                )
+                .await?;
+                object.insert(key.to_owned(), Value::String(public_url));
+                *cached_count += 1;
+            }
+            for nested in object.values_mut() {
+                Box::pin(cache_video_assets_in_value(
+                    state,
+                    tenant_id,
+                    usage_id,
+                    nested,
+                    cached_count,
+                ))
+                .await?;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                Box::pin(cache_video_assets_in_value(
+                    state,
+                    tenant_id,
+                    usage_id,
+                    item,
+                    cached_count,
+                ))
+                .await?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 struct DecodedAsset {
     bytes: Vec<u8>,
     mime_type: String,
 }
 
-async fn download_provider_asset(provider_url: &str) -> Result<DecodedAsset, AppError> {
+async fn download_provider_asset(
+    provider_url: &str,
+    max_bytes: u64,
+) -> Result<DecodedAsset, AppError> {
     let url = reqwest::Url::parse(provider_url)
         .map_err(|_| AppError::dependency("ai provider asset url is invalid"))?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
@@ -1783,7 +2046,7 @@ async fn download_provider_asset(provider_url: &str) -> Result<DecodedAsset, App
     }
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_AI_ASSET_BYTES)
+        .is_some_and(|length| length > max_bytes)
     {
         return Err(AppError::dependency("ai asset is too large"));
     }
@@ -1798,7 +2061,7 @@ async fn download_provider_asset(provider_url: &str) -> Result<DecodedAsset, App
     while let Some(chunk) = stream.next().await {
         let chunk = chunk
             .map_err(|error| AppError::dependency(format!("ai asset download failed: {error}")))?;
-        if (bytes.len() as u64) + (chunk.len() as u64) > MAX_AI_ASSET_BYTES {
+        if (bytes.len() as u64) + (chunk.len() as u64) > max_bytes {
             return Err(AppError::dependency("ai asset is too large"));
         }
         bytes.extend_from_slice(&chunk);
@@ -1869,7 +2132,7 @@ fn decode_base64_image_asset(value: &str) -> Result<DecodedAsset, AppError> {
     let bytes = BASE64_STANDARD
         .decode(b64)
         .map_err(|_| AppError::dependency("ai image b64_json is invalid"))?;
-    if bytes.len() as u64 > MAX_AI_ASSET_BYTES {
+    if bytes.len() as u64 > MAX_IMAGE_ASSET_BYTES {
         return Err(AppError::dependency("ai asset is too large"));
     }
 
@@ -1951,12 +2214,25 @@ fn normalize_mime_type(value: &str) -> Option<String> {
     }
 }
 
+fn is_http_asset_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+}
+
 fn extension_for_mime(mime_type: &str) -> &'static str {
     match mime_type {
         "image/jpeg" | "image/jpg" => "jpg",
         "image/png" => "png",
         "image/webp" => "webp",
         "image/gif" => "gif",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "video/mpeg" => "mpeg",
+        "video/x-msvideo" => "avi",
+        "video/x-matroska" => "mkv",
         _ => "bin",
     }
 }
@@ -2089,6 +2365,114 @@ fn image_result_count(provider_body: &Value) -> Option<i64> {
         .and_then(Value::as_array)
         .map(|items| items.len() as i64)
         .filter(|count| *count > 0)
+}
+
+fn estimate_video_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, AppError> {
+    match model.billing_mode.as_str() {
+        "video_per_request" => Ok(model.request_price_minor),
+        "video_per_second" => {
+            let seconds = requested_video_seconds(payload)?;
+            model
+                .request_price_minor
+                .checked_add(
+                    model
+                        .second_price_minor
+                        .checked_mul(seconds)
+                        .ok_or_else(|| {
+                            AppError::validation_failed("ai estimated video charge is too large")
+                        })?,
+                )
+                .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large"))
+        }
+        _ => Err(AppError::validation_failed(
+            "ai video model billing mode is invalid",
+        )),
+    }
+}
+
+fn calculate_video_charge_minor(model: &GatewayModel, provider_body: &Value) -> Option<i64> {
+    match model.billing_mode.as_str() {
+        "video_per_request" => Some(model.request_price_minor),
+        "video_per_second" => {
+            let seconds = video_seconds_from_response(provider_body)
+                .or_else(|| video_seconds_from_pricing_config(&model.pricing_config))?;
+            model
+                .request_price_minor
+                .checked_add(model.second_price_minor.checked_mul(seconds)?)
+        }
+        _ => None,
+    }
+}
+
+fn requested_video_seconds(payload: &Value) -> Result<i64, AppError> {
+    let seconds = match optional_video_seconds(payload)? {
+        Some(seconds) => seconds,
+        None => match payload.get("video") {
+            Some(video) => optional_video_seconds(video)?.unwrap_or(8),
+            None => 8,
+        },
+    };
+    if !(1..=MAX_VIDEO_SECONDS).contains(&seconds) {
+        return Err(AppError::validation_failed(format!(
+            "video duration must be between 1 and {MAX_VIDEO_SECONDS} seconds"
+        )));
+    }
+
+    Ok(seconds)
+}
+
+fn optional_video_seconds(value: &Value) -> Result<Option<i64>, AppError> {
+    for key in ["duration", "duration_seconds", "seconds"] {
+        if let Some(raw) = value.get(key) {
+            return value_to_positive_seconds(raw)
+                .map(Some)
+                .ok_or_else(|| AppError::validation_failed("video duration is invalid"));
+        }
+    }
+
+    Ok(None)
+}
+
+fn video_seconds_from_response(provider_body: &Value) -> Option<i64> {
+    find_positive_seconds(provider_body).filter(|seconds| (1..=MAX_VIDEO_SECONDS).contains(seconds))
+}
+
+fn video_seconds_from_pricing_config(config: &Value) -> Option<i64> {
+    config
+        .get("default_duration_seconds")
+        .or_else(|| config.get("duration_seconds"))
+        .or_else(|| config.get("seconds"))
+        .and_then(value_to_positive_seconds)
+        .filter(|seconds| (1..=MAX_VIDEO_SECONDS).contains(seconds))
+}
+
+fn find_positive_seconds(value: &Value) -> Option<i64> {
+    match value {
+        Value::Object(object) => {
+            for key in ["duration", "duration_seconds", "seconds"] {
+                if let Some(seconds) = object.get(key).and_then(value_to_positive_seconds) {
+                    return Some(seconds);
+                }
+            }
+            object.values().find_map(find_positive_seconds)
+        }
+        Value::Array(items) => items.iter().find_map(find_positive_seconds),
+        _ => None,
+    }
+}
+
+fn value_to_positive_seconds(value: &Value) -> Option<i64> {
+    if let Some(value) = value.as_i64() {
+        return (value > 0).then_some(value);
+    }
+    if let Some(value) = value.as_f64() {
+        return (value.is_finite() && value > 0.0).then_some(value.ceil() as i64);
+    }
+    value
+        .as_str()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| value.ceil() as i64)
 }
 
 fn estimate_embedding_hold_minor(payload: &Value, model: &GatewayModel) -> Result<i64, AppError> {
@@ -2246,11 +2630,12 @@ mod tests {
 
     use super::{
         calculate_actual_charge_minor, calculate_embedding_charge_minor,
-        calculate_image_charge_minor, completion_token_budget, decode_base64_image_asset,
-        ensure_daily_limit_available, ensure_provider_asset_url_allowed, ensure_wallet_ai_enabled,
-        estimate_embedding_hold_minor, estimate_hold_minor, estimate_image_hold_minor,
-        extension_for_mime, idempotency_key, image_count, normalize_mime_type, provider_payload,
-        provider_timeout, settle_charge, token_price_minor, token_usage_from_response,
+        calculate_image_charge_minor, calculate_video_charge_minor, completion_token_budget,
+        decode_base64_image_asset, ensure_daily_limit_available, ensure_provider_asset_url_allowed,
+        ensure_wallet_ai_enabled, estimate_embedding_hold_minor, estimate_hold_minor,
+        estimate_image_hold_minor, estimate_video_hold_minor, extension_for_mime, idempotency_key,
+        image_count, normalize_mime_type, provider_payload, provider_timeout,
+        requested_video_seconds, settle_charge, token_price_minor, token_usage_from_response,
         GatewayCaller, GatewayModel, WalletRecord,
     };
 
@@ -2390,6 +2775,67 @@ mod tests {
     }
 
     #[test]
+    fn video_hold_and_charge_support_per_second_and_per_request() {
+        let per_second = GatewayModel {
+            modality: "video".to_owned(),
+            billing_mode: "video_per_second".to_owned(),
+            request_price_minor: 100,
+            second_price_minor: 25,
+            ..fixture_model()
+        };
+        let payload = json!({
+            "model": "video-test",
+            "prompt": "intro",
+            "duration": 8
+        });
+        let body = json!({
+            "data": [{ "video_url": "https://cdn.example.com/video.mp4", "duration_seconds": 6 }]
+        });
+
+        assert_eq!(requested_video_seconds(&payload).expect("seconds"), 8);
+        assert_eq!(
+            estimate_video_hold_minor(&payload, &per_second).expect("hold"),
+            300
+        );
+        assert_eq!(
+            calculate_video_charge_minor(&per_second, &body).expect("charge"),
+            250
+        );
+
+        let per_request = GatewayModel {
+            modality: "video".to_owned(),
+            billing_mode: "video_per_request".to_owned(),
+            request_price_minor: 800,
+            second_price_minor: 25,
+            ..fixture_model()
+        };
+        assert_eq!(
+            estimate_video_hold_minor(&payload, &per_request).expect("hold"),
+            800
+        );
+        assert_eq!(
+            calculate_video_charge_minor(&per_request, &body).expect("charge"),
+            800
+        );
+    }
+
+    #[test]
+    fn video_duration_accepts_common_fields_and_rejects_invalid_values() {
+        assert_eq!(
+            requested_video_seconds(&json!({"model": "video", "duration_seconds": 3.2}))
+                .expect("seconds"),
+            4
+        );
+        assert_eq!(
+            requested_video_seconds(&json!({"model": "video", "video": {"seconds": "12"}}))
+                .expect("seconds"),
+            12
+        );
+        assert!(requested_video_seconds(&json!({"model": "video", "duration": 0})).is_err());
+        assert!(requested_video_seconds(&json!({"model": "video", "duration": 3601})).is_err());
+    }
+
+    #[test]
     fn embedding_hold_uses_input_estimate() {
         let model = GatewayModel {
             modality: "embedding".to_owned(),
@@ -2471,6 +2917,7 @@ mod tests {
             Some("image/png")
         );
         assert_eq!(extension_for_mime("image/png"), "png");
+        assert_eq!(extension_for_mime("video/mp4"), "mp4");
         assert_eq!(extension_for_mime("application/octet-stream"), "bin");
     }
 

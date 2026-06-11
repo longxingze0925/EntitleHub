@@ -21,10 +21,16 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use crate::{
-        ai::{image_urls_from_response, AiGatewayJsonResponse, AiModelListResponse},
+        ai::{
+            image_urls_from_response, video_urls_from_response, AiGatewayJsonResponse,
+            AiModelListResponse,
+        },
         auth::{ClientBootstrap, HeartbeatResponse, LogoutResponse, VerifyResponse},
         cache::{LogoutClearOptions, SdkCacheEnvelope},
-        client::{ai_chat_completions_request, ai_models_request, ProtectedClientRequestContext},
+        client::{
+            ai_chat_completions_request, ai_models_request, ai_video_generations_request,
+            ProtectedClientRequestContext,
+        },
         device::{build_rotate_device_key_request, DeviceIdentity, RotateDeviceKeyResponse},
         jwks::JwksCache,
         request::{build_authorized_cached_device_request, CachedAuthorizedDeviceRequestInput},
@@ -206,6 +212,21 @@ mod tests {
             ai_chat_request.header("Idempotency-Key"),
             Some("sdk-flow-1")
         );
+        let ai_video_request = ai_video_generations_request(
+            context,
+            &serde_json::json!({
+                "model": "video-test",
+                "prompt": "short intro",
+                "duration": 8
+            }),
+            Some("sdk-video-1"),
+            |_| unreachable!("access token should not refresh"),
+        )
+        .expect("ai video request should sign");
+        assert_eq!(
+            ai_video_request.path,
+            "/api/client/ai/v1/videos/generations"
+        );
 
         let models = AiModelListResponse::from_json(
             r#"{
@@ -232,6 +253,16 @@ mod tests {
         assert_eq!(
             image_urls_from_response(&ai_response.body),
             vec!["/api/ai/assets/00000000-0000-0000-0000-000000000099".to_owned()]
+        );
+        let video_response = AiGatewayJsonResponse::from_json(
+            r#"{
+              "data": [{ "video_url": "/api/ai/assets/00000000-0000-0000-0000-000000000100" }]
+            }"#,
+        )
+        .expect("video response");
+        assert_eq!(
+            video_urls_from_response(&video_response.body),
+            vec!["/api/ai/assets/00000000-0000-0000-0000-000000000100".to_owned()]
         );
 
         let rotated_device = cache.device.rotate_key().expect("rotated key");

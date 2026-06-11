@@ -28,6 +28,7 @@ import {
   deleteAiAsset,
   listAiApiKeys,
   listAiAssets,
+  listAiGenerationJobs,
   listAiModels,
   listAiProviders,
   listAiUsageRecords,
@@ -42,6 +43,9 @@ import {
   type AiAsset,
   type AiAssetStatus,
   type AiAssetType,
+  type AiGenerationJob,
+  type AiGenerationJobStatus,
+  type AiGenerationJobType,
   type AiApiKey,
   type AiModel,
   type AiModelBillingMode,
@@ -118,7 +122,8 @@ const providerKindOptions: Array<{ label: string; value: AiProviderKind }> = [
   { label: "Gemini", value: "gemini" },
   { label: "DeepSeek", value: "deepseek" },
   { label: "图片平台", value: "image" },
-  { label: "视频平台", value: "video" }
+  { label: "视频平台", value: "video" },
+  { label: "速创平台", value: "wuyin_keji" }
 ];
 
 const modalityOptions: Array<{ label: string; value: AiModelModality }> = [
@@ -164,7 +169,7 @@ const billingModeOptionsByModality: Record<
 
 const defaultJson = "{\n}";
 
-type AiBillingSection = "providers" | "models" | "wallets" | "usage" | "assets";
+type AiBillingSection = "providers" | "models" | "wallets" | "jobs" | "usage" | "assets";
 
 const sectionTitles: Record<AiBillingSection, { title: string; subtitle: string }> = {
   providers: {
@@ -178,6 +183,10 @@ const sectionTitles: Record<AiBillingSection, { title: string; subtitle: string 
   wallets: {
     title: "客户余额",
     subtitle: "客户 AI 余额、每日限额和权限冻结"
+  },
+  jobs: {
+    title: "生成任务",
+    subtitle: "异步图片和视频生成任务、三方状态、素材缓存和结算状态"
   },
   usage: {
     title: "调用日志",
@@ -252,6 +261,11 @@ export function AiBillingPage() {
   const usageRecordsQuery = useQuery({
     queryKey: ["admin", "ai-usage-records"],
     queryFn: () => listAiUsageRecords({ page: 1, page_size: 50 })
+  });
+
+  const generationJobsQuery = useQuery({
+    queryKey: ["admin", "ai-generation-jobs"],
+    queryFn: () => listAiGenerationJobs({ page: 1, page_size: 50 })
   });
 
   const assetsQuery = useQuery({
@@ -1073,6 +1087,128 @@ export function AiBillingPage() {
     }
   ];
 
+  const generationJobColumns: ColumnsType<AiGenerationJob> = [
+    {
+      title: "客户",
+      dataIndex: "customer_email",
+      key: "customer_email",
+      width: 340,
+      render: (value: string | null | undefined, record) => (
+        <Space className="ai-stacked-cell" direction="vertical" size={0}>
+          <Typography.Text ellipsis title={record.customer_name || value || "-"}>
+            {record.customer_name || value || "-"}
+          </Typography.Text>
+          {value ? (
+            <Typography.Text ellipsis title={value} type="secondary">
+              {value}
+            </Typography.Text>
+          ) : null}
+        </Space>
+      )
+    },
+    {
+      title: "任务",
+      key: "job",
+      width: 260,
+      render: (_, record) => (
+        <Space className="ai-stacked-cell" direction="vertical" size={0}>
+          <Space size={6}>
+            <Tag>{generationJobTypeLabel(record.job_type)}</Tag>
+            <Typography.Text ellipsis title={record.model_code ?? "-"}>
+              {record.model_code ?? "-"}
+            </Typography.Text>
+          </Space>
+          <Typography.Text ellipsis title={record.provider_name ?? "-"} type="secondary">
+            {record.provider_name ?? "-"}
+          </Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      key: "status",
+      width: 130,
+      render: (value: AiGenerationJobStatus) => <Tag>{generationJobStatusLabel(value)}</Tag>
+    },
+    {
+      title: "三方任务",
+      dataIndex: "provider_job_id",
+      key: "provider_job_id",
+      width: 260,
+      render: (value: string | null | undefined, record) => (
+        <Space className="ai-stacked-cell" direction="vertical" size={0}>
+          <Typography.Text copyable={Boolean(value)} ellipsis title={value ?? "-"}>
+            {value ?? "-"}
+          </Typography.Text>
+          <Typography.Text type="secondary">状态 {record.provider_status ?? "-"}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "计费",
+      key: "billing",
+      width: 220,
+      render: (_, record) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>
+            {billingModeLabels[record.charge_mode as AiModelBillingMode] ?? record.charge_mode}
+            {" x "}
+            {record.quantity}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            预扣 {money(record.held_minor, record.currency)}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            扣费 {money(record.charged_minor, record.currency)}
+          </Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "素材",
+      dataIndex: "asset_urls",
+      key: "asset_urls",
+      width: 280,
+      render: (value: string[]) =>
+        value?.length ? (
+          <Space className="ai-stacked-cell" direction="vertical" size={0}>
+            {value.slice(0, 2).map((url) => (
+              <Typography.Text key={url} copyable ellipsis title={url}>
+                {url}
+              </Typography.Text>
+            ))}
+            {value.length > 2 ? (
+              <Typography.Text type="secondary">还有 {value.length - 2} 个素材</Typography.Text>
+            ) : null}
+          </Space>
+        ) : (
+          "-"
+        )
+    },
+    {
+      title: "异常",
+      dataIndex: "failure_reason",
+      key: "failure_reason",
+      width: 260,
+      render: (value?: string | null) =>
+        value ? (
+          <Typography.Text type="danger" ellipsis title={value}>
+            {value}
+          </Typography.Text>
+        ) : (
+          "-"
+        )
+    },
+    {
+      title: "创建时间",
+      dataIndex: "created_at",
+      key: "created_at",
+      width: 180,
+      render: (value: string) => dateTime(value)
+    }
+  ];
+
   const assetColumns: ColumnsType<AiAsset> = [
     {
       title: "客户",
@@ -1205,6 +1341,9 @@ export function AiBillingPage() {
       case "wallets":
         walletsQuery.refetch();
         return;
+      case "jobs":
+        generationJobsQuery.refetch();
+        return;
       case "usage":
         usageRecordsQuery.refetch();
         return;
@@ -1255,6 +1394,7 @@ export function AiBillingPage() {
       modelsQuery.error ||
       walletsQuery.error ||
       (showOpenApiKeyManagement && apiKeysQuery.error) ||
+      generationJobsQuery.error ||
       usageRecordsQuery.error ||
       assetsQuery.error ? (
         <Alert
@@ -1265,6 +1405,7 @@ export function AiBillingPage() {
                 modelsQuery.error ||
                 walletsQuery.error ||
                 (showOpenApiKeyManagement && apiKeysQuery.error) ||
+                generationJobsQuery.error ||
                 usageRecordsQuery.error ||
                 assetsQuery.error
             ) ??
@@ -1360,6 +1501,18 @@ export function AiBillingPage() {
             locale={{ emptyText: "暂无数据" }}
           />
         </div>
+      ) : null}
+
+      {currentSection === "jobs" ? (
+        <Table
+          rowKey="id"
+          loading={generationJobsQuery.isLoading}
+          columns={generationJobColumns}
+          dataSource={generationJobsQuery.data?.items ?? []}
+          pagination={false}
+          scroll={AI_TABLE_SCROLL}
+          locale={{ emptyText: "暂无数据" }}
+        />
       ) : null}
 
       {currentSection === "usage" ? (
@@ -1703,6 +1856,9 @@ function aiBillingSectionFromPath(pathname: string): AiBillingSection {
   if (pathname === "/logs/ai-usage") {
     return "usage";
   }
+  if (pathname === "/logs/ai-jobs") {
+    return "jobs";
+  }
   if (pathname === "/logs/ai-assets") {
     return "assets";
   }
@@ -1714,6 +1870,9 @@ function aiBillingSectionFromPath(pathname: string): AiBillingSection {
   }
   if (pathname.endsWith("/usage")) {
     return "usage";
+  }
+  if (pathname.endsWith("/jobs")) {
+    return "jobs";
   }
   if (pathname.endsWith("/assets")) {
     return "assets";
@@ -1930,6 +2089,32 @@ function usageStatusLabel(value: string): string {
     succeeded: "成功",
     failed: "失败",
     refunded: "已退款"
+  };
+
+  return labels[value] ?? value;
+}
+
+function generationJobTypeLabel(value: AiGenerationJobType): string {
+  const labels: Record<AiGenerationJobType, string> = {
+    image: "图片",
+    video: "视频"
+  };
+
+  return labels[value] ?? value;
+}
+
+function generationJobStatusLabel(value: AiGenerationJobStatus): string {
+  const labels: Record<AiGenerationJobStatus, string> = {
+    pending: "待提交",
+    submitted: "已提交",
+    running: "生成中",
+    provider_succeeded: "三方成功",
+    caching: "缓存中",
+    succeeded: "完成",
+    provider_failed: "三方失败",
+    failed: "失败",
+    timeout_review: "超时待确认",
+    cancelled: "已取消"
   };
 
   return labels[value] ?? value;

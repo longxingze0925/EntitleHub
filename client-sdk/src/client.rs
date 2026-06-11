@@ -1,7 +1,10 @@
 use serde::Serialize;
 
 use crate::{
-    ai::{build_chat_completions_body, build_embeddings_body, build_image_generations_body},
+    ai::{
+        build_chat_completions_body, build_embeddings_body, build_image_generations_body,
+        build_video_generations_body,
+    },
     auth::{
         build_email_verify_confirm_request, build_heartbeat_request,
         build_password_reset_confirm_request, build_refresh_request, ActivationRequestPayload,
@@ -32,6 +35,7 @@ pub const DEVICE_ROTATE_KEY_PATH: &str = "/api/client/devices/self/rotate-key";
 pub const AI_MODELS_PATH: &str = "/api/client/ai/v1/models";
 pub const AI_CHAT_COMPLETIONS_PATH: &str = "/api/client/ai/v1/chat/completions";
 pub const AI_IMAGE_GENERATIONS_PATH: &str = "/api/client/ai/v1/images/generations";
+pub const AI_VIDEO_GENERATIONS_PATH: &str = "/api/client/ai/v1/videos/generations";
 pub const AI_EMBEDDINGS_PATH: &str = "/api/client/ai/v1/embeddings";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
@@ -315,6 +319,26 @@ where
     )
 }
 
+pub fn ai_video_generations_request<F>(
+    context: ProtectedClientRequestContext<'_>,
+    payload: &serde_json::Value,
+    idempotency_key: Option<&str>,
+    refresh: F,
+) -> SdkResult<ClientRequestParts>
+where
+    F: FnOnce(&ClientSessionState) -> SdkResult<SessionRefresh>,
+{
+    let body = build_video_generations_body(payload)?;
+    protected_request(
+        context,
+        "POST",
+        AI_VIDEO_GENERATIONS_PATH,
+        body,
+        ai_extra_headers(idempotency_key)?,
+        refresh,
+    )
+}
+
 pub fn ai_embeddings_request<F>(
     context: ProtectedClientRequestContext<'_>,
     payload: &serde_json::Value,
@@ -492,14 +516,14 @@ mod tests {
 
     use super::{
         activation_request, ai_chat_completions_request, ai_embeddings_request,
-        ai_image_generations_request, ai_models_request, email_verify_confirm_request,
-        fetch_secure_script_request, heartbeat_request, jwks_path, jwks_request,
-        latest_release_request, password_reset_confirm_request, refresh_request,
+        ai_image_generations_request, ai_models_request, ai_video_generations_request,
+        email_verify_confirm_request, fetch_secure_script_request, heartbeat_request, jwks_path,
+        jwks_request, latest_release_request, password_reset_confirm_request, refresh_request,
         release_download_path, rotate_device_key_request, secure_script_versions_request,
         unbind_current_device_request, verify_request, ClientConfig, ProtectedClientRequestContext,
         AI_CHAT_COMPLETIONS_PATH, AI_EMBEDDINGS_PATH, AI_IMAGE_GENERATIONS_PATH, AI_MODELS_PATH,
-        DEVICE_ROTATE_KEY_PATH, HEARTBEAT_PATH, RELEASE_LATEST_PATH, SECURE_SCRIPT_FETCH_PATH,
-        SECURE_SCRIPT_VERSIONS_PATH, VERIFY_PATH,
+        AI_VIDEO_GENERATIONS_PATH, DEVICE_ROTATE_KEY_PATH, HEARTBEAT_PATH, RELEASE_LATEST_PATH,
+        SECURE_SCRIPT_FETCH_PATH, SECURE_SCRIPT_VERSIONS_PATH, VERIFY_PATH,
     };
 
     #[test]
@@ -619,6 +643,13 @@ mod tests {
             no_refresh,
         )
         .expect("image request");
+        let video = ai_video_generations_request(
+            context,
+            &json!({ "model": "video-test", "prompt": "intro", "duration": 8 }),
+            None,
+            no_refresh,
+        )
+        .expect("video request");
         let embeddings = ai_embeddings_request(
             context,
             &json!({ "model": "embed-test", "input": "hello" }),
@@ -631,6 +662,7 @@ mod tests {
         assert_eq!(chat.header("Idempotency-Key"), Some("request-1"));
         assert_eq!(chat.header("Content-Type"), Some("application/json"));
         assert_eq!(image.path, AI_IMAGE_GENERATIONS_PATH);
+        assert_eq!(video.path, AI_VIDEO_GENERATIONS_PATH);
         assert_eq!(embeddings.path, AI_EMBEDDINGS_PATH);
         assert!(ai_chat_completions_request(
             context,

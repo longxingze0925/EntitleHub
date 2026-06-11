@@ -1930,7 +1930,7 @@ fn normalize_provider_kind(kind: &str) -> Result<String, AppError> {
     let kind = kind.trim().to_ascii_lowercase().replace('-', "_");
     match kind.as_str() {
         "openai_compatible" | "custom_http" | "claude" | "gemini" | "deepseek" | "image"
-        | "video" => Ok(kind),
+        | "video" | "wuyin_keji" => Ok(kind),
         _ => Err(AppError::validation_failed("ai provider kind is invalid")),
     }
 }
@@ -2292,6 +2292,10 @@ mod tests {
         assert_eq!(
             normalize_provider_kind("openai-compatible").expect("kind"),
             "openai_compatible"
+        );
+        assert_eq!(
+            normalize_provider_kind("wuyin-keji").expect("kind"),
+            "wuyin_keji"
         );
         assert!(normalize_provider_kind("random").is_err());
         assert_eq!(

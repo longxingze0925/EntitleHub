@@ -60,6 +60,10 @@ pub fn build(state: AppState) -> Router {
             post(ai::gateway::client_image_generations),
         )
         .route(
+            "/api/client/ai/v1/videos/generations",
+            post(ai::gateway::client_video_generations),
+        )
+        .route(
             "/api/client/ai/v1/models",
             get(ai::gateway::client_list_models),
         )
@@ -160,6 +164,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/api/admin/ai/usage-records",
             get(ai::usage::list_ai_usage_records),
+        )
+        .route(
+            "/api/admin/ai/generation-jobs",
+            get(ai::jobs::list_ai_generation_jobs),
         )
         .route("/api/admin/ai/assets", get(ai::assets::list_ai_assets))
         .route(
@@ -449,6 +457,19 @@ pub fn build(state: AppState) -> Router {
             post(ai::gateway::server_image_generations),
         )
         .route(
+            "/api/server/ai/v1/images/jobs",
+            post(ai::jobs::server_create_image_job),
+        )
+        .route(
+            "/api/server/ai/v1/videos/generations",
+            post(ai::gateway::server_video_generations),
+        )
+        .route(
+            "/api/server/ai/v1/videos/jobs",
+            post(ai::jobs::server_create_video_job),
+        )
+        .route("/api/server/ai/v1/jobs/{id}", get(ai::jobs::server_get_job))
+        .route(
             "/api/server/ai/v1/models",
             get(ai::gateway::server_list_models),
         )
@@ -457,6 +478,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/images/generations",
             post(ai::gateway::image_generations),
+        )
+        .route(
+            "/v1/videos/generations",
+            post(ai::gateway::video_generations),
         )
         .route("/v1/models", get(ai::gateway::list_models))
         .route(
