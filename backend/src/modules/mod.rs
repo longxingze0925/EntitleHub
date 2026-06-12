@@ -18,3 +18,6 @@ pub mod subscription;
 pub mod system;
 pub mod team;
 pub mod tenant;
+pub mod web_api;
+pub mod web_assets;
+pub mod web_works;

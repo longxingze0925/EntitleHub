@@ -1,7 +1,7 @@
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 
@@ -11,6 +11,7 @@ use crate::{
     modules::{
         ai, application, audit, auth, client_auth, customer, device, iam, license, notification,
         outbox, platform, release, secure_script, server_api, subscription, system, team, tenant,
+        web_api, web_assets, web_works,
     },
     state::AppState,
 };
@@ -493,6 +494,99 @@ pub fn build(state: AppState) -> Router {
             "/api/server/ai/v1/models",
             get(ai::gateway::server_list_models),
         )
+        .route(
+            "/api/server/web/v1/customers/register",
+            post(web_api::register_customer),
+        )
+        .route(
+            "/api/server/web/v1/customers/login",
+            post(web_api::login_customer),
+        )
+        .route(
+            "/api/server/web/v1/customers/{id}",
+            get(web_api::get_customer),
+        )
+        .route(
+            "/api/server/web/v1/customers/{id}/balance",
+            get(web_api::get_customer_balance),
+        )
+        .route(
+            "/api/server/web/v1/customers/{id}/usage",
+            get(web_api::get_customer_usage),
+        )
+        .route(
+            "/api/server/web/v1/customers/{id}/plan",
+            get(web_api::get_customer_plan),
+        )
+        .route("/api/server/web/v1/ai/models", get(web_api::list_ai_models))
+        .route(
+            "/api/server/web/v1/ai/jobs",
+            get(ai::jobs::web_list_jobs).post(ai::jobs::web_create_job),
+        )
+        .route(
+            "/api/server/web/v1/ai/jobs/{id}",
+            get(ai::jobs::web_get_job),
+        )
+        .route(
+            "/api/server/web/v1/ai/jobs/{id}/cancel",
+            post(ai::jobs::web_cancel_job),
+        )
+        .route(
+            "/api/server/web/v1/ai/jobs/{id}/retry",
+            post(ai::jobs::web_retry_job),
+        )
+        .route(
+            "/api/server/web/v1/asset-folders",
+            get(web_assets::list_asset_folders).post(web_assets::create_asset_folder),
+        )
+        .route(
+            "/api/server/web/v1/asset-folders/{id}",
+            patch(web_assets::update_asset_folder).delete(web_assets::delete_asset_folder),
+        )
+        .route(
+            "/api/server/web/v1/assets/upload-url",
+            post(web_assets::create_asset_upload_url),
+        )
+        .route(
+            "/api/server/web/v1/assets/uploads/{id}",
+            put(web_assets::upload_customer_asset).layer(DefaultBodyLimit::max(
+                web_assets::MAX_WEB_ASSET_UPLOAD_BYTES,
+            )),
+        )
+        .route(
+            "/api/server/web/v1/assets",
+            get(web_assets::list_customer_assets),
+        )
+        .route(
+            "/api/server/web/v1/assets/{id}",
+            get(web_assets::get_customer_asset)
+                .patch(web_assets::update_customer_asset)
+                .delete(web_assets::delete_customer_asset),
+        )
+        .route(
+            "/api/server/web/v1/assets/{id}/download",
+            get(web_assets::download_customer_asset),
+        )
+        .route("/api/server/web/v1/works", get(web_works::list_works))
+        .route(
+            "/api/server/web/v1/works/{id}",
+            get(web_works::get_work)
+                .patch(web_works::update_work)
+                .delete(web_works::delete_work),
+        )
+        .route(
+            "/api/server/web/v1/works/{id}/favorite",
+            post(web_works::favorite_work).delete(web_works::unfavorite_work),
+        )
+        .route(
+            "/api/server/web/v1/works/{id}/publish",
+            post(web_works::publish_work),
+        )
+        .route(
+            "/api/server/web/v1/works/{id}/unpublish",
+            post(web_works::unpublish_work),
+        )
+        .route("/api/server/web/v1/gallery", get(web_works::list_gallery))
         .route("/v1/chat/completions", post(ai::gateway::chat_completions))
         .route("/v1/embeddings", post(ai::gateway::embeddings))
         .route(

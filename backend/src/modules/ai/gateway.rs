@@ -38,6 +38,7 @@ use crate::{
             ai_invoke_scope, authenticate_server_key, customer_id_from_headers,
             ensure_server_customer_subscription, ServerApiKeyContext,
         },
+        web_assets, web_works,
     },
     rate_limit,
     state::AppState,
@@ -132,6 +133,7 @@ struct AiAssetRecord {
 #[derive(Debug, Clone)]
 struct GatewayCaller {
     tenant_id: Uuid,
+    app_id: Option<Uuid>,
     customer_id: Uuid,
     api_key_id: Option<Uuid>,
     rate_limit_key: String,
@@ -143,6 +145,7 @@ impl GatewayCaller {
     fn from_api_key(api_key: AiApiKeyContext) -> Self {
         Self {
             tenant_id: api_key.tenant_id,
+            app_id: None,
             customer_id: api_key.customer_id,
             api_key_id: Some(api_key.api_key_id),
             rate_limit_key: format!("api_key:{}", api_key.api_key_id),
@@ -158,6 +161,7 @@ impl GatewayCaller {
 
         Ok(Self {
             tenant_id: client.tenant_id,
+            app_id: None,
             customer_id,
             api_key_id: None,
             rate_limit_key: format!("client:{}:{}", customer_id, client.device_id),
@@ -169,6 +173,7 @@ impl GatewayCaller {
     fn from_server_key(server_key: &ServerApiKeyContext, customer_id: Uuid) -> Self {
         Self {
             tenant_id: server_key.tenant_id,
+            app_id: Some(server_key.app_id),
             customer_id,
             api_key_id: None,
             rate_limit_key: format!(
@@ -399,7 +404,7 @@ async fn image_generations_for_caller(
         Ok(mut provider_response) if provider_response.status.is_success() => {
             if let Err(error) = cache_image_assets(
                 &state,
-                caller.tenant_id,
+                &caller,
                 reservation.usage_id,
                 &mut provider_response.body,
             )
@@ -553,7 +558,7 @@ async fn video_generations_for_caller(
         Ok(mut provider_response) if provider_response.status.is_success() => {
             if let Err(error) = cache_video_assets(
                 &state,
-                caller.tenant_id,
+                &caller,
                 reservation.usage_id,
                 &mut provider_response.body,
             )
@@ -1923,7 +1928,7 @@ fn provider_payload(mut payload: Value, model: &GatewayModel) -> Result<Value, A
 
 async fn cache_image_assets(
     state: &AppState,
-    tenant_id: Uuid,
+    caller: &GatewayCaller,
     usage_id: Uuid,
     body: &mut Value,
 ) -> Result<(), AppError> {
@@ -1941,7 +1946,7 @@ async fn cache_image_assets(
             let asset = download_provider_asset(provider_url, MAX_IMAGE_ASSET_BYTES).await?;
             let public_url = store_ai_asset(
                 state,
-                tenant_id,
+                caller,
                 usage_id,
                 "image",
                 Some(provider_url.to_owned()),
@@ -1955,7 +1960,7 @@ async fn cache_image_assets(
             let asset = decode_base64_image_asset(b64_json)?;
             let public_url = store_ai_asset(
                 state,
-                tenant_id,
+                caller,
                 usage_id,
                 "image",
                 None,
@@ -1980,12 +1985,12 @@ async fn cache_image_assets(
 
 async fn cache_video_assets(
     state: &AppState,
-    tenant_id: Uuid,
+    caller: &GatewayCaller,
     usage_id: Uuid,
     body: &mut Value,
 ) -> Result<(), AppError> {
     let mut cached_count = 0;
-    cache_video_assets_in_value(state, tenant_id, usage_id, body, &mut cached_count).await?;
+    cache_video_assets_in_value(state, caller, usage_id, body, &mut cached_count).await?;
     if cached_count == 0 {
         return Err(AppError::dependency(
             "ai video response did not include cacheable video urls",
@@ -1997,7 +2002,7 @@ async fn cache_video_assets(
 
 async fn cache_video_assets_in_value(
     state: &AppState,
-    tenant_id: Uuid,
+    caller: &GatewayCaller,
     usage_id: Uuid,
     value: &mut Value,
     cached_count: &mut usize,
@@ -2015,7 +2020,7 @@ async fn cache_video_assets_in_value(
                 let asset = download_provider_asset(&provider_url, MAX_VIDEO_ASSET_BYTES).await?;
                 let public_url = store_ai_asset(
                     state,
-                    tenant_id,
+                    caller,
                     usage_id,
                     "video",
                     Some(provider_url),
@@ -2029,7 +2034,7 @@ async fn cache_video_assets_in_value(
             for nested in object.values_mut() {
                 Box::pin(cache_video_assets_in_value(
                     state,
-                    tenant_id,
+                    caller,
                     usage_id,
                     nested,
                     cached_count,
@@ -2041,7 +2046,7 @@ async fn cache_video_assets_in_value(
             for item in items {
                 Box::pin(cache_video_assets_in_value(
                     state,
-                    tenant_id,
+                    caller,
                     usage_id,
                     item,
                     cached_count,
@@ -2185,7 +2190,7 @@ fn decode_base64_image_asset(value: &str) -> Result<DecodedAsset, AppError> {
 
 async fn store_ai_asset(
     state: &AppState,
-    tenant_id: Uuid,
+    caller: &GatewayCaller,
     usage_id: Uuid,
     asset_type: &str,
     provider_url: Option<String>,
@@ -2194,10 +2199,14 @@ async fn store_ai_asset(
 ) -> Result<String, AppError> {
     let asset_id = Uuid::new_v4();
     let extension = extension_for_mime(&mime_type);
-    let storage_key = format!("tenants/{tenant_id}/ai-assets/{asset_id}.{extension}");
+    let storage_key = format!(
+        "tenants/{}/ai-assets/{asset_id}.{extension}",
+        caller.tenant_id
+    );
     state.object_store.put_bytes(&storage_key, &bytes).await?;
     let checksum = format!("{:x}", Sha256::digest(&bytes));
     let public_url = asset_public_url(state, asset_id);
+    let file_size = bytes.len() as i64;
 
     sqlx::query(
         r#"
@@ -2218,18 +2227,51 @@ async fn store_ai_asset(
         "#,
     )
     .bind(asset_id)
-    .bind(tenant_id)
+    .bind(caller.tenant_id)
     .bind(usage_id)
     .bind(asset_type)
-    .bind(provider_url)
+    .bind(&provider_url)
     .bind(&storage_key)
     .bind(&public_url)
-    .bind(mime_type)
-    .bind(bytes.len() as i64)
-    .bind(checksum)
+    .bind(&mime_type)
+    .bind(file_size)
+    .bind(&checksum)
     .execute(&state.db)
     .await
     .map_err(map_db_error)?;
+    if let Some(app_id) = caller.app_id {
+        let metadata = json!({
+            "source": "ai_gateway_sync",
+            "usage_id": usage_id,
+            "provider_url": provider_url,
+        });
+        let customer_asset_id = web_assets::mirror_generated_ai_asset(
+            state,
+            caller.tenant_id,
+            app_id,
+            caller.customer_id,
+            asset_id,
+            asset_type,
+            &public_url,
+            &storage_key,
+            &mime_type,
+            file_size,
+            &checksum,
+            metadata.clone(),
+        )
+        .await?;
+        web_works::create_work_for_generated_asset(
+            state,
+            caller.tenant_id,
+            app_id,
+            caller.customer_id,
+            None,
+            customer_asset_id,
+            asset_type,
+            metadata,
+        )
+        .await?;
+    }
 
     Ok(public_url)
 }

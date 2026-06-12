@@ -5,7 +5,7 @@ use std::{
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header::CONTENT_TYPE, HeaderMap},
+    http::{header::CONTENT_TYPE, HeaderMap, HeaderValue},
     Extension, Json,
 };
 use chrono::{DateTime, Utc};
@@ -33,6 +33,7 @@ use crate::{
             ai_invoke_scope, authenticate_server_key, customer_id_from_headers,
             ensure_server_customer_subscription,
         },
+        web_assets, web_works,
     },
     rate_limit,
     state::AppState,
@@ -128,6 +129,36 @@ pub struct AdminJobActionRequest {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WebCreateGenerationJobRequest {
+    pub customer_id: Uuid,
+    #[serde(rename = "type")]
+    pub job_type: String,
+    #[serde(flatten)]
+    pub payload: Map<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebGenerationJobListQuery {
+    pub customer_id: Uuid,
+    pub status: Option<String>,
+    #[serde(rename = "type")]
+    pub job_type: Option<String>,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebGenerationJobCustomerQuery {
+    pub customer_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebGenerationJobActionRequest {
+    pub customer_id: Uuid,
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct JobModel {
     id: Uuid,
@@ -184,6 +215,8 @@ struct ChargeSettlement {
 struct JobWorkerRecord {
     id: Uuid,
     tenant_id: Uuid,
+    app_id: Option<Uuid>,
+    customer_id: Uuid,
     usage_id: Option<Uuid>,
     provider_id: Option<Uuid>,
     job_type: String,
@@ -281,6 +314,131 @@ pub async fn server_get_job(
 
     Ok(Json(ApiResponse::ok(
         AiGenerationJobResponse { job },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn web_create_job(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<WebCreateGenerationJobRequest>,
+) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
+    let job_type = normalize_job_type(&payload.job_type)?;
+    let mut headers = headers;
+    headers.insert(
+        "x-entitlehub-customer-id",
+        HeaderValue::from_str(&payload.customer_id.to_string()).map_err(|_| {
+            AppError::validation_failed("customer_id header could not be constructed")
+        })?,
+    );
+    create_server_generation_job(
+        state,
+        request_id,
+        headers,
+        Value::Object(payload.payload),
+        &job_type,
+    )
+    .await
+}
+
+pub async fn web_list_jobs(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Query(query): Query<WebGenerationJobListQuery>,
+) -> Result<Json<ApiResponse<AiGenerationJobListResponse>>, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    ensure_server_customer_subscription(&state, &server_key, query.customer_id).await?;
+    let status = query.status.as_deref().map(normalize_status).transpose()?;
+    let job_type = query
+        .job_type
+        .as_deref()
+        .map(normalize_job_type)
+        .transpose()?;
+    let (page, page_size) = normalize_page(query.page, query.page_size);
+    let items = list_generation_jobs(
+        &state,
+        server_key.tenant_id,
+        status.as_deref(),
+        job_type.as_deref(),
+        Some(query.customer_id),
+        page,
+        page_size,
+    )
+    .await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiGenerationJobListResponse {
+            items,
+            meta: ListMeta { page, page_size },
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn web_get_job(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Path(job_id): Path<Uuid>,
+    Query(query): Query<WebGenerationJobCustomerQuery>,
+) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    ensure_server_customer_subscription(&state, &server_key, query.customer_id).await?;
+    let job = find_generation_job(&state, server_key.tenant_id, query.customer_id, job_id).await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiGenerationJobResponse { job },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn web_cancel_job(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Path(job_id): Path<Uuid>,
+    Json(payload): Json<WebGenerationJobActionRequest>,
+) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    ensure_server_customer_subscription(&state, &server_key, payload.customer_id).await?;
+    let reason = normalize_action_reason(payload.reason, "Web 后端取消 AI 生成任务")?;
+    cancel_server_job_and_release_usage(
+        &state,
+        server_key.tenant_id,
+        payload.customer_id,
+        job_id,
+        &reason,
+    )
+    .await?;
+    let job =
+        find_generation_job(&state, server_key.tenant_id, payload.customer_id, job_id).await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiGenerationJobResponse { job },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn web_retry_job(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Path(job_id): Path<Uuid>,
+    Json(payload): Json<WebGenerationJobActionRequest>,
+) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
+    let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
+    ensure_server_customer_subscription(&state, &server_key, payload.customer_id).await?;
+    let reason = normalize_action_reason(payload.reason, "Web 后端重新查询 AI 生成任务")?;
+    let job = load_customer_job(&state, server_key.tenant_id, payload.customer_id, job_id).await?;
+    ensure_job_can_retry_poll(&job)?;
+    mark_job_for_poll_retry(&state, server_key.tenant_id, job_id, &reason).await?;
+    let updated =
+        find_generation_job(&state, server_key.tenant_id, payload.customer_id, job_id).await?;
+
+    Ok(Json(ApiResponse::ok(
+        AiGenerationJobResponse { job: updated },
         request_id.to_string(),
     )))
 }
@@ -476,7 +634,7 @@ async fn create_server_generation_job(
     request_id: RequestId,
     headers: HeaderMap,
     payload: Value,
-    job_type: &'static str,
+    job_type: &str,
 ) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
     let server_key = authenticate_server_key(&state, &headers, ai_invoke_scope()).await?;
     let customer_id = customer_id_from_headers(&headers)?;
@@ -543,7 +701,7 @@ async fn create_server_generation_job(
                     server_key_id: server_key.server_key_id,
                     request_id: request_id.to_string(),
                     idempotency_key,
-                    job_type,
+                    job_type: job_type.to_owned(),
                     provider_status: submit.status,
                     provider_job_id: submit.provider_job_id,
                     provider_request_id: submit.provider_request_id,
@@ -597,7 +755,7 @@ struct InsertJobInput {
     server_key_id: Uuid,
     request_id: String,
     idempotency_key: Option<String>,
-    job_type: &'static str,
+    job_type: String,
     provider_status: Option<String>,
     provider_job_id: String,
     provider_request_id: Option<String>,
@@ -648,14 +806,7 @@ async fn process_generation_job(state: &AppState, job: JobWorkerRecord) -> Resul
             mark_job_provider_succeeded(state, job.id, poll.provider_status.clone(), &poll.body)
                 .await
                 .map_err(|error| error.to_string())?;
-            match cache_generation_assets(
-                state,
-                job.tenant_id,
-                job.usage_id,
-                &job.job_type,
-                poll.asset_urls.clone(),
-            )
-            .await
+            match cache_generation_assets(state, &job, &job.job_type, poll.asset_urls.clone()).await
             {
                 Ok(asset_urls) => {
                     let charged_minor = charge_minor_from_job(&job);
@@ -1059,13 +1210,13 @@ fn collect_string_urls(value: &Value, urls: &mut Vec<String>) {
 
 async fn cache_generation_assets(
     state: &AppState,
-    tenant_id: Uuid,
-    usage_id: Option<Uuid>,
+    job: &JobWorkerRecord,
     job_type: &str,
     provider_urls: Vec<String>,
 ) -> Result<Vec<String>, AppError> {
-    let usage_id =
-        usage_id.ok_or_else(|| AppError::dependency("ai generation usage id missing"))?;
+    let usage_id = job
+        .usage_id
+        .ok_or_else(|| AppError::dependency("ai generation usage id missing"))?;
     if provider_urls.is_empty() {
         return Err(AppError::dependency(
             "ai generation response did not include cacheable asset urls",
@@ -1081,7 +1232,7 @@ async fn cache_generation_assets(
         let asset = download_provider_asset(&provider_url, max_bytes).await?;
         let public_url = store_ai_asset(
             state,
-            tenant_id,
+            job,
             usage_id,
             job_type,
             Some(provider_url),
@@ -1151,7 +1302,7 @@ async fn download_provider_asset(
 
 async fn store_ai_asset(
     state: &AppState,
-    tenant_id: Uuid,
+    job: &JobWorkerRecord,
     usage_id: Uuid,
     asset_type: &str,
     provider_url: Option<String>,
@@ -1160,10 +1311,11 @@ async fn store_ai_asset(
 ) -> Result<String, AppError> {
     let asset_id = Uuid::new_v4();
     let extension = extension_for_mime(&mime_type);
-    let storage_key = format!("tenants/{tenant_id}/ai-assets/{asset_id}.{extension}");
+    let storage_key = format!("tenants/{}/ai-assets/{asset_id}.{extension}", job.tenant_id);
     state.object_store.put_bytes(&storage_key, &bytes).await?;
     let checksum = format!("{:x}", Sha256::digest(&bytes));
     let public_url = asset_public_url(state, asset_id);
+    let file_size = bytes.len() as i64;
 
     sqlx::query(
         r#"
@@ -1184,18 +1336,52 @@ async fn store_ai_asset(
         "#,
     )
     .bind(asset_id)
-    .bind(tenant_id)
+    .bind(job.tenant_id)
     .bind(usage_id)
     .bind(asset_type)
-    .bind(provider_url)
+    .bind(&provider_url)
     .bind(&storage_key)
     .bind(&public_url)
-    .bind(mime_type)
-    .bind(bytes.len() as i64)
-    .bind(checksum)
+    .bind(&mime_type)
+    .bind(file_size)
+    .bind(&checksum)
     .execute(&state.db)
     .await
     .map_err(map_db_error)?;
+    if let Some(app_id) = job.app_id {
+        let metadata = json!({
+            "source": "ai_generation_job",
+            "job_id": job.id,
+            "usage_id": usage_id,
+            "provider_url": provider_url,
+        });
+        let customer_asset_id = web_assets::mirror_generated_ai_asset(
+            state,
+            job.tenant_id,
+            app_id,
+            job.customer_id,
+            asset_id,
+            asset_type,
+            &public_url,
+            &storage_key,
+            &mime_type,
+            file_size,
+            &checksum,
+            metadata.clone(),
+        )
+        .await?;
+        web_works::create_work_for_generated_asset(
+            state,
+            job.tenant_id,
+            app_id,
+            job.customer_id,
+            Some(job.id),
+            customer_asset_id,
+            asset_type,
+            metadata,
+        )
+        .await?;
+    }
 
     Ok(public_url)
 }
@@ -1609,6 +1795,68 @@ async fn fail_admin_job_and_release_usage(
         reason,
         job.provider_result_response.as_ref(),
         refunded_minor,
+    )
+    .await?;
+    transaction.commit().await.map_err(map_db_error)
+}
+
+async fn cancel_server_job_and_release_usage(
+    state: &AppState,
+    tenant_id: Uuid,
+    customer_id: Uuid,
+    job_id: Uuid,
+    reason: &str,
+) -> Result<(), AppError> {
+    let mut transaction = state.db.begin().await.map_err(map_db_error)?;
+    let job =
+        load_customer_job_for_update(&mut transaction, tenant_id, customer_id, job_id).await?;
+    ensure_job_can_cancel(&job)?;
+    let usage_id = job
+        .usage_id
+        .ok_or_else(|| AppError::dependency("ai generation usage id missing"))?;
+    let usage = find_usage_for_update(&mut transaction, usage_id).await?;
+    let mut released_minor = 0;
+    if usage.status != "failed" && usage.status != "succeeded" && usage.held_minor > 0 {
+        let wallet = find_wallet_by_id_for_update(&mut transaction, usage.wallet_id).await?;
+        let updated_wallet = update_wallet_hold(
+            &mut transaction,
+            wallet.tenant_id,
+            wallet.id,
+            -usage.held_minor,
+        )
+        .await?;
+        insert_wallet_ledger_entry(
+            &mut transaction,
+            wallet.tenant_id,
+            &updated_wallet,
+            "release",
+            -usage.held_minor,
+            reason,
+            usage_id,
+            json!({
+                "source": "web_job_cancel",
+                "job_id": job_id,
+            }),
+        )
+        .await?;
+        update_usage_failed(
+            &mut transaction,
+            usage_id,
+            0,
+            job.provider_job_id.as_deref(),
+            usage.held_minor,
+            None,
+        )
+        .await?;
+        released_minor = usage.held_minor;
+    }
+    mark_job_cancelled(
+        &mut transaction,
+        tenant_id,
+        customer_id,
+        job_id,
+        released_minor,
+        reason,
     )
     .await?;
     transaction.commit().await.map_err(map_db_error)
@@ -2140,6 +2388,12 @@ async fn claim_pollable_generation_jobs(
         returning
           id,
           tenant_id,
+          (
+            select k.app_id
+            from server_api_keys k
+            where k.id = ai_generation_jobs.server_key_id
+          ) as app_id,
+          customer_id,
           usage_id,
           provider_id,
           job_type,
@@ -2382,8 +2636,19 @@ async fn retry_cache_admin_job(
     mark_job_provider_succeeded(state, job.id, job.provider_status.clone(), &provider_body).await?;
     let cached_urls = cache_generation_assets(
         state,
-        job.tenant_id,
-        job.usage_id,
+        &JobWorkerRecord {
+            id: job.id,
+            tenant_id: job.tenant_id,
+            app_id: app_id_for_admin_job(state, job).await?,
+            customer_id: job.customer_id,
+            usage_id: job.usage_id,
+            provider_id: job.provider_id,
+            job_type: job.job_type.clone(),
+            provider_job_id: job.provider_job_id.clone(),
+            attempts: 0,
+            held_minor: job.held_minor,
+            charge_mode: job.charge_mode.clone(),
+        },
         &job.job_type,
         asset_urls,
     )
@@ -2410,6 +2675,27 @@ async fn retry_cache_admin_job(
         provider_body,
     )
     .await
+}
+
+async fn app_id_for_admin_job(
+    state: &AppState,
+    job: &AdminJobRecord,
+) -> Result<Option<Uuid>, AppError> {
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        select k.app_id
+        from ai_generation_jobs j
+        join server_api_keys k
+          on k.id = j.server_key_id
+        where j.tenant_id = $1
+          and j.id = $2
+        "#,
+    )
+    .bind(job.tenant_id)
+    .bind(job.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)
 }
 
 async fn update_job_refunded(
@@ -2439,6 +2725,39 @@ async fn update_job_refunded(
     .map_err(map_db_error)
 }
 
+async fn mark_job_cancelled(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    customer_id: Uuid,
+    job_id: Uuid,
+    released_minor: i64,
+    reason: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        update ai_generation_jobs
+        set status = 'cancelled',
+            refunded_minor = refunded_minor + $4,
+            failure_reason = $5,
+            next_poll_at = null,
+            completed_at = now(),
+            updated_at = now()
+        where tenant_id = $1
+          and customer_id = $2
+          and id = $3
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(customer_id)
+    .bind(job_id)
+    .bind(released_minor)
+    .bind(truncate_error(reason))
+    .execute(&mut **transaction)
+    .await
+    .map(|_| ())
+    .map_err(map_db_error)
+}
+
 async fn find_generation_job(
     state: &AppState,
     tenant_id: Uuid,
@@ -2453,6 +2772,83 @@ async fn find_generation_job(
     .bind(customer_id)
     .bind(job_id)
     .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)?
+    .ok_or_else(|| AppError::not_found("ai generation job not found"))
+}
+
+async fn load_customer_job(
+    state: &AppState,
+    tenant_id: Uuid,
+    customer_id: Uuid,
+    job_id: Uuid,
+) -> Result<AdminJobRecord, AppError> {
+    sqlx::query_as::<_, AdminJobRecord>(
+        r#"
+        select
+          id,
+          tenant_id,
+          customer_id,
+          usage_id,
+          provider_id,
+          job_type,
+          status,
+          provider_status,
+          provider_job_id,
+          provider_result_response,
+          held_minor,
+          charged_minor,
+          refunded_minor,
+          charge_mode
+        from ai_generation_jobs
+        where tenant_id = $1
+          and customer_id = $2
+          and id = $3
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(customer_id)
+    .bind(job_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)?
+    .ok_or_else(|| AppError::not_found("ai generation job not found"))
+}
+
+async fn load_customer_job_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    customer_id: Uuid,
+    job_id: Uuid,
+) -> Result<AdminJobRecord, AppError> {
+    sqlx::query_as::<_, AdminJobRecord>(
+        r#"
+        select
+          id,
+          tenant_id,
+          customer_id,
+          usage_id,
+          provider_id,
+          job_type,
+          status,
+          provider_status,
+          provider_job_id,
+          provider_result_response,
+          held_minor,
+          charged_minor,
+          refunded_minor,
+          charge_mode
+        from ai_generation_jobs
+        where tenant_id = $1
+          and customer_id = $2
+          and id = $3
+        for update
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(customer_id)
+    .bind(job_id)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(map_db_error)?
     .ok_or_else(|| AppError::not_found("ai generation job not found"))
@@ -3245,6 +3641,17 @@ fn ensure_job_can_retry_poll(job: &AdminJobRecord) -> Result<(), AppError> {
         "submitted" | "running" | "caching" | "timeout_review" => Ok(()),
         _ => Err(AppError::business_rule_failed(
             "ai generation job cannot be queried again in this status",
+        )),
+    }
+}
+
+fn ensure_job_can_cancel(job: &AdminJobRecord) -> Result<(), AppError> {
+    match job.status.as_str() {
+        "pending" | "submitted" | "running" | "provider_succeeded" | "caching"
+        | "timeout_review" => Ok(()),
+        "cancelled" => Err(AppError::conflict("ai generation job already cancelled")),
+        _ => Err(AppError::business_rule_failed(
+            "ai generation job cannot be cancelled in this status",
         )),
     }
 }

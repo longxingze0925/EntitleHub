@@ -165,6 +165,433 @@ curl https://entitlehub.example.com/api/server/ai/v1/chat/completions \
 7. 第三方成功则确认扣费；失败则释放预扣。
 8. 你的业务后端把结果返回给浏览器。
 
+## 3A. Web 产品平台 API
+
+影织这类 Web 产品建议优先使用这一组接口。它们仍然只允许业务后端调用，浏览器不要直接请求 EntitleHub。
+
+通用请求头：
+
+```http
+Authorization: Bearer ehsk_...
+Content-Type: application/json
+```
+
+### 3A.1 客户注册
+
+```http
+POST /api/server/web/v1/customers/register
+```
+
+请求：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "Strong@12345",
+  "name": "用户昵称"
+}
+```
+
+响应：
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "用户昵称",
+    "customerId": "uuid",
+    "status": "active",
+    "email_verified": false
+  }
+}
+```
+
+### 3A.2 客户登录
+
+```http
+POST /api/server/web/v1/customers/login
+```
+
+请求：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "Strong@12345"
+}
+```
+
+说明：
+
+- EntitleHub 只校验客户账号密码并返回客户身份。
+- 影织自己的登录态、Cookie、JWT、Session 仍由影织后端自己维护。
+- 不返回 EntitleHub access token，不走 `/api/client/auth/*` 设备授权体系。
+
+### 3A.3 客户信息、余额、用量、套餐
+
+```http
+GET /api/server/web/v1/customers/{customerId}
+GET /api/server/web/v1/customers/{customerId}/balance
+GET /api/server/web/v1/customers/{customerId}/usage?page=1&page_size=20
+GET /api/server/web/v1/customers/{customerId}/plan
+```
+
+用途：
+
+- `customers/{customerId}`：显示当前客户基础信息。
+- `balance`：显示 AI 钱包余额、预扣金额、可用余额、AI 权限是否冻结。
+- `usage`：显示客户 AI 调用和扣费记录。
+- `plan`：显示当前应用下客户有效订阅；没有订阅时返回 `plan: null`。
+
+### 3A.4 Web 模型商品
+
+```http
+GET /api/server/web/v1/ai/models
+```
+
+这是 `/api/server/ai/v1/models` 的 Web 友好别名，返回结构一致。影织前端选项应该来自返回的 `capabilities`，不要写死比例、分辨率、时长和张数。
+
+### 3A.5 统一创建生成任务
+
+```http
+POST /api/server/web/v1/ai/jobs
+Idempotency-Key: optional-unique-key
+```
+
+图片请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "type": "image",
+  "model": "yingzhi-image-fast",
+  "prompt": "一张产品海报",
+  "ratio": "1:1",
+  "size": "1024x1024",
+  "n": 1
+}
+```
+
+视频请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "一个 8 秒产品展示视频",
+  "ratio": "16:9",
+  "resolution": "1080p",
+  "duration": 8
+}
+```
+
+注意：
+
+- `type` 只支持 `image`、`video`。
+- `model` 使用 EntitleHub 模型代码，不是第三方真实模型名。
+- `customer_id` 是本次扣费、订阅校验和任务归属的 EntitleHub 客户 ID。
+- EntitleHub 会按模型商品配置校验参数并预扣余额。
+
+### 3A.6 查询、列表、取消、重试任务
+
+```http
+GET  /api/server/web/v1/ai/jobs?customer_id={customerId}&type=image|video&status=running&page=1&page_size=20
+GET  /api/server/web/v1/ai/jobs/{jobId}?customer_id={customerId}
+POST /api/server/web/v1/ai/jobs/{jobId}/cancel
+POST /api/server/web/v1/ai/jobs/{jobId}/retry
+```
+
+取消请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "reason": "用户主动取消"
+}
+```
+
+重试请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "reason": "用户刷新任务状态"
+}
+```
+
+说明：
+
+- `cancel` 是 EntitleHub 本地取消：停止继续轮询并释放未扣费预扣金额。
+- 如果第三方平台没有取消接口，EntitleHub 不能保证第三方侧也停止生成。
+- `retry` 是重新查询第三方任务，不是重新创建一个新任务。
+- 如果要重新生成，影织应该重新调用 `POST /api/server/web/v1/ai/jobs`，并使用新的幂等键。
+
+### 3A.7 资产库和文件夹
+
+资产库用于管理 Web 用户上传素材和 AI 生成结果。典型素材包括：
+
+- 用户上传素材。
+- 参考图。
+- 首帧、尾帧。
+- 品牌素材。
+- AI 生成后的图片、视频、音频或文件。
+
+接口：
+
+```http
+GET    /api/server/web/v1/asset-folders?customer_id={customerId}
+POST   /api/server/web/v1/asset-folders
+PATCH  /api/server/web/v1/asset-folders/{folderId}
+DELETE /api/server/web/v1/asset-folders/{folderId}
+
+POST   /api/server/web/v1/assets/upload-url
+PUT    /api/server/web/v1/assets/uploads/{uploadId}
+GET    /api/server/web/v1/assets?customer_id={customerId}
+GET    /api/server/web/v1/assets/{assetId}
+PATCH  /api/server/web/v1/assets/{assetId}
+DELETE /api/server/web/v1/assets/{assetId}
+GET    /api/server/web/v1/assets/{assetId}/download
+```
+
+所有管理接口都需要：
+
+```http
+Authorization: Bearer ehsk_...
+```
+
+文件夹创建示例：
+
+```json
+{
+  "customer_id": "uuid",
+  "parent_id": null,
+  "name": "品牌素材",
+  "metadata": {
+    "scene": "brand"
+  }
+}
+```
+
+资产列表查询：
+
+```http
+GET /api/server/web/v1/assets?customer_id=uuid&asset_type=image&asset_role=reference&page=1&page_size=20
+```
+
+过滤规则：
+
+- `folder_id` 不传：查询该客户全部资产。
+- `folder_id=root`：只查根目录资产。
+- `folder_id={uuid}`：只查指定文件夹。
+- `asset_type`：`image`、`video`、`audio`、`file`。
+- `asset_role`：`upload`、`generated`、`reference`、`first_frame`、`last_frame`、`brand`、`other`。
+- `source`：`user_upload`、`generated`、`imported`。
+
+删除说明：
+
+- 删除文件夹要求文件夹为空。
+- 删除资产是软删除，不会立刻物理删除对象存储文件。
+- AI 生成结果会自动写入资产库，`asset_role=generated`、`source=generated`。
+
+### 3A.8 上传素材流程
+
+推荐流程：
+
+```text
+浏览器 -> 影织后端：申请上传
+影织后端 -> EntitleHub：创建上传会话
+影织后端 -> 浏览器：返回 upload_id、url、upload_token
+浏览器 -> EntitleHub：PUT 上传文件字节
+EntitleHub -> 浏览器：返回 asset
+```
+
+创建上传会话：
+
+```http
+POST /api/server/web/v1/assets/upload-url
+Authorization: Bearer ehsk_...
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "folder_id": null,
+  "file_name": "reference.png",
+  "asset_type": "image",
+  "asset_role": "reference",
+  "mime_type": "image/png",
+  "file_size": 123456,
+  "metadata": {
+    "local_asset_id": "yingzhi-asset-1"
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "upload": {
+    "upload_id": "uuid",
+    "method": "PUT",
+    "url": "https://entitlehub.example.com/api/server/web/v1/assets/uploads/{upload_id}",
+    "upload_token": "ehup_...",
+    "token_prefix": "ehup_xxx",
+    "expires_at": "2026-06-12T12:00:00Z",
+    "max_bytes": 536870912,
+    "headers": {
+      "X-EntitleHub-Upload-Token": "ehup_...",
+      "Content-Type": "application/octet-stream"
+    }
+  }
+}
+```
+
+上传文件：
+
+```http
+PUT /api/server/web/v1/assets/uploads/{upload_id}
+X-EntitleHub-Upload-Token: ehup_...
+Content-Type: image/png
+
+<binary>
+```
+
+说明：
+
+- 上传令牌默认 15 分钟有效。
+- 上传令牌只能使用一次。
+- 上传令牌只授权这一个上传会话，不能访问其他资产。
+- 生产建议把上传令牌放请求头，不要放 URL 查询参数，避免被网关日志记录。
+- 浏览器可以直接上传到 EntitleHub，但 Server Key 仍然只保存在影织后端。
+
+### 3A.9 作品、收藏和灵感广场
+
+作品体系用于支撑影织这类 Web 产品的“我的作品、我的收藏、灵感广场、详情页”。
+
+关系说明：
+
+- `Asset`：图片、视频等文件本身。
+- `Work`：用户作品，指向一个主资产，可有封面、标题、描述和业务 metadata。
+- `Favorite`：某个客户收藏某个作品的关系。
+- `Publication`：作品是否发布到灵感广场。
+
+生成任务成功后，EntitleHub 会自动：
+
+1. 下载第三方图片或视频。
+2. 缓存为 EntitleHub 自己的资产 URL。
+3. 写入客户资产库，`asset_role=generated`、`source=generated`。
+4. 自动创建 `Work`。
+5. `Work.visibility` 默认为 `private`。
+
+作品接口：
+
+```http
+GET    /api/server/web/v1/works?customer_id={customerId}
+GET    /api/server/web/v1/works?customer_id={customerId}&favorite=true
+GET    /api/server/web/v1/works/{workId}?customer_id={customerId}
+PATCH  /api/server/web/v1/works/{workId}
+DELETE /api/server/web/v1/works/{workId}
+POST   /api/server/web/v1/works/{workId}/favorite
+DELETE /api/server/web/v1/works/{workId}/favorite
+POST   /api/server/web/v1/works/{workId}/publish
+POST   /api/server/web/v1/works/{workId}/unpublish
+GET    /api/server/web/v1/gallery
+```
+
+作品列表支持：
+
+```http
+GET /api/server/web/v1/works?customer_id=uuid&type=video&visibility=private&page=1&page_size=20
+```
+
+返回字段核心含义：
+
+```json
+{
+  "work": {
+    "id": "uuid",
+    "owner_customer_id": "uuid",
+    "source_job_id": "uuid",
+    "title": "AI 生成视频",
+    "description": null,
+    "work_type": "video",
+    "visibility": "private",
+    "primary_asset_id": "uuid",
+    "primary_asset_url": "https://entitlehub.example.com/api/ai/assets/...",
+    "cover_asset_id": null,
+    "cover_asset_url": null,
+    "favorite_count": 0,
+    "favorited": false,
+    "publication_status": null,
+    "published_at": null,
+    "publication_tags": [],
+    "metadata": {
+      "source": "ai_generation_job",
+      "job_id": "uuid"
+    }
+  }
+}
+```
+
+更新作品：
+
+```json
+{
+  "customer_id": "uuid",
+  "title": "我的视频作品",
+  "description": "用于首页展示",
+  "cover_asset_id": "uuid",
+  "metadata": {
+    "local_work_id": "yingzhi-work-1"
+  }
+}
+```
+
+收藏作品：
+
+```json
+{
+  "customer_id": "uuid"
+}
+```
+
+发布到灵感广场：
+
+```json
+{
+  "customer_id": "uuid",
+  "tags": ["产品展示", "科技感"]
+}
+```
+
+取消发布：
+
+```json
+{
+  "customer_id": "uuid"
+}
+```
+
+灵感广场：
+
+```http
+GET /api/server/web/v1/gallery?type=video&customer_id=uuid&page=1&page_size=20
+```
+
+说明：
+
+- `customer_id` 可选；传入后返回值里的 `favorited` 会按当前客户计算。
+- 灵感广场只返回当前 Server Key 绑定应用下已发布的作品。
+- 删除作品是软删除，会自动从广场下架，但不会删除底层资产文件。
+- 发布、取消发布、删除作品只能由作品 owner 操作。
+- 收藏是客户维度关系，不是资产或作品的全局标签。
+
 ## 4. 异步图片/视频任务
 
 适合速创等“提交任务 -> 返回任务 ID -> 查询任务结果”的平台。

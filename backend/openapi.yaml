@@ -20,6 +20,7 @@ tags:
   - name: ai-gateway
   - name: client-ai
   - name: server-ai
+  - name: server-web
   - name: client-auth
   - name: client
 paths:
@@ -403,6 +404,785 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+
+  /api/server/web/v1/customers/register:
+    post:
+      tags: [server-web]
+      summary: Register Web product customer through server-to-server API
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                name:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/customers/login:
+    post:
+      tags: [server-web]
+      summary: Verify Web product customer credentials through server-to-server API
+      description: EntitleHub validates the customer password and returns customer identity; the Web product backend owns its browser session.
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/customers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Get Web product customer identity
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/customers/{id}/balance:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Get Web product customer AI wallet balance
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/customers/{id}/usage:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+      - $ref: "#/components/parameters/PageQuery"
+      - $ref: "#/components/parameters/PageSizeQuery"
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [pending, running, succeeded, failed, refunded]
+    get:
+      tags: [server-web]
+      summary: List Web product customer AI usage records
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/customers/{id}/plan:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Get Web product customer active plan for the Server Key application
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/ai/models:
+    get:
+      tags: [server-web]
+      summary: List enabled AI model products for Web product backend
+      description: Does not require a customer id; use this to render model options before a customer starts a generation task.
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [text, image, video, audio, embedding, multimodal]
+      responses:
+        "200":
+          description: Provider-compatible model list response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/ai/jobs:
+    get:
+      tags: [server-web]
+      summary: List Web product AI generation jobs for a customer
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [server-web]
+      summary: Create unified image or video generation job for Web product backend
+      security:
+        - ServerApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, type, model]
+              additionalProperties: true
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [image, video]
+                model:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/ai/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+      - name: customer_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [server-web]
+      summary: Get Web product AI generation job
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/ai/jobs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Cancel Web product AI generation job locally and release uncharged hold
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/ai/jobs/{id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Retry polling a Web product AI generation job
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/asset-folders:
+    get:
+      tags: [server-web]
+      summary: List Web product customer asset folders
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: parent_id
+          in: query
+          required: false
+          schema:
+            type: string
+            description: UUID, root, null, or omitted for all folders
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    post:
+      tags: [server-web]
+      summary: Create Web product customer asset folder
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, name]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                parent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                name:
+                  type: string
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/asset-folders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    patch:
+      tags: [server-web]
+      summary: Update Web product customer asset folder
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                parent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [server-web]
+      summary: Delete empty Web product customer asset folder
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets/upload-url:
+    post:
+      tags: [server-web]
+      summary: Create short-lived Web product asset upload URL and token
+      description: Server Key creates the upload session; browser or product backend uploads bytes with X-EntitleHub-Upload-Token.
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, file_name, asset_type]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                folder_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                file_name:
+                  type: string
+                asset_type:
+                  type: string
+                  enum: [image, video, audio, file]
+                asset_role:
+                  type: string
+                  enum: [upload, reference, first_frame, last_frame, brand, other]
+                mime_type:
+                  type: string
+                file_size:
+                  type: integer
+                  format: int64
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets/uploads/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    put:
+      tags: [server-web]
+      summary: Upload bytes for a Web product asset upload session
+      parameters:
+        - name: X-EntitleHub-Upload-Token
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets:
+    get:
+      tags: [server-web]
+      summary: List Web product customer assets
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: folder_id
+          in: query
+          required: false
+          schema:
+            type: string
+            description: UUID, root, null, or omitted for all assets
+        - name: asset_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+        - name: asset_role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [upload, generated, reference, first_frame, last_frame, brand, other]
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user_upload, generated, imported]
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Get Web product customer asset detail
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    patch:
+      tags: [server-web]
+      summary: Update Web product customer asset metadata
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                folder_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                asset_role:
+                  type: string
+                  enum: [upload, generated, reference, first_frame, last_frame, brand, other]
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [server-web]
+      summary: Soft delete Web product customer asset
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets/{id}/download:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Download Web product customer asset bytes
+      security:
+        - ServerApiKey: []
+      responses:
+        "200":
+          description: Asset bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works:
+    get:
+      tags: [server-web]
+      summary: List Web product works owned or favorited by a customer
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+        - name: visibility
+          in: query
+          schema:
+            type: string
+            enum: [private, public]
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [server-web]
+      summary: Get a Web product work detail
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    patch:
+      tags: [server-web]
+      summary: Update a Web product work
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  nullable: true
+                  type: string
+                cover_asset_id:
+                  nullable: true
+                  type: string
+                  format: uuid
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [server-web]
+      summary: Soft delete a Web product work
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works/{id}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Favorite a Web product work
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+    delete:
+      tags: [server-web]
+      summary: Remove favorite from a Web product work
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works/{id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Publish a Web product work to the gallery
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works/{id}/unpublish:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Remove a Web product work from the gallery
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/gallery:
+    get:
+      tags: [server-web]
+      summary: List published Web product works for the gallery
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
 

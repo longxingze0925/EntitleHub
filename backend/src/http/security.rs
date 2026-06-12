@@ -8,7 +8,7 @@ use axum::{
 use crate::state::AppState;
 
 const ALLOW_METHODS: &str = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-const ALLOW_HEADERS: &str = "Content-Type,Authorization,X-CSRF-Token,X-Device-Id,X-Device-Key-Id,X-Timestamp,X-Nonce,X-Body-SHA256,X-Signature";
+const ALLOW_HEADERS: &str = "Content-Type,Authorization,X-CSRF-Token,X-Device-Id,X-Device-Key-Id,X-Timestamp,X-Nonce,X-Body-SHA256,X-Signature,X-EntitleHub-Upload-Token,Idempotency-Key,X-EntitleHub-Customer-Id";
 const MAX_AGE_SECONDS: &str = "600";
 
 pub async fn apply_security(

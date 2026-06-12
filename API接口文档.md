@@ -2858,7 +2858,209 @@ curl https://your-domain.example/api/server/ai/v1/chat/completions \
   }'
 ```
 
-### 18.10.4 Web 后端异步图片/视频任务
+### 18.10.4 Web 产品平台 API
+
+给影织这类 Web SaaS 后端使用。浏览器仍然只调用影织后端，影织后端用 Server Key 调 EntitleHub。
+
+```http
+POST /api/server/web/v1/customers/register
+POST /api/server/web/v1/customers/login
+GET /api/server/web/v1/customers/{customer_id}
+GET /api/server/web/v1/customers/{customer_id}/balance
+GET /api/server/web/v1/customers/{customer_id}/usage
+GET /api/server/web/v1/customers/{customer_id}/plan
+GET /api/server/web/v1/ai/models?type=image|video
+POST /api/server/web/v1/ai/jobs
+GET /api/server/web/v1/ai/jobs?customer_id={customer_id}
+GET /api/server/web/v1/ai/jobs/{job_id}?customer_id={customer_id}
+POST /api/server/web/v1/ai/jobs/{job_id}/cancel
+POST /api/server/web/v1/ai/jobs/{job_id}/retry
+Authorization: Bearer ehsk_...
+Content-Type: application/json
+```
+
+说明：
+
+- 注册/登录只校验 EntitleHub 客户账号；Web 浏览器 session 由影织后端自己维护。
+- `GET /ai/models` 不需要客户 ID，用于渲染模型商品、比例、分辨率、时长、价格等前端选项。
+- `POST /ai/jobs` 必须在请求体传 `customer_id`，EntitleHub 以该客户做订阅校验、钱包预扣和任务归属。
+- `cancel` 是 EntitleHub 本地取消：停止继续轮询并释放未扣费预扣；如果三方平台没有取消接口，不能保证三方侧停止生成。
+- `retry` 是重新查询第三方任务，不是新建任务；重新生成应重新调用 `POST /api/server/web/v1/ai/jobs` 并使用新的幂等键。
+- 用户上传素材和 AI 生成结果统一进入 Web 资产库，影织可以按客户、文件夹、类型、用途查询。
+
+统一创建视频任务示例：
+
+```json
+{
+  "customer_id": "00000000-0000-0000-0000-000000000001",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "一个 8 秒产品展示视频",
+  "ratio": "16:9",
+  "resolution": "1080p",
+  "duration": 8
+}
+```
+
+完整接入流程见 `Web 后端接入指南.md`。
+
+### 18.10.5 Web 产品资产库接口
+
+资产库给 Web 产品管理用户素材和生成结果。浏览器不保存 Server Key；需要上传时，由 Web 后端创建短期上传会话，再把一次性上传令牌给浏览器。
+
+```http
+GET    /api/server/web/v1/asset-folders?customer_id=uuid
+POST   /api/server/web/v1/asset-folders
+PATCH  /api/server/web/v1/asset-folders/{id}
+DELETE /api/server/web/v1/asset-folders/{id}
+
+POST   /api/server/web/v1/assets/upload-url
+PUT    /api/server/web/v1/assets/uploads/{id}
+GET    /api/server/web/v1/assets?customer_id=uuid
+GET    /api/server/web/v1/assets/{id}
+PATCH  /api/server/web/v1/assets/{id}
+DELETE /api/server/web/v1/assets/{id}
+GET    /api/server/web/v1/assets/{id}/download
+```
+
+认证：
+
+```text
+管理/查询接口：Authorization: Bearer ehsk_...
+上传字节接口：X-EntitleHub-Upload-Token: ehup_...
+```
+
+创建上传会话：
+
+```json
+{
+  "customer_id": "uuid",
+  "folder_id": null,
+  "file_name": "reference.png",
+  "asset_type": "image",
+  "asset_role": "reference",
+  "mime_type": "image/png",
+  "file_size": 123456,
+  "metadata": {}
+}
+```
+
+上传字节：
+
+```http
+PUT /api/server/web/v1/assets/uploads/{id}
+X-EntitleHub-Upload-Token: ehup_...
+Content-Type: image/png
+
+<binary>
+```
+
+资产类型：
+
+- `asset_type`：`image`、`video`、`audio`、`file`。
+- `asset_role`：`upload`、`generated`、`reference`、`first_frame`、`last_frame`、`brand`、`other`。
+- `source`：`user_upload`、`generated`、`imported`。
+
+说明：
+
+- 上传令牌默认 15 分钟有效，只能使用一次。
+- 上传文件最大 512 MB。
+- 文件夹删除要求文件夹为空。
+- 资产删除是软删除，不会立刻物理删除对象存储文件。
+- Server Key 调用的同步/异步图片视频生成成功后，会自动把生成素材写入资产库，`asset_role=generated`、`source=generated`，并自动创建私有作品。
+
+### 18.10.6 Web 产品作品接口
+
+作品接口给影织实现“我的作品、我的收藏、灵感广场、详情页”。作品不是资产标签，而是独立业务对象：
+
+- `Asset`：文件本身。
+- `Work`：用户作品，指向主资产和可选封面资产。
+- `Favorite`：某个客户收藏某个作品。
+- `Publication`：作品发布到广场的状态。
+
+接口：
+
+```http
+GET    /api/server/web/v1/works?customer_id=uuid
+GET    /api/server/web/v1/works?customer_id=uuid&favorite=true
+GET    /api/server/web/v1/works/{id}?customer_id=uuid
+PATCH  /api/server/web/v1/works/{id}
+DELETE /api/server/web/v1/works/{id}
+POST   /api/server/web/v1/works/{id}/favorite
+DELETE /api/server/web/v1/works/{id}/favorite
+POST   /api/server/web/v1/works/{id}/publish
+POST   /api/server/web/v1/works/{id}/unpublish
+GET    /api/server/web/v1/gallery?type=video&customer_id=uuid
+Authorization: Bearer ehsk_...
+Content-Type: application/json
+```
+
+说明：
+
+- 图片/视频生成成功后，EntitleHub 自动创建 `Work`，默认 `visibility=private`。
+- `GET /works` 默认返回当前客户拥有的作品；`favorite=true` 返回当前客户收藏的作品。
+- 发布到广场后，`GET /gallery` 只返回当前 Server Key 绑定应用下 `published` 的作品。
+- `customer_id` 传给 `gallery` 时，返回字段中的 `favorited` 会按该客户计算。
+- 删除作品是软删除，并会从广场下架；不会删除底层资产文件。
+- 发布、取消发布、更新、删除只能由作品 owner 操作。
+
+更新作品请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "title": "我的视频作品",
+  "description": "用于首页展示",
+  "cover_asset_id": "uuid",
+  "metadata": {
+    "local_work_id": "yingzhi-work-1"
+  }
+}
+```
+
+收藏/取消收藏/取消发布请求：
+
+```json
+{
+  "customer_id": "uuid"
+}
+```
+
+发布请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "tags": ["产品展示", "科技感"]
+}
+```
+
+返回核心字段：
+
+```json
+{
+  "work": {
+    "id": "uuid",
+    "owner_customer_id": "uuid",
+    "source_job_id": "uuid",
+    "title": "AI 生成视频",
+    "work_type": "video",
+    "visibility": "private",
+    "primary_asset_id": "uuid",
+    "primary_asset_url": "https://example.com/api/ai/assets/...",
+    "cover_asset_id": null,
+    "cover_asset_url": null,
+    "favorite_count": 0,
+    "favorited": false,
+    "publication_status": null,
+    "published_at": null,
+    "publication_tags": [],
+    "metadata": {}
+  }
+}
+```
+
+### 18.10.7 Web 后端异步图片/视频任务
 
 异步任务用于速创等“提交后返回任务 ID、再查询结果”的图片/视频平台。任务状态以第三方查询接口返回为准，EntitleHub 只负责内部商业状态：余额冻结、扣费/释放、素材缓存、后台审计。
 
@@ -2946,7 +3148,7 @@ X-EntitleHub-Customer-Id: uuid
 - 任务查询默认使用 `GET /api/async/detail?id=<task_id>`；如三方要求 POST，可在渠道配置中设置 `detail_method: "POST"`、`detail_path`、`detail_id_field`。
 - 模型 `provider_model` 可用 `google_omni`、`grok_imagine`、`image_gpt`、`image_nanoBanana2`；也可以在模型 `pricing_config.submit_path` 显式配置提交路径。
 
-### 18.10.5 后台生成任务处理
+### 18.10.8 后台生成任务处理
 
 后台生成任务用于运维处理异步图片/视频任务异常，包括查看三方原始返回、重新查询三方、重新缓存素材、失败释放预扣和人工退款。
 
