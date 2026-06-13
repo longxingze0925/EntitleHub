@@ -812,6 +812,60 @@ paths:
           $ref: "#/components/responses/Ok"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/assets/upload:
+    post:
+      tags: [server-web]
+      summary: Upload a Web product asset in one request
+      description: Product backend can use this for small files; two-step upload remains recommended for large objects.
+      security:
+        - ServerApiKey: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: folder_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: file_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: asset_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+        - name: asset_role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [upload, reference, first_frame, last_frame, brand, other]
+        - name: mime_type
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/server/web/v1/assets/uploads/{id}:
     parameters:
       - $ref: "#/components/parameters/IdPath"
@@ -1091,6 +1145,30 @@ paths:
     delete:
       tags: [server-web]
       summary: Remove favorite from a Web product work
+      security:
+        - ServerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id]
+              properties:
+                customer_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/server/web/v1/works/{id}/download:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [server-web]
+      summary: Mark a Web product work as downloaded and return its download URL
       security:
         - ServerApiKey: []
       requestBody:

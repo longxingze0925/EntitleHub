@@ -130,7 +130,14 @@ X-EntitleHub-Customer-Id: uuid
         "durations": [5, 8, 10],
         "default_duration_seconds": 8,
         "image_counts": [],
-        "max_images": null
+        "max_images": null,
+        "inputModes": ["text", "image", "frames"],
+        "maxReferenceImages": 4,
+        "supportsReferenceVideo": false,
+        "supportsFirstFrame": true,
+        "supportsLastFrame": true,
+        "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+        "maxAssetSizeMb": 50
       }
     }
   ]
@@ -138,6 +145,19 @@ X-EntitleHub-Customer-Id: uuid
 ```
 
 影织前端应该只展示 `capabilities` 里允许的选项。提交任务时只传 `id` 里的模型代码，例如 `yingzhi-video-fast`。
+
+能力字段含义：
+
+- `ratios`：支持的画面比例，例如 `16:9`、`9:16`、`1:1`。
+- `resolutions`：支持的分辨率，例如 `720p`、`1080p`、`1024x1024`。
+- `durations`：视频可选时长，单位秒。
+- `image_counts` / `max_images`：图片生成可选张数和最大张数。
+- `inputModes`：允许的输入方式，常用 `text`、`image`、`frames`、`video`。
+- `maxReferenceImages`：最多可传多少个参考素材。
+- `supportsReferenceVideo`：是否允许把视频作为参考素材。
+- `supportsFirstFrame` / `supportsLastFrame`：是否支持首帧、尾帧。
+- `acceptedMimeTypes`：参考素材允许的 MIME 类型。
+- `maxAssetSizeMb`：单个参考素材最大体积。
 
 示例：
 
@@ -287,12 +307,35 @@ Idempotency-Key: optional-unique-key
 }
 ```
 
+带参考素材的视频请求：
+
+```json
+{
+  "customer_id": "uuid",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "根据首尾帧生成一个产品展示视频",
+  "inputMode": "frames",
+  "referenceAssetIds": ["uuid-reference-asset"],
+  "firstFrameAssetId": "uuid-first-frame",
+  "lastFrameAssetId": "uuid-last-frame",
+  "aspectRatio": "16:9",
+  "resolution": "1080p",
+  "durationSec": 8
+}
+```
+
 注意：
 
 - `type` 只支持 `image`、`video`。
 - `model` 使用 EntitleHub 模型代码，不是第三方真实模型名。
 - `customer_id` 是本次扣费、订阅校验和任务归属的 EntitleHub 客户 ID。
 - EntitleHub 会按模型商品配置校验参数并预扣余额。
+- 参考素材字段只支持视频任务；图片任务传参考素材会被拒绝。
+- `aspectRatio` 会兼容映射为 `ratio`，`durationSec` 会兼容映射为 `duration`。
+- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 必须是当前客户资产库里的 `ready` 素材。
+- EntitleHub 会按模型 `capabilities` 校验输入方式、参考素材数量、MIME 类型、大小、是否支持首帧/尾帧。
+- 请求会记录 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`，生成成功后会同步写入作品元数据。
 
 ### 3A.6 查询、列表、取消、重试任务
 
@@ -327,6 +370,7 @@ POST /api/server/web/v1/ai/jobs/{jobId}/retry
 - 如果第三方平台没有取消接口，EntitleHub 不能保证第三方侧也停止生成。
 - `retry` 是重新查询第三方任务，不是重新创建一个新任务。
 - 如果要重新生成，影织应该重新调用 `POST /api/server/web/v1/ai/jobs`，并使用新的幂等键。
+- 任务返回会带 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`visibility`、`publishedAt`、`favoritedAt`、`downloadedAt`，用于影织直接渲染“我的作品”和生成历史状态。
 
 ### 3A.7 资产库和文件夹
 
@@ -347,6 +391,7 @@ PATCH  /api/server/web/v1/asset-folders/{folderId}
 DELETE /api/server/web/v1/asset-folders/{folderId}
 
 POST   /api/server/web/v1/assets/upload-url
+POST   /api/server/web/v1/assets/upload
 PUT    /api/server/web/v1/assets/uploads/{uploadId}
 GET    /api/server/web/v1/assets?customer_id={customerId}
 GET    /api/server/web/v1/assets/{assetId}
@@ -470,6 +515,44 @@ Content-Type: image/png
 - 生产建议把上传令牌放请求头，不要放 URL 查询参数，避免被网关日志记录。
 - 浏览器可以直接上传到 EntitleHub，但 Server Key 仍然只保存在影织后端。
 
+上传成功返回会同时给完整资产对象和影织常用别名：
+
+```json
+{
+  "asset": {
+    "id": "uuid",
+    "asset_type": "image",
+    "asset_role": "reference",
+    "public_url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+    "mime_type": "image/png",
+    "file_size": 123456
+  },
+  "assetId": "uuid",
+  "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+  "type": "image",
+  "mimeType": "image/png"
+}
+```
+
+服务端直传小文件：
+
+```http
+POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&asset_type=image&asset_role=reference&mime_type=image/png
+Authorization: Bearer ehsk_...
+Content-Type: image/png
+
+<binary>
+```
+
+直传适合影织后端代传小文件。大文件仍建议两段式上传，避免业务后端中转占用内存和带宽。
+
+第三方引用素材注意：
+
+- EntitleHub 会把参考素材转换成 `reference_urls`、`first_frame_url`、`last_frame_url` 提交给三方渠道。
+- 三方平台必须能访问这些 URL。生产环境建议使用可外网访问的对象存储公开 URL 或短期签名 URL。
+- 如果使用本地文件存储，`public_url` 默认是 EntitleHub 下载接口，下载接口需要 Server Key，很多第三方平台无法直接拉取。
+- 长期商用建议把素材存储切到 S3/R2/OSS/COS 这类对象存储，并确保三方平台可访问参考素材。
+
 ### 3A.9 作品、收藏和灵感广场
 
 作品体系用于支撑影织这类 Web 产品的“我的作品、我的收藏、灵感广场、详情页”。
@@ -499,6 +582,7 @@ PATCH  /api/server/web/v1/works/{workId}
 DELETE /api/server/web/v1/works/{workId}
 POST   /api/server/web/v1/works/{workId}/favorite
 DELETE /api/server/web/v1/works/{workId}/favorite
+POST   /api/server/web/v1/works/{workId}/download
 POST   /api/server/web/v1/works/{workId}/publish
 POST   /api/server/web/v1/works/{workId}/unpublish
 GET    /api/server/web/v1/gallery
@@ -528,12 +612,23 @@ GET /api/server/web/v1/works?customer_id=uuid&type=video&visibility=private&page
     "cover_asset_url": null,
     "favorite_count": 0,
     "favorited": false,
+    "sourceMode": "frames",
+    "referenceCount": 2,
+    "hasFirstFrame": true,
+    "hasLastFrame": true,
     "publication_status": null,
     "published_at": null,
+    "publishedAt": null,
+    "favoritedAt": null,
+    "downloadedAt": null,
     "publication_tags": [],
     "metadata": {
       "source": "ai_generation_job",
-      "job_id": "uuid"
+      "job_id": "uuid",
+      "sourceMode": "frames",
+      "referenceCount": 2,
+      "hasFirstFrame": true,
+      "hasLastFrame": true
     }
   }
 }
@@ -578,6 +673,33 @@ GET /api/server/web/v1/works?customer_id=uuid&type=video&visibility=private&page
 }
 ```
 
+标记下载并获取下载地址：
+
+```http
+POST /api/server/web/v1/works/{workId}/download
+Authorization: Bearer ehsk_...
+Content-Type: application/json
+```
+
+```json
+{
+  "customer_id": "uuid"
+}
+```
+
+响应：
+
+```json
+{
+  "downloadUrl": "https://entitlehub.example.com/api/ai/assets/asset-id",
+  "downloadedAt": "2026-06-13T12:00:00Z",
+  "work": {
+    "id": "uuid",
+    "downloadedAt": "2026-06-13T12:00:00Z"
+  }
+}
+```
+
 灵感广场：
 
 ```http
@@ -591,6 +713,7 @@ GET /api/server/web/v1/gallery?type=video&customer_id=uuid&page=1&page_size=20
 - 删除作品是软删除，会自动从广场下架，但不会删除底层资产文件。
 - 发布、取消发布、删除作品只能由作品 owner 操作。
 - 收藏是客户维度关系，不是资产或作品的全局标签。
+- 下载状态也是客户维度关系，EntitleHub 会记录 `downloadedAt` 和下载次数，换设备后仍能展示。
 
 ## 4. 异步图片/视频任务
 

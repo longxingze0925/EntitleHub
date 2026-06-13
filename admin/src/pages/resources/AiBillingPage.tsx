@@ -115,6 +115,13 @@ interface ModelFormValues {
   default_duration_seconds?: number | null;
   image_counts?: Array<string | number>;
   max_images?: number | null;
+  input_modes?: string[];
+  max_reference_images?: number | null;
+  supports_reference_video?: boolean;
+  supports_first_frame?: boolean;
+  supports_last_frame?: boolean;
+  accepted_mime_types?: string[];
+  max_asset_size_mb?: number | null;
   pricing_config_json: string;
   metadata_json: string;
 }
@@ -208,6 +215,9 @@ const defaultImageResolutions = ["1024x1024", "768x1024", "1024x768"];
 const defaultVideoResolutions = ["720p", "1080p", "1280x720", "1920x1080"];
 const defaultVideoDurations = [5, 8, 10];
 const defaultImageCounts = [1, 2, 4];
+const defaultInputModes = ["text", "image", "video", "frames"];
+const defaultAcceptedImageMimes = ["image/png", "image/jpeg", "image/webp"];
+const defaultAcceptedVideoMimes = ["video/mp4", "video/webm", "video/quicktime"];
 
 const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
   {
@@ -220,7 +230,11 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
       capabilities: {
         ratios: ["1:1", "3:2", "2:3", "16:9", "9:16"],
         image_counts: [1],
-        max_images: 1
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
       }
     },
     metadata: {
@@ -238,7 +252,11 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
         ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
         resolutions: ["1K", "2K", "4K"],
         image_counts: [1],
-        max_images: 1
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
       }
     },
     metadata: {
@@ -255,7 +273,14 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
       capabilities: {
         resolutions: ["横版", "竖版"],
         durations: [10],
-        default_duration_seconds: 10
+        default_duration_seconds: 10,
+        inputModes: ["text", "image", "frames"],
+        maxReferenceImages: 4,
+        supportsReferenceVideo: false,
+        supportsFirstFrame: true,
+        supportsLastFrame: true,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
+        maxAssetSizeMb: 50
       }
     },
     metadata: {
@@ -272,7 +297,14 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
       capabilities: {
         ratios: ["16:9", "9:16"],
         durations: [6, 8, 10, 12, 15],
-        default_duration_seconds: 8
+        default_duration_seconds: 8,
+        inputModes: ["text", "image", "frames"],
+        maxReferenceImages: 4,
+        supportsReferenceVideo: false,
+        supportsFirstFrame: true,
+        supportsLastFrame: true,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
+        maxAssetSizeMb: 50
       }
     },
     metadata: {
@@ -695,6 +727,13 @@ export function AiBillingPage() {
       default_duration_seconds: null,
       image_counts: [],
       max_images: null,
+      input_modes: [],
+      max_reference_images: null,
+      supports_reference_video: false,
+      supports_first_frame: false,
+      supports_last_frame: false,
+      accepted_mime_types: [],
+      max_asset_size_mb: null,
       pricing_config_json: defaultJson,
       metadata_json: defaultJson
     });
@@ -748,6 +787,13 @@ export function AiBillingPage() {
       default_duration_seconds: capabilities.default_duration_seconds,
       image_counts: capabilities.image_counts.map(String),
       max_images: capabilities.max_images,
+      input_modes: capabilities.input_modes,
+      max_reference_images: capabilities.max_reference_images,
+      supports_reference_video: capabilities.supports_reference_video,
+      supports_first_frame: capabilities.supports_first_frame,
+      supports_last_frame: capabilities.supports_last_frame,
+      accepted_mime_types: capabilities.accepted_mime_types,
+      max_asset_size_mb: capabilities.max_asset_size_mb,
       pricing_config_json: stringifyJson(model.pricing_config),
       metadata_json: stringifyJson(model.metadata)
     });
@@ -2101,6 +2147,50 @@ export function AiBillingPage() {
                   />
                 </Form.Item>
               </div>
+              <div className="settings-grid-inner">
+                <Form.Item name="input_modes" label="输入模式">
+                  <Select
+                    mode="tags"
+                    tokenSeparators={[",", "，", "\n"]}
+                    options={mergedSelectOptions(defaultInputModes, modelForm.getFieldValue("input_modes"))}
+                    placeholder="例如 text、image、frames"
+                  />
+                </Form.Item>
+                <Form.Item name="accepted_mime_types" label="支持素材 MIME">
+                  <Select
+                    mode="tags"
+                    tokenSeparators={[",", "，", "\n"]}
+                    options={mergedSelectOptions(
+                      selectedModelModality === "video"
+                        ? [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes]
+                        : defaultAcceptedImageMimes,
+                      modelForm.getFieldValue("accepted_mime_types")
+                    )}
+                    placeholder="例如 image/png、video/mp4"
+                  />
+                </Form.Item>
+              </div>
+              <div className="settings-grid-inner">
+                <Form.Item name="max_reference_images" label="最多参考素材数">
+                  <InputNumber min={1} max={20} precision={0} className="form-number" />
+                </Form.Item>
+                <Form.Item name="max_asset_size_mb" label="单个素材大小 MB">
+                  <InputNumber min={1} max={512} precision={0} className="form-number" />
+                </Form.Item>
+                <Form.Item
+                  name="supports_reference_video"
+                  label="支持参考视频"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="supports_first_frame" label="支持首帧" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="supports_last_frame" label="支持尾帧" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </div>
             </>
           ) : null}
           {selectedModelModality === "image" || selectedBillingMode === "per_image" ? (
@@ -2624,7 +2714,14 @@ function modelFormValuesFromTemplate(
     durations: capabilities.durations.map(String),
     default_duration_seconds: capabilities.default_duration_seconds,
     image_counts: capabilities.image_counts.map(String),
-    max_images: capabilities.max_images
+    max_images: capabilities.max_images,
+    input_modes: capabilities.input_modes,
+    max_reference_images: capabilities.max_reference_images,
+    supports_reference_video: capabilities.supports_reference_video,
+    supports_first_frame: capabilities.supports_first_frame,
+    supports_last_frame: capabilities.supports_last_frame,
+    accepted_mime_types: capabilities.accepted_mime_types,
+    max_asset_size_mb: capabilities.max_asset_size_mb
   };
   if (options.applyName && template.name) {
     nextValues.name = template.name;
@@ -2643,6 +2740,13 @@ interface ModelCapabilityValues {
   default_duration_seconds: number | null;
   image_counts: number[];
   max_images: number | null;
+  input_modes: string[];
+  max_reference_images: number | null;
+  supports_reference_video: boolean;
+  supports_first_frame: boolean;
+  supports_last_frame: boolean;
+  accepted_mime_types: string[];
+  max_asset_size_mb: number | null;
 }
 
 function mergeModelCapabilities(
@@ -2656,7 +2760,14 @@ function mergeModelCapabilities(
     durations: normalizeNumberList(values.durations),
     default_duration_seconds: normalizeOptionalNumber(values.default_duration_seconds),
     image_counts: normalizeNumberList(values.image_counts),
-    max_images: normalizeOptionalNumber(values.max_images)
+    max_images: normalizeOptionalNumber(values.max_images),
+    inputModes: normalizeStringList(values.input_modes),
+    maxReferenceImages: normalizeOptionalNumber(values.max_reference_images),
+    supportsReferenceVideo: Boolean(values.supports_reference_video),
+    supportsFirstFrame: Boolean(values.supports_first_frame),
+    supportsLastFrame: Boolean(values.supports_last_frame),
+    acceptedMimeTypes: normalizeStringList(values.accepted_mime_types),
+    maxAssetSizeMb: normalizeOptionalNumber(values.max_asset_size_mb)
   };
   const cleanedCapabilities = removeEmptyObjectFields(capabilities);
   const { capabilities: _unusedCapabilities, ...restConfig } = config;
@@ -2678,7 +2789,20 @@ function modelCapabilities(config: Record<string, unknown>): ModelCapabilityValu
       source.default_duration_seconds ?? source.duration_seconds ?? source.seconds
     ),
     image_counts: normalizeNumberList(arrayValue(source.image_counts ?? source.counts)),
-    max_images: normalizeOptionalNumber(source.max_images ?? source.max_image_count)
+    max_images: normalizeOptionalNumber(source.max_images ?? source.max_image_count),
+    input_modes: normalizeStringList(arrayValue(source.inputModes ?? source.input_modes)),
+    max_reference_images: normalizeOptionalNumber(
+      source.maxReferenceImages ?? source.max_reference_images
+    ),
+    supports_reference_video: Boolean(
+      source.supportsReferenceVideo ?? source.supports_reference_video
+    ),
+    supports_first_frame: Boolean(source.supportsFirstFrame ?? source.supports_first_frame),
+    supports_last_frame: Boolean(source.supportsLastFrame ?? source.supports_last_frame),
+    accepted_mime_types: normalizeStringList(
+      arrayValue(source.acceptedMimeTypes ?? source.accepted_mime_types)
+    ),
+    max_asset_size_mb: normalizeOptionalNumber(source.maxAssetSizeMb ?? source.max_asset_size_mb)
   };
 }
 
@@ -2691,7 +2815,14 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         image_counts: normalizeNumberList(defaultImageCounts).map(String),
         max_images: 4,
         durations: [],
-        default_duration_seconds: null
+        default_duration_seconds: null,
+        input_modes: ["text", "image"],
+        max_reference_images: 4,
+        supports_reference_video: false,
+        supports_first_frame: false,
+        supports_last_frame: false,
+        accepted_mime_types: defaultAcceptedImageMimes,
+        max_asset_size_mb: 50
       };
     case "video":
       return {
@@ -2700,7 +2831,14 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         durations: normalizeNumberList(defaultVideoDurations).map(String),
         default_duration_seconds: 8,
         image_counts: [],
-        max_images: null
+        max_images: null,
+        input_modes: ["text", "image", "frames"],
+        max_reference_images: 4,
+        supports_reference_video: false,
+        supports_first_frame: true,
+        supports_last_frame: true,
+        accepted_mime_types: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
+        max_asset_size_mb: 50
       };
     default:
       return {
@@ -2709,7 +2847,14 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         durations: [],
         default_duration_seconds: null,
         image_counts: [],
-        max_images: null
+        max_images: null,
+        input_modes: [],
+        max_reference_images: null,
+        supports_reference_video: false,
+        supports_first_frame: false,
+        supports_last_frame: false,
+        accepted_mime_types: [],
+        max_asset_size_mb: null
       };
   }
 }
@@ -2940,6 +3085,23 @@ function modelCapabilitiesSummary(record: AiModel): string {
     parts.push(`张数 ${capabilities.image_counts.join(" / ")}`);
   } else if (capabilities.max_images) {
     parts.push(`最多 ${capabilities.max_images} 张`);
+  }
+  if (capabilities.input_modes.length > 0) {
+    parts.push(`输入 ${capabilities.input_modes.join(" / ")}`);
+  }
+  if (capabilities.max_reference_images) {
+    parts.push(`参考素材 ${capabilities.max_reference_images} 个`);
+  }
+  const frameParts = [
+    capabilities.supports_reference_video ? "参考视频" : null,
+    capabilities.supports_first_frame ? "首帧" : null,
+    capabilities.supports_last_frame ? "尾帧" : null
+  ].filter(Boolean);
+  if (frameParts.length > 0) {
+    parts.push(frameParts.join(" / "));
+  }
+  if (capabilities.max_asset_size_mb) {
+    parts.push(`素材 ${capabilities.max_asset_size_mb} MB`);
   }
 
   return parts.length > 0 ? parts.join("；") : "未限制";

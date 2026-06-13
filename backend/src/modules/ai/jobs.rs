@@ -31,7 +31,7 @@ use crate::{
         auth::session::AdminContext,
         server_api::{
             ai_invoke_scope, authenticate_server_key, customer_id_from_headers,
-            ensure_server_customer_subscription,
+            ensure_server_customer_subscription, ServerApiKeyContext,
         },
         web_assets, web_works,
     },
@@ -75,6 +75,21 @@ pub struct AiGenerationJob {
     pub refunded_minor: i64,
     pub currency: String,
     pub failure_reason: Option<String>,
+    #[serde(rename = "sourceMode")]
+    pub source_mode: Option<String>,
+    #[serde(rename = "referenceCount")]
+    pub reference_count: i64,
+    #[serde(rename = "hasFirstFrame")]
+    pub has_first_frame: bool,
+    #[serde(rename = "hasLastFrame")]
+    pub has_last_frame: bool,
+    pub visibility: Option<String>,
+    #[serde(rename = "publishedAt")]
+    pub published_at: Option<DateTime<Utc>>,
+    #[serde(rename = "favoritedAt")]
+    pub favorited_at: Option<DateTime<Utc>>,
+    #[serde(rename = "downloadedAt")]
+    pub downloaded_at: Option<DateTime<Utc>>,
     pub attempts: i32,
     pub next_poll_at: Option<DateTime<Utc>>,
     pub submitted_at: Option<DateTime<Utc>>,
@@ -183,6 +198,21 @@ struct JobModel {
     pricing_config: Value,
 }
 
+#[derive(Debug, Clone, Default)]
+struct GenerationInputAssets {
+    input_mode: Option<String>,
+    source_mode: Option<String>,
+    reference_asset_ids: Vec<Uuid>,
+    reference_urls: Vec<String>,
+    first_frame_asset_id: Option<Uuid>,
+    first_frame_url: Option<String>,
+    last_frame_asset_id: Option<Uuid>,
+    last_frame_url: Option<String>,
+    reference_count: i64,
+    has_first_frame: bool,
+    has_last_frame: bool,
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct WalletRecord {
     id: Uuid,
@@ -224,6 +254,7 @@ struct JobWorkerRecord {
     attempts: i32,
     held_minor: i64,
     charge_mode: String,
+    request_payload: Value,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -660,8 +691,19 @@ async fn create_server_generation_job(
     let model_code = requested_model_code(&payload)?;
     let model = load_job_model(&state, server_key.tenant_id, model_code).await?;
     validate_generation_model(&model, job_type)?;
-    validate_generation_payload(job_type, &payload, &model)?;
-    let quantity = estimated_quantity(job_type, &payload, &model)?;
+    let input_assets = load_and_validate_generation_input_assets(
+        &state,
+        &server_key,
+        customer_id,
+        job_type,
+        &payload,
+        &model,
+    )
+    .await?;
+    let normalized_payload =
+        normalize_generation_request_payload(payload, job_type, &model, &input_assets)?;
+    validate_generation_payload(job_type, &normalized_payload, &model)?;
+    let quantity = estimated_quantity(job_type, &normalized_payload, &model)?;
     let hold_minor = estimate_generation_hold_minor(job_type, quantity, &model)?;
 
     let reservation = reserve_wallet_and_create_usage(
@@ -673,14 +715,14 @@ async fn create_server_generation_job(
         &request_id.to_string(),
         generation_endpoint(job_type),
         hold_minor,
-        &payload,
+        &normalized_payload,
         idempotency_key.as_deref(),
     )
     .await?;
     let job_id = Uuid::new_v4();
     let submit_started = Instant::now();
     let submit_result =
-        submit_provider_generation_job(&state, &model, job_type, payload.clone()).await;
+        submit_provider_generation_job(&state, &model, job_type, normalized_payload.clone()).await;
     metrics::record_ai_gateway_provider_duration(
         generation_endpoint(job_type),
         submit_started.elapsed(),
@@ -706,7 +748,7 @@ async fn create_server_generation_job(
                     provider_job_id: submit.provider_job_id,
                     provider_request_id: submit.provider_request_id,
                     provider_submit_response: submit.body,
-                    request_payload: payload,
+                    request_payload: normalized_payload,
                     charge_mode: model.billing_mode,
                     quantity,
                     held_minor: hold_minor,
@@ -1072,10 +1114,35 @@ fn wuyin_submit_payload(mut payload: Value, model: &JobModel) -> Result<Value, A
         .as_object_mut()
         .ok_or_else(|| AppError::validation_failed("ai generation body must be an object"))?;
     object.remove("model");
+    object.remove("entitlehub_input");
+    object.remove("referenceAssetIds");
+    object.remove("reference_asset_ids");
+    object.remove("firstFrameAssetId");
+    object.remove("first_frame_asset_id");
+    object.remove("lastFrameAssetId");
+    object.remove("last_frame_asset_id");
+    object.remove("aspectRatio");
+    object.remove("durationSec");
+    object.remove("inputMode");
     if let Some(provider_model) = model.provider_model.as_deref() {
         object
             .entry("model".to_owned())
             .or_insert_with(|| Value::String(provider_model.to_owned()));
+    }
+    if let Some(value) = object.remove("reference_urls") {
+        object.entry("reference_urls".to_owned()).or_insert(value);
+    }
+    if let Some(value) = object.remove("first_frame_url") {
+        object
+            .entry("first_frame_url".to_owned())
+            .or_insert(value.clone());
+        object.entry("first_frame".to_owned()).or_insert(value);
+    }
+    if let Some(value) = object.remove("last_frame_url") {
+        object
+            .entry("last_frame_url".to_owned())
+            .or_insert(value.clone());
+        object.entry("last_frame".to_owned()).or_insert(value);
     }
 
     Ok(payload)
@@ -1349,11 +1416,21 @@ async fn store_ai_asset(
     .await
     .map_err(map_db_error)?;
     if let Some(app_id) = job.app_id {
+        let input_metadata = job
+            .request_payload
+            .get("entitlehub_input")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let metadata = json!({
             "source": "ai_generation_job",
             "job_id": job.id,
             "usage_id": usage_id,
             "provider_url": provider_url,
+            "sourceMode": input_metadata.get("sourceMode").cloned().unwrap_or(json!(job.job_type)),
+            "referenceCount": input_metadata.get("referenceCount").cloned().unwrap_or(json!(0)),
+            "hasFirstFrame": input_metadata.get("hasFirstFrame").cloned().unwrap_or(json!(false)),
+            "hasLastFrame": input_metadata.get("hasLastFrame").cloned().unwrap_or(json!(false)),
+            "input": input_metadata,
         });
         let customer_asset_id = web_assets::mirror_generated_ai_asset(
             state,
@@ -2400,7 +2477,8 @@ async fn claim_pollable_generation_jobs(
           provider_job_id,
           attempts,
           held_minor,
-          charge_mode
+          charge_mode,
+          request_payload
         "#,
     )
     .fetch_all(&state.db)
@@ -2648,6 +2726,7 @@ async fn retry_cache_admin_job(
             attempts: 0,
             held_minor: job.held_minor,
             charge_mode: job.charge_mode.clone(),
+            request_payload: json!({}),
         },
         &job.job_type,
         asset_urls,
@@ -2902,6 +2981,38 @@ async fn find_generation_job_detail(
           j.refunded_minor,
           j.currency,
           j.failure_reason,
+          nullif(coalesce(work.metadata_json->>'sourceMode', j.request_payload->'entitlehub_input'->>'sourceMode'), '') as source_mode,
+          coalesce(
+            case when work.metadata_json->>'referenceCount' ~ '^[0-9]+$'
+              then (work.metadata_json->>'referenceCount')::bigint
+            end,
+            case when j.request_payload->'entitlehub_input'->>'referenceCount' ~ '^[0-9]+$'
+              then (j.request_payload->'entitlehub_input'->>'referenceCount')::bigint
+            end,
+            0
+          )::bigint as reference_count,
+          coalesce(
+            case when lower(work.metadata_json->>'hasFirstFrame') in ('true', 'false')
+              then (work.metadata_json->>'hasFirstFrame')::boolean
+            end,
+            case when lower(j.request_payload->'entitlehub_input'->>'hasFirstFrame') in ('true', 'false')
+              then (j.request_payload->'entitlehub_input'->>'hasFirstFrame')::boolean
+            end,
+            false
+          ) as has_first_frame,
+          coalesce(
+            case when lower(work.metadata_json->>'hasLastFrame') in ('true', 'false')
+              then (work.metadata_json->>'hasLastFrame')::boolean
+            end,
+            case when lower(j.request_payload->'entitlehub_input'->>'hasLastFrame') in ('true', 'false')
+              then (j.request_payload->'entitlehub_input'->>'hasLastFrame')::boolean
+            end,
+            false
+          ) as has_last_frame,
+          work.visibility,
+          publication.published_at,
+          favorite.created_at as favorited_at,
+          download.downloaded_at,
           j.attempts,
           j.next_poll_at,
           j.submitted_at,
@@ -2921,6 +3032,28 @@ async fn find_generation_job_detail(
         left join ai_models m
           on m.id = j.model_id
           and m.tenant_id = j.tenant_id
+        left join customer_works work
+          on work.tenant_id = j.tenant_id
+          and work.source_job_id = j.id
+          and work.owner_customer_id = j.customer_id
+          and work.deleted_at is null
+          and work.status = 'active'
+        left join work_publications publication
+          on publication.tenant_id = work.tenant_id
+          and publication.app_id = work.app_id
+          and publication.work_id = work.id
+          and publication.status = 'published'
+        left join work_favorites favorite
+          on favorite.tenant_id = work.tenant_id
+          and favorite.app_id = work.app_id
+          and favorite.work_id = work.id
+          and favorite.customer_id = j.customer_id
+          and favorite.deleted_at is null
+        left join work_downloads download
+          on download.tenant_id = work.tenant_id
+          and download.app_id = work.app_id
+          and download.work_id = work.id
+          and download.customer_id = j.customer_id
         where j.tenant_id = $1
           and j.id = $2
         "#,
@@ -3044,6 +3177,38 @@ fn job_select_sql() -> &'static str {
       j.refunded_minor,
       j.currency,
       j.failure_reason,
+      nullif(coalesce(work.metadata_json->>'sourceMode', j.request_payload->'entitlehub_input'->>'sourceMode'), '') as source_mode,
+      coalesce(
+        case when work.metadata_json->>'referenceCount' ~ '^[0-9]+$'
+          then (work.metadata_json->>'referenceCount')::bigint
+        end,
+        case when j.request_payload->'entitlehub_input'->>'referenceCount' ~ '^[0-9]+$'
+          then (j.request_payload->'entitlehub_input'->>'referenceCount')::bigint
+        end,
+        0
+      )::bigint as reference_count,
+      coalesce(
+        case when lower(work.metadata_json->>'hasFirstFrame') in ('true', 'false')
+          then (work.metadata_json->>'hasFirstFrame')::boolean
+        end,
+        case when lower(j.request_payload->'entitlehub_input'->>'hasFirstFrame') in ('true', 'false')
+          then (j.request_payload->'entitlehub_input'->>'hasFirstFrame')::boolean
+        end,
+        false
+      ) as has_first_frame,
+      coalesce(
+        case when lower(work.metadata_json->>'hasLastFrame') in ('true', 'false')
+          then (work.metadata_json->>'hasLastFrame')::boolean
+        end,
+        case when lower(j.request_payload->'entitlehub_input'->>'hasLastFrame') in ('true', 'false')
+          then (j.request_payload->'entitlehub_input'->>'hasLastFrame')::boolean
+        end,
+        false
+      ) as has_last_frame,
+      work.visibility,
+      publication.published_at,
+      favorite.created_at as favorited_at,
+      download.downloaded_at,
       j.attempts,
       j.next_poll_at,
       j.submitted_at,
@@ -3060,6 +3225,28 @@ fn job_select_sql() -> &'static str {
     left join ai_models m
       on m.id = j.model_id
       and m.tenant_id = j.tenant_id
+    left join customer_works work
+      on work.tenant_id = j.tenant_id
+      and work.source_job_id = j.id
+      and work.owner_customer_id = j.customer_id
+      and work.deleted_at is null
+      and work.status = 'active'
+    left join work_publications publication
+      on publication.tenant_id = work.tenant_id
+      and publication.app_id = work.app_id
+      and publication.work_id = work.id
+      and publication.status = 'published'
+    left join work_favorites favorite
+      on favorite.tenant_id = work.tenant_id
+      and favorite.app_id = work.app_id
+      and favorite.work_id = work.id
+      and favorite.customer_id = j.customer_id
+      and favorite.deleted_at is null
+    left join work_downloads download
+      on download.tenant_id = work.tenant_id
+      and download.app_id = work.app_id
+      and download.work_id = work.id
+      and download.customer_id = j.customer_id
     "#
 }
 
@@ -3264,6 +3451,320 @@ fn validate_generation_payload(
         _ => Err(AppError::validation_failed(
             "ai generation job type invalid",
         )),
+    }
+}
+
+async fn load_and_validate_generation_input_assets(
+    state: &AppState,
+    server_key: &ServerApiKeyContext,
+    customer_id: Uuid,
+    job_type: &str,
+    payload: &Value,
+    model: &JobModel,
+) -> Result<GenerationInputAssets, AppError> {
+    let capabilities = capabilities::ModelCapabilities::from_config(&model.pricing_config)?;
+    let input_mode = optional_string(payload, &["inputMode", "input_mode"]);
+    if let Some(input_mode) = input_mode.as_deref() {
+        capabilities::validate_input_mode(input_mode, &model.pricing_config)?;
+    }
+    let reference_asset_ids = uuid_list(payload, &["referenceAssetIds", "reference_asset_ids"])?;
+    let first_frame_asset_id =
+        optional_uuid(payload, &["firstFrameAssetId", "first_frame_asset_id"])?;
+    let last_frame_asset_id = optional_uuid(payload, &["lastFrameAssetId", "last_frame_asset_id"])?;
+    if job_type != "video"
+        && (!reference_asset_ids.is_empty()
+            || first_frame_asset_id.is_some()
+            || last_frame_asset_id.is_some())
+    {
+        return Err(AppError::validation_failed(
+            "reference assets are only supported for video generation jobs",
+        ));
+    }
+    if let Some(max_reference_images) = capabilities.max_reference_images {
+        if reference_asset_ids.len() as i64 > max_reference_images {
+            return Err(AppError::validation_failed(format!(
+                "referenceAssetIds must contain no more than {max_reference_images} items"
+            )));
+        }
+    }
+    if first_frame_asset_id.is_some() && !capabilities.supports_first_frame {
+        return Err(AppError::validation_failed(
+            "firstFrameAssetId is not supported by this model",
+        ));
+    }
+    if last_frame_asset_id.is_some() && !capabilities.supports_last_frame {
+        return Err(AppError::validation_failed(
+            "lastFrameAssetId is not supported by this model",
+        ));
+    }
+
+    let mut reference_urls = Vec::new();
+    for asset_id in &reference_asset_ids {
+        let asset = web_assets::find_generation_asset(
+            state,
+            server_key.tenant_id,
+            server_key.app_id,
+            customer_id,
+            *asset_id,
+        )
+        .await?;
+        validate_reference_asset(&asset, &capabilities, "referenceAssetIds")?;
+        reference_urls.push(asset_url(&asset, "referenceAssetIds")?);
+    }
+    let first_frame_url = match first_frame_asset_id {
+        Some(asset_id) => {
+            let asset = web_assets::find_generation_asset(
+                state,
+                server_key.tenant_id,
+                server_key.app_id,
+                customer_id,
+                asset_id,
+            )
+            .await?;
+            validate_frame_asset(&asset, &capabilities, "firstFrameAssetId")?;
+            Some(asset_url(&asset, "firstFrameAssetId")?)
+        }
+        None => None,
+    };
+    let last_frame_url = match last_frame_asset_id {
+        Some(asset_id) => {
+            let asset = web_assets::find_generation_asset(
+                state,
+                server_key.tenant_id,
+                server_key.app_id,
+                customer_id,
+                asset_id,
+            )
+            .await?;
+            validate_frame_asset(&asset, &capabilities, "lastFrameAssetId")?;
+            Some(asset_url(&asset, "lastFrameAssetId")?)
+        }
+        None => None,
+    };
+    let source_mode = input_mode.clone().or_else(|| {
+        if first_frame_asset_id.is_some() || last_frame_asset_id.is_some() {
+            Some("frames".to_owned())
+        } else if !reference_asset_ids.is_empty() {
+            Some("image".to_owned())
+        } else {
+            Some("text".to_owned())
+        }
+    });
+
+    Ok(GenerationInputAssets {
+        input_mode,
+        source_mode,
+        reference_count: reference_asset_ids.len() as i64,
+        has_first_frame: first_frame_asset_id.is_some(),
+        has_last_frame: last_frame_asset_id.is_some(),
+        reference_asset_ids,
+        reference_urls,
+        first_frame_asset_id,
+        first_frame_url,
+        last_frame_asset_id,
+        last_frame_url,
+    })
+}
+
+fn normalize_generation_request_payload(
+    payload: Value,
+    job_type: &str,
+    model: &JobModel,
+    input_assets: &GenerationInputAssets,
+) -> Result<Value, AppError> {
+    let mut object = payload
+        .as_object()
+        .cloned()
+        .ok_or_else(|| AppError::validation_failed("ai generation body must be an object"))?;
+    copy_string_alias(&mut object, "aspectRatio", "ratio");
+    copy_string_alias(&mut object, "durationSec", "duration");
+    copy_string_alias(&mut object, "inputMode", "input_mode");
+    if let Some(input_mode) = input_assets.input_mode.as_deref() {
+        object.insert(
+            "input_mode".to_owned(),
+            Value::String(input_mode.to_owned()),
+        );
+    }
+    if !input_assets.reference_asset_ids.is_empty() {
+        object.insert(
+            "reference_asset_ids".to_owned(),
+            json!(input_assets.reference_asset_ids),
+        );
+        object.insert(
+            "reference_urls".to_owned(),
+            json!(input_assets.reference_urls),
+        );
+    }
+    if let Some(asset_id) = input_assets.first_frame_asset_id {
+        object.insert("first_frame_asset_id".to_owned(), json!(asset_id));
+    }
+    if let Some(url) = input_assets.first_frame_url.as_deref() {
+        object.insert("first_frame_url".to_owned(), Value::String(url.to_owned()));
+    }
+    if let Some(asset_id) = input_assets.last_frame_asset_id {
+        object.insert("last_frame_asset_id".to_owned(), json!(asset_id));
+    }
+    if let Some(url) = input_assets.last_frame_url.as_deref() {
+        object.insert("last_frame_url".to_owned(), Value::String(url.to_owned()));
+    }
+    object.insert(
+        "entitlehub_input".to_owned(),
+        json!({
+            "sourceMode": input_assets.source_mode,
+            "referenceCount": input_assets.reference_count,
+            "hasFirstFrame": input_assets.has_first_frame,
+            "hasLastFrame": input_assets.has_last_frame,
+        }),
+    );
+    if job_type == "video" && !object.contains_key("duration") {
+        let seconds = capabilities::requested_video_seconds(
+            &Value::Object(object.clone()),
+            &model.pricing_config,
+            MAX_VIDEO_SECONDS,
+        )?;
+        object.insert("duration".to_owned(), json!(seconds));
+    }
+
+    Ok(Value::Object(object))
+}
+
+fn validate_reference_asset(
+    asset: &web_assets::GenerationAssetRecord,
+    capabilities: &capabilities::ModelCapabilities,
+    field: &str,
+) -> Result<(), AppError> {
+    let Some(mime_type) = asset.mime_type.as_deref() else {
+        return Err(AppError::validation_failed(format!(
+            "{field} mime type is missing"
+        )));
+    };
+    if asset.asset_type == "video" && !capabilities.supports_reference_video {
+        return Err(AppError::validation_failed(
+            "reference video is not supported by this model",
+        ));
+    }
+    validate_asset_mime_and_size(asset, capabilities, field, mime_type)
+}
+
+fn validate_frame_asset(
+    asset: &web_assets::GenerationAssetRecord,
+    capabilities: &capabilities::ModelCapabilities,
+    field: &str,
+) -> Result<(), AppError> {
+    let Some(mime_type) = asset.mime_type.as_deref() else {
+        return Err(AppError::validation_failed(format!(
+            "{field} mime type is missing"
+        )));
+    };
+    if !asset.asset_type.eq_ignore_ascii_case("image") {
+        return Err(AppError::validation_failed(format!(
+            "{field} must be an image asset"
+        )));
+    }
+    validate_asset_mime_and_size(asset, capabilities, field, mime_type)
+}
+
+fn validate_asset_mime_and_size(
+    asset: &web_assets::GenerationAssetRecord,
+    capabilities: &capabilities::ModelCapabilities,
+    field: &str,
+    mime_type: &str,
+) -> Result<(), AppError> {
+    if !capabilities.accepted_mime_types.is_empty()
+        && !capabilities
+            .accepted_mime_types
+            .iter()
+            .any(|item| item.eq_ignore_ascii_case(mime_type))
+    {
+        return Err(AppError::validation_failed(format!(
+            "{field} mime type must be one of {}",
+            capabilities.accepted_mime_types.join(", ")
+        )));
+    }
+    if let (Some(max_mb), Some(file_size)) = (capabilities.max_asset_size_mb, asset.file_size) {
+        let max_bytes = max_mb.saturating_mul(1024 * 1024);
+        if file_size > max_bytes {
+            return Err(AppError::validation_failed(format!(
+                "{field} file size must be less than or equal to {max_mb} MB"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn asset_url(asset: &web_assets::GenerationAssetRecord, field: &str) -> Result<String, AppError> {
+    asset
+        .public_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::validation_failed(format!("{field} url is missing")))
+}
+
+fn optional_string(payload: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| payload.get(*key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn optional_uuid(payload: &Value, keys: &[&str]) -> Result<Option<Uuid>, AppError> {
+    let Some(value) = keys.iter().find_map(|key| payload.get(*key)) else {
+        return Ok(None);
+    };
+    uuid_from_value(value)
+}
+
+fn uuid_list(payload: &Value, keys: &[&str]) -> Result<Vec<Uuid>, AppError> {
+    let Some(value) = keys.iter().find_map(|key| payload.get(*key)) else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err(AppError::validation_failed(
+            "referenceAssetIds must be an array",
+        ));
+    };
+    let mut output = Vec::new();
+    for item in items {
+        let Some(id) = uuid_from_value(item)? else {
+            return Err(AppError::validation_failed(
+                "referenceAssetIds must contain valid asset ids",
+            ));
+        };
+        if !output.contains(&id) {
+            output.push(id);
+        }
+    }
+
+    Ok(output)
+}
+
+fn uuid_from_value(value: &Value) -> Result<Option<Uuid>, AppError> {
+    let Some(value) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    Uuid::parse_str(value)
+        .map(Some)
+        .map_err(|_| AppError::validation_failed("asset id is invalid"))
+}
+
+fn copy_string_alias(object: &mut Map<String, Value>, source: &str, target: &str) {
+    if object.contains_key(target) {
+        return;
+    }
+    if let Some(value) = object
+        .get(source)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(target.to_owned(), Value::String(value.to_owned()));
     }
 }
 

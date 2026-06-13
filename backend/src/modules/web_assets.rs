@@ -88,6 +88,25 @@ pub struct CustomerAssetListResponse {
 #[derive(Debug, Serialize)]
 pub struct CustomerAssetResponse {
     pub asset: CustomerAsset,
+    #[serde(rename = "assetId")]
+    pub asset_id: Uuid,
+    pub url: Option<String>,
+    #[serde(rename = "type")]
+    pub asset_type: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
+}
+
+impl CustomerAssetResponse {
+    fn from_asset(asset: CustomerAsset) -> Self {
+        Self {
+            asset_id: asset.id,
+            url: asset.public_url.clone(),
+            asset_type: asset.asset_type.clone(),
+            mime_type: asset.mime_type.clone(),
+            asset,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +191,16 @@ pub struct CreateAssetUploadRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DirectAssetUploadQuery {
+    pub customer_id: Uuid,
+    pub folder_id: Option<Uuid>,
+    pub file_name: String,
+    pub asset_type: String,
+    pub asset_role: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AssetUploadTokenQuery {
     pub token: Option<String>,
 }
@@ -206,6 +235,17 @@ struct AssetStorageRecord {
     storage_key: Option<String>,
     mime_type: Option<String>,
     file_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct GenerationAssetRecord {
+    pub id: Uuid,
+    pub customer_id: Uuid,
+    pub asset_type: String,
+    pub asset_role: String,
+    pub public_url: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
 }
 
 pub async fn list_asset_folders(
@@ -542,7 +582,73 @@ pub async fn upload_customer_asset(
     .await?;
 
     Ok(Json(ApiResponse::ok(
-        CustomerAssetResponse { asset },
+        CustomerAssetResponse::from_asset(asset),
+        request_id.to_string(),
+    )))
+}
+
+pub async fn direct_upload_customer_asset(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Query(query): Query<DirectAssetUploadQuery>,
+    body: Bytes,
+) -> Result<Json<ApiResponse<CustomerAssetResponse>>, AppError> {
+    if body.is_empty() {
+        return Err(AppError::validation_failed("asset file is required"));
+    }
+    if body.len() > MAX_WEB_ASSET_UPLOAD_BYTES {
+        return Err(AppError::validation_failed("asset file is too large"));
+    }
+    let server_key = authenticate_web_assets_key(&state, &headers).await?;
+    ensure_customer_active(&state, server_key.tenant_id, query.customer_id).await?;
+    ensure_folder_belongs(&state, &server_key, query.customer_id, query.folder_id).await?;
+    let file_name = normalize_file_name(&query.file_name)?;
+    let asset_type = normalize_asset_type(&query.asset_type)?;
+    let asset_role = normalize_upload_asset_role(query.asset_role.as_deref())?;
+    let mime_type = query
+        .mime_type
+        .as_deref()
+        .and_then(normalize_mime_type)
+        .or_else(|| content_type_from_headers(&headers))
+        .unwrap_or_else(|| "application/octet-stream".to_owned());
+    validate_asset_type_mime(&asset_type, Some(&mime_type))?;
+
+    let asset_id = Uuid::new_v4();
+    let extension = extension_for_mime(&mime_type);
+    let storage_key = format!(
+        "tenants/{}/web-assets/{}/{}.{}",
+        server_key.tenant_id, query.customer_id, asset_id, extension
+    );
+    state.object_store.put_bytes(&storage_key, &body).await?;
+    let checksum = format!("{:x}", Sha256::digest(&body));
+    let public_url = asset_download_url(&state, asset_id);
+    let asset = insert_customer_asset(
+        &state,
+        NewCustomerAsset {
+            id: asset_id,
+            tenant_id: server_key.tenant_id,
+            app_id: server_key.app_id,
+            customer_id: query.customer_id,
+            folder_id: query.folder_id,
+            ai_asset_id: None,
+            name: file_name,
+            asset_type,
+            asset_role,
+            source: "user_upload".to_owned(),
+            storage_key: Some(storage_key),
+            public_url: Some(public_url),
+            mime_type: Some(mime_type),
+            file_size: Some(body.len() as i64),
+            checksum_sha256: Some(checksum),
+            metadata_json: json!({}),
+            server_key_id: Some(server_key.server_key_id),
+        },
+    )
+    .await?;
+
+    Ok(Json(ApiResponse::ok(
+        CustomerAssetResponse::from_asset(asset),
         request_id.to_string(),
     )))
 }
@@ -602,7 +708,7 @@ pub async fn get_customer_asset(
     let asset = find_asset(&state, &server_key, asset_id).await?;
 
     Ok(Json(ApiResponse::ok(
-        CustomerAssetResponse { asset },
+        CustomerAssetResponse::from_asset(asset),
         request_id.to_string(),
     )))
 }
@@ -663,7 +769,7 @@ pub async fn update_customer_asset(
     let asset = find_asset(&state, &server_key, asset_id).await?;
 
     Ok(Json(ApiResponse::ok(
-        CustomerAssetResponse { asset },
+        CustomerAssetResponse::from_asset(asset),
         request_id.to_string(),
     )))
 }
@@ -822,6 +928,42 @@ pub async fn mirror_generated_ai_asset(
     .fetch_one(&state.db)
     .await
     .map_err(map_db_error)
+}
+
+pub async fn find_generation_asset(
+    state: &AppState,
+    tenant_id: Uuid,
+    app_id: Uuid,
+    customer_id: Uuid,
+    asset_id: Uuid,
+) -> Result<GenerationAssetRecord, AppError> {
+    sqlx::query_as::<_, GenerationAssetRecord>(
+        r#"
+        select
+          id,
+          customer_id,
+          asset_type,
+          asset_role,
+          public_url,
+          mime_type,
+          file_size
+        from customer_assets
+        where tenant_id = $1
+          and app_id = $2
+          and customer_id = $3
+          and id = $4
+          and deleted_at is null
+          and status = 'ready'
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(app_id)
+    .bind(customer_id)
+    .bind(asset_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)?
+    .ok_or_else(|| AppError::not_found("asset not found"))
 }
 
 #[derive(Debug)]

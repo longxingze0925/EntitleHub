@@ -12,6 +12,13 @@ pub struct ModelCapabilities {
     pub default_duration_seconds: Option<i64>,
     pub image_counts: Vec<i64>,
     pub max_images: Option<i64>,
+    pub input_modes: Vec<String>,
+    pub max_reference_images: Option<i64>,
+    pub supports_reference_video: bool,
+    pub supports_first_frame: bool,
+    pub supports_last_frame: bool,
+    pub accepted_mime_types: Vec<String>,
+    pub max_asset_size_mb: Option<i64>,
 }
 
 impl ModelCapabilities {
@@ -27,6 +34,34 @@ impl ModelCapabilities {
             )?,
             image_counts: positive_int_list(source, &["image_counts", "counts"])?,
             max_images: first_positive_int(source, &["max_images", "max_image_count"])?,
+            input_modes: string_list(source, &["inputModes", "input_modes"])?,
+            max_reference_images: first_positive_int(
+                source,
+                &["maxReferenceImages", "max_reference_images"],
+            )?,
+            supports_reference_video: optional_bool(
+                source,
+                &["supportsReferenceVideo", "supports_reference_video"],
+            )?
+            .unwrap_or(false),
+            supports_first_frame: optional_bool(
+                source,
+                &["supportsFirstFrame", "supports_first_frame"],
+            )?
+            .unwrap_or(false),
+            supports_last_frame: optional_bool(
+                source,
+                &["supportsLastFrame", "supports_last_frame"],
+            )?
+            .unwrap_or(false),
+            accepted_mime_types: string_list(
+                source,
+                &["acceptedMimeTypes", "accepted_mime_types"],
+            )?,
+            max_asset_size_mb: first_positive_int(
+                source,
+                &["maxAssetSizeMb", "max_asset_size_mb"],
+            )?,
         })
     }
 
@@ -38,6 +73,13 @@ impl ModelCapabilities {
             "default_duration_seconds": self.default_duration_seconds,
             "image_counts": self.image_counts,
             "max_images": self.max_images,
+            "inputModes": self.input_modes,
+            "maxReferenceImages": self.max_reference_images,
+            "supportsReferenceVideo": self.supports_reference_video,
+            "supportsFirstFrame": self.supports_first_frame,
+            "supportsLastFrame": self.supports_last_frame,
+            "acceptedMimeTypes": self.accepted_mime_types,
+            "maxAssetSizeMb": self.max_asset_size_mb,
         })
     }
 }
@@ -81,6 +123,11 @@ pub fn validate_video_payload(payload: &Value, config: &Value) -> Result<(), App
     let capabilities = ModelCapabilities::from_config(config)?;
     validate_optional_string_choice(payload, &["ratio", "aspect_ratio"], &capabilities.ratios)?;
     validate_optional_string_choice(payload, &["resolution", "size"], &capabilities.resolutions)?;
+    validate_optional_string_choice(
+        payload,
+        &["inputMode", "input_mode"],
+        &capabilities.input_modes,
+    )?;
 
     let seconds = requested_video_seconds(payload, config, DEFAULT_MAX_VIDEO_SECONDS)?;
     if !capabilities.durations.is_empty() && !capabilities.durations.contains(&seconds) {
@@ -91,6 +138,23 @@ pub fn validate_video_payload(payload: &Value, config: &Value) -> Result<(), App
     }
 
     Ok(())
+}
+
+pub fn validate_input_mode(input_mode: &str, config: &Value) -> Result<(), AppError> {
+    let capabilities = ModelCapabilities::from_config(config)?;
+    if capabilities.input_modes.is_empty()
+        || capabilities
+            .input_modes
+            .iter()
+            .any(|item| item.eq_ignore_ascii_case(input_mode))
+    {
+        return Ok(());
+    }
+
+    Err(AppError::validation_failed(format!(
+        "inputMode must be one of {}",
+        capabilities.input_modes.join(", ")
+    )))
 }
 
 pub fn image_count(payload: &Value, fallback_max_count: i64) -> Result<i64, AppError> {
@@ -256,6 +320,16 @@ fn first_positive_int(source: &Value, keys: &[&str]) -> Result<Option<i64>, AppE
         .ok_or_else(|| AppError::validation_failed("ai model capability number must be positive"))
 }
 
+fn optional_bool(source: &Value, keys: &[&str]) -> Result<Option<bool>, AppError> {
+    let Some(value) = keys.iter().find_map(|key| source.get(*key)) else {
+        return Ok(None);
+    };
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| AppError::validation_failed("ai model capability boolean must be valid"))
+}
+
 fn join_i64(values: &[i64]) -> String {
     values
         .iter()
@@ -270,7 +344,7 @@ mod tests {
 
     use super::{
         image_count, model_capabilities_json, requested_video_seconds, validate_image_payload,
-        validate_video_payload,
+        validate_input_mode, validate_video_payload,
     };
 
     #[test]
@@ -319,13 +393,31 @@ mod tests {
         let public = model_capabilities_json(&json!({
             "capabilities": {
                 "sizes": ["720p"],
-                "max_images": 4
+                "max_images": 4,
+                "inputModes": ["text", "image"],
+                "supportsFirstFrame": true,
+                "acceptedMimeTypes": ["image/png"],
+                "maxAssetSizeMb": 50
             }
         }))
         .expect("capabilities");
 
         assert_eq!(public["resolutions"], json!(["720p"]));
         assert_eq!(public["max_images"], json!(4));
+        assert_eq!(public["inputModes"], json!(["text", "image"]));
+        assert_eq!(public["supportsFirstFrame"], json!(true));
+        assert_eq!(public["acceptedMimeTypes"], json!(["image/png"]));
+        assert_eq!(public["maxAssetSizeMb"], json!(50));
+        assert!(validate_input_mode(
+            "image",
+            &json!({"capabilities": {"inputModes": ["text", "image"]}})
+        )
+        .is_ok());
+        assert!(validate_input_mode(
+            "frames",
+            &json!({"capabilities": {"inputModes": ["text", "image"]}})
+        )
+        .is_err());
     }
 
     #[test]

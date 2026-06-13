@@ -2875,6 +2875,8 @@ GET /api/server/web/v1/ai/jobs?customer_id={customer_id}
 GET /api/server/web/v1/ai/jobs/{job_id}?customer_id={customer_id}
 POST /api/server/web/v1/ai/jobs/{job_id}/cancel
 POST /api/server/web/v1/ai/jobs/{job_id}/retry
+POST /api/server/web/v1/assets/upload
+POST /api/server/web/v1/works/{work_id}/download
 Authorization: Bearer ehsk_...
 Content-Type: application/json
 ```
@@ -2887,6 +2889,7 @@ Content-Type: application/json
 - `cancel` 是 EntitleHub 本地取消：停止继续轮询并释放未扣费预扣；如果三方平台没有取消接口，不能保证三方侧停止生成。
 - `retry` 是重新查询第三方任务，不是新建任务；重新生成应重新调用 `POST /api/server/web/v1/ai/jobs` 并使用新的幂等键。
 - 用户上传素材和 AI 生成结果统一进入 Web 资产库，影织可以按客户、文件夹、类型、用途查询。
+- 模型 `capabilities` 会返回 `inputModes`、`maxReferenceImages`、`supportsReferenceVideo`、`supportsFirstFrame`、`supportsLastFrame`、`acceptedMimeTypes`、`maxAssetSizeMb`，Web 产品应按这些字段渲染参考素材、首帧、尾帧等输入能力。
 
 统一创建视频任务示例：
 
@@ -2902,6 +2905,31 @@ Content-Type: application/json
 }
 ```
 
+带参考素材的视频任务示例：
+
+```json
+{
+  "customer_id": "00000000-0000-0000-0000-000000000001",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "根据首尾帧生成视频",
+  "inputMode": "frames",
+  "referenceAssetIds": ["00000000-0000-0000-0000-000000000002"],
+  "firstFrameAssetId": "00000000-0000-0000-0000-000000000003",
+  "lastFrameAssetId": "00000000-0000-0000-0000-000000000004",
+  "aspectRatio": "16:9",
+  "resolution": "1080p",
+  "durationSec": 8
+}
+```
+
+说明：
+
+- 参考素材只支持视频任务。
+- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 必须属于当前 Server Key 应用下的当前客户。
+- EntitleHub 会校验素材状态、类型、MIME、大小和模型能力。
+- 任务、作品和广场返回会包含 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`publishedAt`、`favoritedAt`、`downloadedAt`。
+
 完整接入流程见 `Web 后端接入指南.md`。
 
 ### 18.10.5 Web 产品资产库接口
@@ -2915,6 +2943,7 @@ PATCH  /api/server/web/v1/asset-folders/{id}
 DELETE /api/server/web/v1/asset-folders/{id}
 
 POST   /api/server/web/v1/assets/upload-url
+POST   /api/server/web/v1/assets/upload
 PUT    /api/server/web/v1/assets/uploads/{id}
 GET    /api/server/web/v1/assets?customer_id=uuid
 GET    /api/server/web/v1/assets/{id}
@@ -2955,6 +2984,34 @@ Content-Type: image/png
 <binary>
 ```
 
+服务端直传：
+
+```http
+POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&asset_type=image&asset_role=reference&mime_type=image/png
+Authorization: Bearer ehsk_...
+Content-Type: image/png
+
+<binary>
+```
+
+上传成功响应会包含完整 `asset`，并额外返回 Web 友好别名：
+
+```json
+{
+  "asset": {
+    "id": "uuid",
+    "asset_type": "image",
+    "asset_role": "reference",
+    "public_url": "https://example.com/api/server/web/v1/assets/uuid/download",
+    "mime_type": "image/png"
+  },
+  "assetId": "uuid",
+  "url": "https://example.com/api/server/web/v1/assets/uuid/download",
+  "type": "image",
+  "mimeType": "image/png"
+}
+```
+
 资产类型：
 
 - `asset_type`：`image`、`video`、`audio`、`file`。
@@ -2968,6 +3025,7 @@ Content-Type: image/png
 - 文件夹删除要求文件夹为空。
 - 资产删除是软删除，不会立刻物理删除对象存储文件。
 - Server Key 调用的同步/异步图片视频生成成功后，会自动把生成素材写入资产库，`asset_role=generated`、`source=generated`，并自动创建私有作品。
+- 参考素材提交给第三方时会使用资产 `public_url`。生产环境应使用第三方可访问的对象存储公开 URL 或短期签名 URL；如果 `public_url` 是需要 Server Key 的 EntitleHub 下载接口，第三方平台通常无法直接拉取。
 
 ### 18.10.6 Web 产品作品接口
 
@@ -2988,6 +3046,7 @@ PATCH  /api/server/web/v1/works/{id}
 DELETE /api/server/web/v1/works/{id}
 POST   /api/server/web/v1/works/{id}/favorite
 DELETE /api/server/web/v1/works/{id}/favorite
+POST   /api/server/web/v1/works/{id}/download
 POST   /api/server/web/v1/works/{id}/publish
 POST   /api/server/web/v1/works/{id}/unpublish
 GET    /api/server/web/v1/gallery?type=video&customer_id=uuid
@@ -3003,6 +3062,7 @@ Content-Type: application/json
 - `customer_id` 传给 `gallery` 时，返回字段中的 `favorited` 会按该客户计算。
 - 删除作品是软删除，并会从广场下架；不会删除底层资产文件。
 - 发布、取消发布、更新、删除只能由作品 owner 操作。
+- `download` 会记录当前客户下载过该作品，并返回作品主资产下载地址；下载状态是客户维度，返回字段为 `downloadedAt`。
 
 更新作品请求：
 
@@ -3035,6 +3095,14 @@ Content-Type: application/json
 }
 ```
 
+下载请求：
+
+```json
+{
+  "customer_id": "uuid"
+}
+```
+
 返回核心字段：
 
 ```json
@@ -3052,10 +3120,22 @@ Content-Type: application/json
     "cover_asset_url": null,
     "favorite_count": 0,
     "favorited": false,
+    "sourceMode": "frames",
+    "referenceCount": 2,
+    "hasFirstFrame": true,
+    "hasLastFrame": true,
     "publication_status": null,
     "published_at": null,
+    "publishedAt": null,
+    "favoritedAt": null,
+    "downloadedAt": null,
     "publication_tags": [],
-    "metadata": {}
+    "metadata": {
+      "sourceMode": "frames",
+      "referenceCount": 2,
+      "hasFirstFrame": true,
+      "hasLastFrame": true
+    }
   }
 }
 ```

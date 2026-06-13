@@ -548,6 +548,12 @@ pub fn build(state: AppState) -> Router {
             post(web_assets::create_asset_upload_url),
         )
         .route(
+            "/api/server/web/v1/assets/upload",
+            post(web_assets::direct_upload_customer_asset).layer(DefaultBodyLimit::max(
+                web_assets::MAX_WEB_ASSET_UPLOAD_BYTES,
+            )),
+        )
+        .route(
             "/api/server/web/v1/assets/uploads/{id}",
             put(web_assets::upload_customer_asset).layer(DefaultBodyLimit::max(
                 web_assets::MAX_WEB_ASSET_UPLOAD_BYTES,
@@ -577,6 +583,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/api/server/web/v1/works/{id}/favorite",
             post(web_works::favorite_work).delete(web_works::unfavorite_work),
+        )
+        .route(
+            "/api/server/web/v1/works/{id}/download",
+            post(web_works::download_work),
         )
         .route(
             "/api/server/web/v1/works/{id}/publish",

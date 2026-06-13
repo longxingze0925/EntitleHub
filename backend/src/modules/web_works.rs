@@ -46,8 +46,21 @@ pub struct WebWork {
     pub metadata: Value,
     pub favorite_count: i64,
     pub favorited: bool,
+    #[serde(rename = "sourceMode")]
+    pub source_mode: Option<String>,
+    #[serde(rename = "referenceCount")]
+    pub reference_count: i64,
+    #[serde(rename = "hasFirstFrame")]
+    pub has_first_frame: bool,
+    #[serde(rename = "hasLastFrame")]
+    pub has_last_frame: bool,
     pub publication_status: Option<String>,
+    #[serde(rename = "publishedAt")]
     pub published_at: Option<DateTime<Utc>>,
+    #[serde(rename = "favoritedAt")]
+    pub favorited_at: Option<DateTime<Utc>>,
+    #[serde(rename = "downloadedAt")]
+    pub downloaded_at: Option<DateTime<Utc>>,
     pub publication_tags: Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -69,11 +82,22 @@ pub struct WebWorkFavoriteResponse {
     pub work_id: Uuid,
     pub customer_id: Uuid,
     pub favorited: bool,
+    #[serde(rename = "favoritedAt")]
+    pub favorited_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct WebWorkPublicationResponse {
     pub work: WebWork,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WebWorkDownloadResponse {
+    pub work: WebWork,
+    #[serde(rename = "downloadUrl")]
+    pub download_url: Option<String>,
+    #[serde(rename = "downloadedAt")]
+    pub downloaded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,7 +364,7 @@ pub async fn favorite_work(
     ensure_customer_active(&state, server_key.tenant_id, payload.customer_id).await?;
     find_visible_work(&state, &server_key, work_id, payload.customer_id).await?;
 
-    sqlx::query(
+    let favorited_at = sqlx::query_scalar::<_, DateTime<Utc>>(
         r#"
         insert into work_favorites (
           tenant_id,
@@ -351,21 +375,27 @@ pub async fn favorite_work(
         values ($1, $2, $3, $4)
         on conflict (tenant_id, app_id, work_id, customer_id)
           where deleted_at is null do nothing
+        returning created_at
         "#,
     )
     .bind(server_key.tenant_id)
     .bind(server_key.app_id)
     .bind(work_id)
     .bind(payload.customer_id)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await
     .map_err(map_db_error)?;
+    let favorited_at = match favorited_at {
+        Some(value) => Some(value),
+        None => active_favorite_at(&state, &server_key, work_id, payload.customer_id).await?,
+    };
 
     Ok(Json(ApiResponse::ok(
         WebWorkFavoriteResponse {
             work_id,
             customer_id: payload.customer_id,
             favorited: true,
+            favorited_at,
         },
         request_id.to_string(),
     )))
@@ -405,6 +435,52 @@ pub async fn unfavorite_work(
             work_id,
             customer_id: payload.customer_id,
             favorited: false,
+            favorited_at: None,
+        },
+        request_id.to_string(),
+    )))
+}
+
+pub async fn download_work(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Path(work_id): Path<Uuid>,
+    Json(payload): Json<WebWorkCustomerRequest>,
+) -> Result<Json<ApiResponse<WebWorkDownloadResponse>>, AppError> {
+    let server_key = authenticate_web_works_key(&state, &headers).await?;
+    ensure_customer_active(&state, server_key.tenant_id, payload.customer_id).await?;
+    let visible = find_visible_work(&state, &server_key, work_id, payload.customer_id).await?;
+    let downloaded_at = sqlx::query_scalar::<_, DateTime<Utc>>(
+        r#"
+        insert into work_downloads (
+          tenant_id,
+          app_id,
+          work_id,
+          customer_id
+        )
+        values ($1, $2, $3, $4)
+        on conflict (tenant_id, app_id, work_id, customer_id) do update
+        set download_count = work_downloads.download_count + 1,
+            downloaded_at = now(),
+            updated_at = now()
+        returning downloaded_at
+        "#,
+    )
+    .bind(server_key.tenant_id)
+    .bind(server_key.app_id)
+    .bind(work_id)
+    .bind(payload.customer_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(map_db_error)?;
+    let work = find_visible_work(&state, &server_key, work_id, payload.customer_id).await?;
+
+    Ok(Json(ApiResponse::ok(
+        WebWorkDownloadResponse {
+            download_url: visible.primary_asset_url,
+            downloaded_at: Some(downloaded_at),
+            work,
         },
         request_id.to_string(),
     )))
@@ -831,8 +907,29 @@ fn work_select_sql() -> &'static str {
           and current_favorite.customer_id = $3
           and current_favorite.deleted_at is null
       ) as favorited,
+      nullif(w.metadata_json->>'sourceMode', '') as source_mode,
+      coalesce(
+        case when w.metadata_json->>'referenceCount' ~ '^[0-9]+$'
+          then (w.metadata_json->>'referenceCount')::bigint
+        end,
+        0
+      )::bigint as reference_count,
+      coalesce(
+        case when lower(w.metadata_json->>'hasFirstFrame') in ('true', 'false')
+          then (w.metadata_json->>'hasFirstFrame')::boolean
+        end,
+        false
+      ) as has_first_frame,
+      coalesce(
+        case when lower(w.metadata_json->>'hasLastFrame') in ('true', 'false')
+          then (w.metadata_json->>'hasLastFrame')::boolean
+        end,
+        false
+      ) as has_last_frame,
       publication.status as publication_status,
       publication.published_at,
+      current_favorite.created_at as favorited_at,
+      current_download.downloaded_at as downloaded_at,
       coalesce(publication.tags, '[]'::jsonb) as publication_tags,
       w.created_at,
       w.updated_at
@@ -849,6 +946,17 @@ fn work_select_sql() -> &'static str {
       on publication.work_id = w.id
       and publication.tenant_id = w.tenant_id
       and publication.app_id = w.app_id
+    left join work_favorites current_favorite
+      on current_favorite.work_id = w.id
+      and current_favorite.tenant_id = w.tenant_id
+      and current_favorite.app_id = w.app_id
+      and current_favorite.customer_id = $3
+      and current_favorite.deleted_at is null
+    left join work_downloads current_download
+      on current_download.work_id = w.id
+      and current_download.tenant_id = w.tenant_id
+      and current_download.app_id = w.app_id
+      and current_download.customer_id = $3
     left join lateral (
       select count(*)::bigint as favorite_count
       from work_favorites f
@@ -858,6 +966,32 @@ fn work_select_sql() -> &'static str {
         and f.deleted_at is null
     ) favorite_stats on true
     "#
+}
+
+async fn active_favorite_at(
+    state: &AppState,
+    server_key: &ServerApiKeyContext,
+    work_id: Uuid,
+    customer_id: Uuid,
+) -> Result<Option<DateTime<Utc>>, AppError> {
+    sqlx::query_scalar::<_, DateTime<Utc>>(
+        r#"
+        select created_at
+        from work_favorites
+        where tenant_id = $1
+          and app_id = $2
+          and work_id = $3
+          and customer_id = $4
+          and deleted_at is null
+        "#,
+    )
+    .bind(server_key.tenant_id)
+    .bind(server_key.app_id)
+    .bind(work_id)
+    .bind(customer_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)
 }
 
 async fn ensure_asset_belongs_to_customer(
