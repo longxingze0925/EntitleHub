@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use std::time::Duration as StdDuration;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
@@ -19,6 +20,7 @@ use crate::{
     http::request_id::RequestId,
     modules::{
         customer::repository::CustomerRepository,
+        media,
         server_api::{ai_invoke_scope, authenticate_server_key, ServerApiKeyContext},
     },
     state::AppState,
@@ -26,6 +28,8 @@ use crate::{
 
 pub const MAX_WEB_ASSET_UPLOAD_BYTES: usize = 512 * 1024 * 1024;
 
+const MEDIA_WORKER_INTERVAL_SECONDS: u64 = 15;
+const MEDIA_WORKER_BATCH_SIZE: i64 = 5;
 const DEFAULT_PAGE_SIZE: i64 = 20;
 const MAX_PAGE_SIZE: i64 = 100;
 const MAX_NAME_LEN: usize = 255;
@@ -34,6 +38,64 @@ const UPLOAD_TOKEN_PREFIX: &str = "ehup_";
 const UPLOAD_TOKEN_DISPLAY_LEN: usize = 18;
 const UPLOAD_TOKEN_TTL_MINUTES: i64 = 15;
 const UPLOAD_TOKEN_HEADER: &str = "x-entitlehub-upload-token";
+
+pub fn spawn_web_asset_media_worker(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        run_web_asset_media_worker(state).await;
+    })
+}
+
+async fn run_web_asset_media_worker(state: AppState) {
+    let mut interval = tokio::time::interval(StdDuration::from_secs(MEDIA_WORKER_INTERVAL_SECONDS));
+    loop {
+        interval.tick().await;
+        if let Err(error) = process_pending_video_assets(&state).await {
+            tracing::warn!(%error, "web asset media worker tick failed");
+        }
+    }
+}
+
+async fn process_pending_video_assets(state: &AppState) -> Result<(), AppError> {
+    let assets = claim_pending_video_assets(state, MEDIA_WORKER_BATCH_SIZE).await?;
+    for asset in assets {
+        let asset_id = asset.id;
+        if let Err(error) = process_video_asset(state, asset).await {
+            tracing::warn!(%error, %asset_id, "video asset processing failed");
+            if let Err(mark_error) =
+                mark_video_asset_failed(state, asset_id, &error.to_string()).await
+            {
+                tracing::warn!(%mark_error, %asset_id, "mark video asset failed failed");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn spawn_video_asset_processing_if_needed(state: AppState, asset: &CustomerAsset) {
+    if asset.asset_type != "video" || asset.status != "processing" {
+        return;
+    }
+    let asset_id = asset.id;
+    tokio::spawn(async move {
+        match claim_video_asset_by_id(&state, asset_id).await {
+            Ok(Some(asset)) => {
+                if let Err(error) = process_video_asset(&state, asset).await {
+                    tracing::warn!(%error, %asset_id, "video asset immediate processing failed");
+                    if let Err(mark_error) =
+                        mark_video_asset_failed(&state, asset_id, &error.to_string()).await
+                    {
+                        tracing::warn!(%mark_error, %asset_id, "mark video asset failed failed");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, %asset_id, "claim video asset for immediate processing failed");
+            }
+        }
+    });
+}
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct AssetFolder {
@@ -306,6 +368,11 @@ pub struct AssetUploadTokenQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AssetDownloadQuery {
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UpdateCustomerAssetRequest {
     pub name: Option<String>,
     pub folder_id: Option<Option<Uuid>>,
@@ -335,6 +402,17 @@ struct AssetStorageRecord {
     storage_key: Option<String>,
     mime_type: Option<String>,
     file_size: Option<i64>,
+    #[sqlx(rename = "metadata_json")]
+    metadata: Value,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct PendingVideoAssetRecord {
+    id: Uuid,
+    tenant_id: Uuid,
+    storage_key: String,
+    mime_type: Option<String>,
+    metadata: Value,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -668,6 +746,7 @@ pub async fn upload_customer_asset(
     let checksum = format!("{:x}", Sha256::digest(&body));
     let public_url = asset_download_url(&state, asset_id);
     let consumed = consume_upload(&state, upload_id, &token_hash).await?;
+    let status = initial_asset_status(&consumed.asset_type);
     let asset = insert_customer_asset(
         &state,
         NewCustomerAsset {
@@ -681,6 +760,7 @@ pub async fn upload_customer_asset(
             asset_type: consumed.asset_type,
             asset_role: consumed.asset_role,
             source: "user_upload".to_owned(),
+            status,
             storage_key: Some(storage_key),
             public_url: Some(public_url),
             mime_type: Some(mime_type),
@@ -691,6 +771,7 @@ pub async fn upload_customer_asset(
         },
     )
     .await?;
+    spawn_video_asset_processing_if_needed(state.clone(), &asset);
 
     Ok(Json(ApiResponse::ok(
         CustomerAssetResponse::from_asset(asset),
@@ -725,6 +806,7 @@ pub async fn direct_upload_customer_asset(
         .or_else(|| content_type_from_headers(&headers))
         .unwrap_or_else(|| "application/octet-stream".to_owned());
     validate_asset_type_mime(&asset_type, Some(&mime_type))?;
+    let status = initial_asset_status(&asset_type);
 
     let asset_id = Uuid::new_v4();
     let extension = extension_for_mime(&mime_type);
@@ -748,6 +830,7 @@ pub async fn direct_upload_customer_asset(
             asset_type,
             asset_role,
             source: "user_upload".to_owned(),
+            status,
             storage_key: Some(storage_key),
             public_url: Some(public_url),
             mime_type: Some(mime_type),
@@ -758,6 +841,7 @@ pub async fn direct_upload_customer_asset(
         },
     )
     .await?;
+    spawn_video_asset_processing_if_needed(state.clone(), &asset);
 
     Ok(Json(ApiResponse::ok(
         CustomerAssetResponse::from_asset(asset),
@@ -936,6 +1020,7 @@ pub async fn download_customer_asset(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(asset_id): Path<Uuid>,
+    Query(query): Query<AssetDownloadQuery>,
 ) -> Result<Response, AppError> {
     let server_key = authenticate_web_assets_key(&state, &headers).await?;
     let asset = sqlx::query_as::<_, AssetStorageRecord>(
@@ -943,7 +1028,8 @@ pub async fn download_customer_asset(
         select
           storage_key,
           mime_type,
-          file_size
+          file_size,
+          metadata_json
         from customer_assets
         where tenant_id = $1
           and app_id = $2
@@ -959,9 +1045,25 @@ pub async fn download_customer_asset(
     .await
     .map_err(map_db_error)?
     .ok_or_else(|| AppError::not_found("asset not found"))?;
-    let storage_key = asset
-        .storage_key
-        .ok_or_else(|| AppError::not_found("asset file not found"))?;
+    let variant = normalize_download_variant(query.variant.as_deref())?;
+    let (storage_key, content_type, file_size) = match variant.as_deref() {
+        Some("thumbnail") => (
+            thumbnail_storage_key(&asset.metadata)
+                .ok_or_else(|| AppError::not_found("asset thumbnail not found"))?,
+            thumbnail_mime_type(&asset.metadata).unwrap_or_else(|| "image/jpeg".to_owned()),
+            thumbnail_file_size(&asset.metadata),
+        ),
+        _ => (
+            asset
+                .storage_key
+                .ok_or_else(|| AppError::not_found("asset file not found"))?,
+            asset
+                .mime_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_owned()),
+            asset.file_size,
+        ),
+    };
     let stored = state.object_store.open(&storage_key).await?;
     let mut reader = stored.reader;
     let mut bytes = Vec::new();
@@ -969,17 +1071,12 @@ pub async fn download_customer_asset(
         .read_to_end(&mut bytes)
         .await
         .map_err(|error| AppError::dependency(format!("asset read failed: {error}")))?;
-    let content_type = asset
-        .mime_type
-        .as_deref()
-        .unwrap_or("application/octet-stream");
-
     HttpResponse::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type)
         .header(
             "content-length",
-            asset.file_size.unwrap_or(stored.size as i64).to_string(),
+            file_size.unwrap_or(stored.size as i64).to_string(),
         )
         .header("cache-control", "private, max-age=300")
         .body(Body::from(bytes))
@@ -1094,6 +1191,232 @@ pub async fn find_generation_asset(
     })
 }
 
+async fn claim_pending_video_assets(
+    state: &AppState,
+    limit: i64,
+) -> Result<Vec<PendingVideoAssetRecord>, AppError> {
+    sqlx::query_as::<_, PendingVideoAssetRecord>(
+        r#"
+        update customer_assets
+        set metadata_json = metadata_json
+              || jsonb_build_object(
+                   'processingStartedAt', to_jsonb(now()),
+                   'processingAttempts',
+                   case
+                     when metadata_json->>'processingAttempts' ~ '^[0-9]+$'
+                       then (metadata_json->>'processingAttempts')::int + 1
+                     else 1
+                   end
+                 ),
+            updated_at = now()
+        where id in (
+          select id
+          from customer_assets
+          where asset_type = 'video'
+            and status = 'processing'
+            and deleted_at is null
+            and (
+              metadata_json->>'processingStartedAt' is null
+              or updated_at < now() - interval '10 minutes'
+            )
+          order by created_at asc, id asc
+          limit $1
+          for update skip locked
+        )
+        returning
+          id,
+          tenant_id,
+          storage_key,
+          mime_type,
+          metadata_json as metadata
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(map_db_error)
+}
+
+async fn claim_video_asset_by_id(
+    state: &AppState,
+    asset_id: Uuid,
+) -> Result<Option<PendingVideoAssetRecord>, AppError> {
+    sqlx::query_as::<_, PendingVideoAssetRecord>(
+        r#"
+        update customer_assets
+        set metadata_json = metadata_json
+              || jsonb_build_object(
+                   'processingStartedAt', to_jsonb(now()),
+                   'processingAttempts',
+                   case
+                     when metadata_json->>'processingAttempts' ~ '^[0-9]+$'
+                       then (metadata_json->>'processingAttempts')::int + 1
+                     else 1
+                   end
+                 ),
+            updated_at = now()
+        where id = $1
+          and asset_type = 'video'
+          and status = 'processing'
+          and deleted_at is null
+          and (
+            metadata_json->>'processingStartedAt' is null
+            or updated_at < now() - interval '10 minutes'
+          )
+        returning
+          id,
+          tenant_id,
+          storage_key,
+          mime_type,
+          metadata_json as metadata
+        "#,
+    )
+    .bind(asset_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_db_error)
+}
+
+async fn process_video_asset(
+    state: &AppState,
+    asset: PendingVideoAssetRecord,
+) -> Result<(), AppError> {
+    let stored = state.object_store.open(&asset.storage_key).await?;
+    let mut reader = stored.reader;
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| AppError::dependency(format!("video asset read failed: {error}")))?;
+    let extension = asset
+        .mime_type
+        .as_deref()
+        .map(extension_for_mime)
+        .unwrap_or("mp4");
+    let processed = media::process_video_bytes(&bytes, extension).await?;
+    let thumbnail_key = format!(
+        "tenants/{}/web-assets/{}/thumbnail.jpg",
+        asset.tenant_id, asset.id
+    );
+    state
+        .object_store
+        .put_bytes(&thumbnail_key, &processed.thumbnail_bytes)
+        .await?;
+    let thumbnail_url = asset_download_url(state, asset.id) + "?variant=thumbnail";
+    let metadata = merge_media_metadata(
+        asset.metadata,
+        &processed.metadata,
+        &thumbnail_key,
+        &thumbnail_url,
+        processed.thumbnail_mime_type,
+        processed.thumbnail_bytes.len() as i64,
+    );
+    mark_video_asset_ready(state, asset.id, metadata).await
+}
+
+async fn mark_video_asset_ready(
+    state: &AppState,
+    asset_id: Uuid,
+    metadata: Value,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        update customer_assets
+        set status = 'ready',
+            metadata_json = $2,
+            updated_at = now()
+        where id = $1
+          and deleted_at is null
+        "#,
+    )
+    .bind(asset_id)
+    .bind(metadata)
+    .execute(&state.db)
+    .await
+    .map_err(map_db_error)?;
+
+    Ok(())
+}
+
+async fn mark_video_asset_failed(
+    state: &AppState,
+    asset_id: Uuid,
+    error: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        update customer_assets
+        set status = 'failed',
+            metadata_json = metadata_json
+              || jsonb_build_object(
+                   'processingError', $2::text,
+                   'processingFailedAt', to_jsonb(now())
+                 ),
+            updated_at = now()
+        where id = $1
+          and deleted_at is null
+        "#,
+    )
+    .bind(asset_id)
+    .bind(truncate_processing_error(error))
+    .execute(&state.db)
+    .await
+    .map_err(map_db_error)?;
+
+    Ok(())
+}
+
+fn merge_media_metadata(
+    mut metadata: Value,
+    video: &media::VideoMetadata,
+    thumbnail_storage_key: &str,
+    thumbnail_url: &str,
+    thumbnail_mime_type: &str,
+    thumbnail_size: i64,
+) -> Value {
+    let object = metadata.as_object_mut();
+    let Some(object) = object else {
+        return json!({});
+    };
+    object.insert("durationSec".to_owned(), json!(video.duration_sec));
+    object.insert("durationSeconds".to_owned(), json!(video.duration_sec));
+    object.insert("duration".to_owned(), json!(video.duration_sec));
+    object.insert("duration_seconds".to_owned(), json!(video.duration_sec));
+    if let Some(width) = video.width {
+        object.insert("width".to_owned(), json!(width));
+    }
+    if let Some(height) = video.height {
+        object.insert("height".to_owned(), json!(height));
+    }
+    if let Some(codec) = &video.codec {
+        object.insert("codec".to_owned(), json!(codec));
+    }
+    object.insert("thumbnailUrl".to_owned(), json!(thumbnail_url));
+    object.insert("thumbnail_url".to_owned(), json!(thumbnail_url));
+    object.insert(
+        "thumbnail".to_owned(),
+        json!({
+            "storage_key": thumbnail_storage_key,
+            "url": thumbnail_url,
+            "mime_type": thumbnail_mime_type,
+            "file_size": thumbnail_size
+        }),
+    );
+    object.remove("processingStartedAt");
+    object.remove("processingError");
+    object.insert("processingCompletedAt".to_owned(), json!(Utc::now()));
+    metadata
+}
+
+fn truncate_processing_error(error: &str) -> String {
+    let value = error.trim();
+    if value.len() > 500 {
+        value.chars().take(500).collect()
+    } else {
+        value.to_owned()
+    }
+}
+
 #[derive(Debug)]
 struct NewCustomerAsset {
     id: Uuid,
@@ -1106,6 +1429,7 @@ struct NewCustomerAsset {
     asset_type: String,
     asset_role: String,
     source: String,
+    status: String,
     storage_key: Option<String>,
     public_url: Option<String>,
     mime_type: Option<String>,
@@ -1142,8 +1466,8 @@ async fn insert_customer_asset(
           created_by_server_key_id
         )
         values (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ready',
-          $11, $12, $13, $14, $15, $16, $17
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18
         )
         "#,
     )
@@ -1157,6 +1481,7 @@ async fn insert_customer_asset(
     .bind(input.asset_type)
     .bind(input.asset_role)
     .bind(input.source)
+    .bind(input.status)
     .bind(input.storage_key)
     .bind(input.public_url)
     .bind(input.mime_type)
@@ -1256,7 +1581,7 @@ async fn list_assets(
           and app_id = $2
           and customer_id = $3
           and deleted_at is null
-          and status = 'ready'
+          and status <> 'deleted'
           and (
             not $4::bool
             or ($5::uuid is null and folder_id is null)
@@ -1387,7 +1712,7 @@ async fn find_asset_by_id(
           and app_id = $2
           and id = $3
           and deleted_at is null
-          and status = 'ready'
+          and status <> 'deleted'
         "#,
     )
     .bind(tenant_id)
@@ -1601,7 +1926,7 @@ async fn ensure_folder_empty(
           and customer_id = $3
           and folder_id = $4
           and deleted_at is null
-          and status = 'ready'
+          and status <> 'deleted'
         "#,
     )
     .bind(server_key.tenant_id)
@@ -1720,6 +2045,14 @@ fn public_source_alias(source: &str) -> &str {
     }
 }
 
+fn initial_asset_status(asset_type: &str) -> String {
+    if asset_type == "video" {
+        "processing".to_owned()
+    } else {
+        "ready".to_owned()
+    }
+}
+
 fn asset_thumbnail_url(asset: &CustomerAsset) -> Option<String> {
     if asset.asset_type == "image" {
         return asset.public_url.clone();
@@ -1735,6 +2068,44 @@ fn asset_thumbnail_url(asset: &CustomerAsset) -> Option<String> {
             "poster_url",
         ],
     )
+}
+
+fn normalize_download_variant(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    match value {
+        "thumbnail" => Ok(Some("thumbnail".to_owned())),
+        _ => Err(AppError::validation_failed(
+            "asset download variant is invalid",
+        )),
+    }
+}
+
+fn thumbnail_storage_key(metadata: &Value) -> Option<String> {
+    metadata
+        .get("thumbnail")
+        .and_then(|thumbnail| thumbnail.get("storage_key"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn thumbnail_mime_type(metadata: &Value) -> Option<String> {
+    metadata
+        .get("thumbnail")
+        .and_then(|thumbnail| thumbnail.get("mime_type"))
+        .and_then(Value::as_str)
+        .and_then(normalize_mime_type)
+}
+
+fn thumbnail_file_size(metadata: &Value) -> Option<i64> {
+    metadata
+        .get("thumbnail")
+        .and_then(|thumbnail| thumbnail.get("file_size"))
+        .and_then(Value::as_i64)
+        .filter(|value| *value >= 0)
 }
 
 fn asset_duration_seconds(metadata: &Value) -> Option<i64> {
@@ -1954,10 +2325,12 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        asset_duration_seconds, asset_thumbnail_url, normalize_asset_role, normalize_asset_type,
-        normalize_asset_type_input, normalize_file_name, normalize_file_size, normalize_metadata,
+        asset_duration_seconds, asset_thumbnail_url, initial_asset_status, merge_media_metadata,
+        normalize_asset_role, normalize_asset_type, normalize_asset_type_input,
+        normalize_download_variant, normalize_file_name, normalize_file_size, normalize_metadata,
         normalize_mime_type, normalize_optional_asset_type_filter, normalize_optional_uuid_filter,
-        normalize_source, validate_asset_type_mime, CustomerAsset, MAX_WEB_ASSET_UPLOAD_BYTES,
+        normalize_source, thumbnail_file_size, thumbnail_mime_type, thumbnail_storage_key,
+        validate_asset_type_mime, CustomerAsset, MAX_WEB_ASSET_UPLOAD_BYTES,
     };
 
     #[test]
@@ -2023,6 +2396,12 @@ mod tests {
     }
 
     #[test]
+    fn video_uploads_start_processing() {
+        assert_eq!(initial_asset_status("video"), "processing");
+        assert_eq!(initial_asset_status("image"), "ready");
+    }
+
+    #[test]
     fn asset_view_metadata_exposes_thumbnail_and_duration() {
         let image = CustomerAsset {
             id: uuid::Uuid::new_v4(),
@@ -2050,5 +2429,64 @@ mod tests {
             asset_duration_seconds(&json!({"duration_seconds": 8.2})),
             Some(9)
         );
+    }
+
+    #[test]
+    fn thumbnail_download_metadata_is_readable() {
+        let metadata = json!({
+            "thumbnail": {
+                "storage_key": "tenants/t/web-assets/a/thumbnail.jpg",
+                "mime_type": "image/jpeg",
+                "file_size": 123
+            }
+        });
+        assert_eq!(
+            thumbnail_storage_key(&metadata).as_deref(),
+            Some("tenants/t/web-assets/a/thumbnail.jpg")
+        );
+        assert_eq!(
+            thumbnail_mime_type(&metadata).as_deref(),
+            Some("image/jpeg")
+        );
+        assert_eq!(thumbnail_file_size(&metadata), Some(123));
+        assert_eq!(
+            normalize_download_variant(Some("thumbnail"))
+                .unwrap()
+                .as_deref(),
+            Some("thumbnail")
+        );
+        assert!(normalize_download_variant(Some("large")).is_err());
+    }
+
+    #[test]
+    fn media_metadata_sets_video_fields_and_thumbnail() {
+        let metadata = merge_media_metadata(
+            json!({"local": "asset"}),
+            &crate::modules::media::VideoMetadata {
+                duration_sec: 8,
+                width: Some(1920),
+                height: Some(1080),
+                codec: Some("h264".to_owned()),
+            },
+            "tenants/t/web-assets/a/thumbnail.jpg",
+            "https://example.com/thumb.jpg",
+            "image/jpeg",
+            456,
+        );
+
+        assert_eq!(metadata["durationSec"], json!(8));
+        assert_eq!(metadata["durationSeconds"], json!(8));
+        assert_eq!(metadata["width"], json!(1920));
+        assert_eq!(metadata["height"], json!(1080));
+        assert_eq!(metadata["codec"], json!("h264"));
+        assert_eq!(
+            metadata["thumbnailUrl"],
+            json!("https://example.com/thumb.jpg")
+        );
+        assert_eq!(
+            metadata["thumbnail"]["storage_key"],
+            json!("tenants/t/web-assets/a/thumbnail.jpg")
+        );
+        assert_eq!(metadata["thumbnail"]["file_size"], json!(456));
     }
 }

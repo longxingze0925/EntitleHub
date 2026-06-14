@@ -3116,7 +3116,8 @@ Content-Type: image/png
 - 资产列表返回 `data.items` 和 `data.assets` 两个等价数组，分页返回 `data.meta` 和 `data.pagination` 两个等价对象。
 - 资产对象会返回 `status`；生成任务引用素材时必须是 `ready`，否则返回 `errorCode=asset_not_ready`。
 - 图片资产 `thumbnailUrl` 默认等于自身 `url`；视频资产优先读取 metadata 中的 `thumbnailUrl` / `coverUrl` / `posterUrl` 和 `durationSec` / `duration` / `durationSeconds` / `duration_seconds`。
-- AI 生成成功后，如果第三方结果带封面或时长，EntitleHub 会写入资产 metadata 并在资产接口返回；同步上传暂不现场抽帧。
+- 资产状态包括 `uploading`、`processing`、`ready`、`failed`、`deleted`。用户上传视频会先返回 `processing`，EntitleHub 后台用后端镜像内置的 `ffprobe/ffmpeg` 解析真实时长并抽取封面，成功后转为 `ready`，失败后转为 `failed` 并写入 `metadata.processingError`。
+- AI 生成成功后，如果第三方结果带封面或时长，EntitleHub 会写入资产 metadata 并在资产接口返回；用户上传视频会由异步媒体处理器补封面和真实时长。
 - 参考素材提交给第三方时会使用资产 `public_url`。生产环境应使用第三方可访问的对象存储公开 URL 或短期签名 URL；如果 `public_url` 是需要 Server Key 的 EntitleHub 下载接口，第三方平台通常无法直接拉取。
 
 ### 18.10.6 Web 产品作品接口

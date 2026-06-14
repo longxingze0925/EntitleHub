@@ -8,6 +8,7 @@ pub mod customer;
 pub mod device;
 pub mod iam;
 pub mod license;
+pub mod media;
 pub mod notification;
 pub mod outbox;
 pub mod platform;

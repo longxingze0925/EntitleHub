@@ -611,13 +611,40 @@ GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_
 }
 ```
 
+资产状态：
+
+| 状态 | 含义 | 业务侧处理 |
+| --- | --- | --- |
+| `uploading` | 上传会话已创建，文件还没上传完成 | 不展示为可用素材 |
+| `processing` | 文件已上传，EntitleHub 正在解析视频、生成封面和时长 | 展示“处理中”，轮询资产详情 |
+| `ready` | 可以用于生成任务、下载和展示 | 正常使用 |
+| `failed` | 视频解析或封面生成失败 | 提示重新上传 |
+| `deleted` | 已软删除 | 不展示 |
+
+视频上传说明：
+
+- 用户上传图片通常会立即返回 `status=ready`。
+- 用户上传视频会先返回 `status=processing`，此时 `thumbnailUrl` 和 `durationSec` 可能为空。
+- EntitleHub 后台会用后端镜像内置的 `ffprobe` 读取真实时长、分辨率、编码信息，用 `ffmpeg` 抽取视频帧生成封面。
+- 处理成功后资产变为 `status=ready`，并写入 `thumbnailUrl`、`durationSec`、`durationSeconds`、`width`、`height`、`codec`。
+- 处理失败后资产变为 `status=failed`，并在 metadata 写入 `processingError`。
+- 生成任务引用素材时只允许使用 `ready` 素材；`processing` / `failed` 会返回 `asset_not_ready`。
+
+影织上传视频后建议轮询：
+
+```http
+GET /api/server/web/v1/assets/{assetId}
+```
+
+直到 `asset.status=ready` 后再允许用户把它作为参考素材、首帧、尾帧或视频素材使用。
+
 封面和时长说明：
 
 - 图片资产的 `thumbnailUrl` 默认就是图片自己的 `url`。
 - 视频资产优先读取资产 `metadata.thumbnailUrl` / `thumbnail_url` / `coverUrl` / `cover_url` / `posterUrl` / `poster_url`。
 - 视频时长优先读取资产 `metadata.durationSec` / `duration` / `durationSeconds` / `duration_seconds` / `seconds`。
 - AI 生成成功后，如果第三方结果里带封面或时长，EntitleHub 会写入资产 metadata 并在资产列表返回。
-- 当前不会在同步上传请求里现场抽帧；真正的视频抽帧封面和精确时长建议后续接异步媒体处理器。
+- 用户上传视频会由异步媒体处理器抽取封面和真实时长；AI 生成视频如果三方已经返回封面/时长，会优先使用三方字段。
 
 删除说明：
 
@@ -1243,3 +1270,4 @@ EntitleHub 负责平台级校验和钱包扣费，但你的业务后端仍要防
 - `timeout_review` 有后台人工处理流程。
 - 客服能在 `任务与日志 -> 生成任务` 查到任务详情。
 - 生产日志不要打印 Server Key、第三方密钥、客户隐私请求体。
+- 一键安装不需要宿主机安装 `ffmpeg`；后端 Docker 镜像已经内置 `ffmpeg/ffprobe`，更新脚本拉取新版镜像即可。

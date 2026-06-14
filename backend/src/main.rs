@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     auth::session_cleanup::spawn_admin_session_cleanup_worker(state.clone());
     outbox::worker::spawn_email_outbox_worker(state.clone());
     user_admin_backend::modules::ai::jobs::spawn_ai_generation_job_worker(state.clone());
+    user_admin_backend::modules::web_assets::spawn_web_asset_media_worker(state.clone());
     let app = router::build(state);
 
     tracing::info!(%addr, "starting backend");

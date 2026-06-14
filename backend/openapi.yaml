@@ -4646,6 +4646,7 @@ components:
           type: string
         status:
           type: string
+          enum: [uploading, processing, ready, failed, deleted]
           example: ready
         url:
           type: string
