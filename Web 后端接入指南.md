@@ -125,18 +125,18 @@ X-EntitleHub-Customer-Id: uuid
         "request_price_minor": 0
       },
       "capabilities": {
-        "ratios": ["16:9", "9:16", "1:1"],
-        "resolutions": ["720p", "1080p"],
-        "durations": [5, 8, 10],
-        "default_duration_seconds": 8,
+        "ratios": [],
+        "resolutions": ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+        "durations": [10],
+        "default_duration_seconds": 10,
         "image_counts": [],
         "max_images": null,
-        "inputModes": ["text", "image", "frames"],
-        "maxReferenceImages": 4,
-        "supportsReferenceVideo": false,
+        "inputModes": ["text", "image", "frames", "video"],
+        "maxReferenceImages": 7,
+        "supportsReferenceVideo": true,
         "supportsFirstFrame": true,
         "supportsLastFrame": true,
-        "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+        "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp", "video/mp4"],
         "maxAssetSizeMb": 50
       }
     }
@@ -548,7 +548,7 @@ Content-Type: image/png
 
 第三方引用素材注意：
 
-- EntitleHub 会把参考素材转换成 `reference_urls`、`first_frame_url`、`last_frame_url` 提交给三方渠道。
+- EntitleHub 会按渠道适配参考素材字段。速创 `google_omni` 会把参考图、首帧、尾帧合并成三方要求的 `images`，并把 `resolution` 转成 `size`。
 - 三方平台必须能访问这些 URL。生产环境建议使用可外网访问的对象存储公开 URL 或短期签名 URL。
 - 如果使用本地文件存储，`public_url` 默认是 EntitleHub 下载接口，下载接口需要 Server Key，很多第三方平台无法直接拉取。
 - 长期商用建议把素材存储切到 S3/R2/OSS/COS 这类对象存储，并确保三方平台可访问参考素材。

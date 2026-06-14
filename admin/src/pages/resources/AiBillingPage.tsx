@@ -271,12 +271,12 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
     pricing_config: {
       submit_path: "/api/async/video_google_omni",
       capabilities: {
-        resolutions: ["横版", "竖版"],
+        resolutions: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
         durations: [10],
         default_duration_seconds: 10,
-        inputModes: ["text", "image", "frames"],
-        maxReferenceImages: 4,
-        supportsReferenceVideo: false,
+        inputModes: ["text", "image", "frames", "video"],
+        maxReferenceImages: 7,
+        supportsReferenceVideo: true,
         supportsFirstFrame: true,
         supportsLastFrame: true,
         acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],

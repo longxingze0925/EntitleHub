@@ -1113,6 +1113,7 @@ fn wuyin_submit_payload(mut payload: Value, model: &JobModel) -> Result<Value, A
     let object = payload
         .as_object_mut()
         .ok_or_else(|| AppError::validation_failed("ai generation body must be an object"))?;
+    let is_google_omni = is_wuyin_google_omni_model(model);
     object.remove("model");
     object.remove("entitlehub_input");
     object.remove("referenceAssetIds");
@@ -1129,23 +1130,95 @@ fn wuyin_submit_payload(mut payload: Value, model: &JobModel) -> Result<Value, A
             .entry("model".to_owned())
             .or_insert_with(|| Value::String(provider_model.to_owned()));
     }
-    if let Some(value) = object.remove("reference_urls") {
-        object.entry("reference_urls".to_owned()).or_insert(value);
-    }
-    if let Some(value) = object.remove("first_frame_url") {
-        object
-            .entry("first_frame_url".to_owned())
-            .or_insert(value.clone());
-        object.entry("first_frame".to_owned()).or_insert(value);
-    }
-    if let Some(value) = object.remove("last_frame_url") {
-        object
-            .entry("last_frame_url".to_owned())
-            .or_insert(value.clone());
-        object.entry("last_frame".to_owned()).or_insert(value);
+    let reference_urls = object.remove("reference_urls");
+    let first_frame_url = object.remove("first_frame_url");
+    let last_frame_url = object.remove("last_frame_url");
+    if is_google_omni {
+        let images = object.remove("images");
+        merge_wuyin_google_omni_images(
+            object,
+            images,
+            reference_urls,
+            first_frame_url,
+            last_frame_url,
+        );
+        if let Some(value) = object.remove("resolution") {
+            object.entry("size".to_owned()).or_insert(value);
+        }
+    } else {
+        if let Some(value) = reference_urls {
+            object.entry("reference_urls".to_owned()).or_insert(value);
+        }
+        if let Some(value) = first_frame_url {
+            object
+                .entry("first_frame_url".to_owned())
+                .or_insert(value.clone());
+            object.entry("first_frame".to_owned()).or_insert(value);
+        }
+        if let Some(value) = last_frame_url {
+            object
+                .entry("last_frame_url".to_owned())
+                .or_insert(value.clone());
+            object.entry("last_frame".to_owned()).or_insert(value);
+        }
     }
 
     Ok(payload)
+}
+
+fn is_wuyin_google_omni_model(model: &JobModel) -> bool {
+    model
+        .provider_model
+        .as_deref()
+        .unwrap_or(&model.code)
+        .eq_ignore_ascii_case("google_omni")
+        || model
+            .provider_model
+            .as_deref()
+            .unwrap_or(&model.code)
+            .eq_ignore_ascii_case("video_google_omni")
+}
+
+fn merge_wuyin_google_omni_images(
+    object: &mut Map<String, Value>,
+    images: Option<Value>,
+    reference_urls: Option<Value>,
+    first_frame_url: Option<Value>,
+    last_frame_url: Option<Value>,
+) {
+    let mut urls = Vec::new();
+    collect_wuyin_image_input_urls(images.as_ref(), &mut urls);
+    collect_wuyin_image_input_urls(reference_urls.as_ref(), &mut urls);
+    collect_wuyin_image_input_urls(first_frame_url.as_ref(), &mut urls);
+    collect_wuyin_image_input_urls(last_frame_url.as_ref(), &mut urls);
+    let mut unique_urls = Vec::new();
+    for url in urls {
+        if !unique_urls.contains(&url) {
+            unique_urls.push(url);
+        }
+    }
+    if !unique_urls.is_empty() {
+        object.insert("images".to_owned(), Value::String(unique_urls.join(",")));
+    }
+}
+
+fn collect_wuyin_image_input_urls(value: Option<&Value>, urls: &mut Vec<String>) {
+    match value {
+        Some(Value::String(value)) => {
+            for item in value.split(',') {
+                let item = item.trim();
+                if !item.is_empty() {
+                    urls.push(item.to_owned());
+                }
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                collect_wuyin_image_input_urls(Some(item), urls);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn wuyin_status_from_body(body: &Value) -> ProviderJobStatus {
@@ -4302,7 +4375,7 @@ mod tests {
 
     use super::{
         collect_asset_urls, estimated_quantity, provider_job_id_from_body, wuyin_status_from_body,
-        JobModel, ProviderJobStatus, MAX_VIDEO_SECONDS,
+        wuyin_submit_payload, JobModel, ProviderJobStatus, MAX_VIDEO_SECONDS,
     };
 
     #[test]
@@ -4377,6 +4450,107 @@ mod tests {
             .expect("seconds"),
             8
         );
+    }
+
+    #[test]
+    fn google_omni_payload_uses_wuyin_images_and_size_fields() {
+        let model = JobModel {
+            id: uuid::Uuid::new_v4(),
+            provider_id: uuid::Uuid::new_v4(),
+            provider_kind: "wuyin_keji".to_owned(),
+            provider_name: "速创".to_owned(),
+            provider_base_url: "https://api.example.com".to_owned(),
+            provider_config: json!({}),
+            provider_secret_encrypted: Some("secret".to_owned()),
+            code: "video".to_owned(),
+            modality: "video".to_owned(),
+            provider_model: Some("google_omni".to_owned()),
+            currency: "CNY".to_owned(),
+            billing_mode: "video_per_second".to_owned(),
+            input_1k_price_minor: 0,
+            output_1k_price_minor: 0,
+            request_price_minor: 0,
+            image_price_minor: 0,
+            second_price_minor: 10,
+            minute_price_minor: 0,
+            daily_spend_limit_minor: None,
+            pricing_config: json!({}),
+        };
+        let payload = wuyin_submit_payload(
+            json!({
+                "model": "video",
+                "prompt": "test",
+                "resolution": "1280x720",
+                "duration": 10,
+                "reference_urls": ["https://cdn.example.com/ref.png"],
+                "first_frame_url": "https://cdn.example.com/first.png",
+                "last_frame_url": "https://cdn.example.com/last.png"
+            }),
+            &model,
+        )
+        .expect("payload");
+
+        assert_eq!(payload["model"], json!("google_omni"));
+        assert_eq!(payload["size"], json!("1280x720"));
+        assert_eq!(payload["duration"], json!(10));
+        assert_eq!(
+            payload["images"],
+            json!("https://cdn.example.com/ref.png,https://cdn.example.com/first.png,https://cdn.example.com/last.png")
+        );
+        assert!(payload.get("reference_urls").is_none());
+        assert!(payload.get("first_frame_url").is_none());
+        assert!(payload.get("last_frame_url").is_none());
+    }
+
+    #[test]
+    fn non_google_omni_payload_keeps_generic_reference_fields() {
+        let model = JobModel {
+            id: uuid::Uuid::new_v4(),
+            provider_id: uuid::Uuid::new_v4(),
+            provider_kind: "wuyin_keji".to_owned(),
+            provider_name: "速创".to_owned(),
+            provider_base_url: "https://api.example.com".to_owned(),
+            provider_config: json!({}),
+            provider_secret_encrypted: Some("secret".to_owned()),
+            code: "video".to_owned(),
+            modality: "video".to_owned(),
+            provider_model: Some("grok_imagine".to_owned()),
+            currency: "CNY".to_owned(),
+            billing_mode: "video_per_second".to_owned(),
+            input_1k_price_minor: 0,
+            output_1k_price_minor: 0,
+            request_price_minor: 0,
+            image_price_minor: 0,
+            second_price_minor: 10,
+            minute_price_minor: 0,
+            daily_spend_limit_minor: None,
+            pricing_config: json!({}),
+        };
+        let payload = wuyin_submit_payload(
+            json!({
+                "model": "video",
+                "reference_urls": ["https://cdn.example.com/ref.png"],
+                "first_frame_url": "https://cdn.example.com/first.png",
+                "last_frame_url": "https://cdn.example.com/last.png"
+            }),
+            &model,
+        )
+        .expect("payload");
+
+        assert_eq!(payload["model"], json!("grok_imagine"));
+        assert_eq!(
+            payload["reference_urls"],
+            json!(["https://cdn.example.com/ref.png"])
+        );
+        assert_eq!(
+            payload["first_frame"],
+            json!("https://cdn.example.com/first.png")
+        );
+        assert_eq!(
+            payload["last_frame"],
+            json!("https://cdn.example.com/last.png")
+        );
+        assert!(payload.get("images").is_none());
     }
 
     #[test]

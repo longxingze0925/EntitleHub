@@ -3227,6 +3227,7 @@ X-EntitleHub-Customer-Id: uuid
 - 渠道密钥填三方 API Key；默认使用 `Authorization: <api_key>`。如三方要求 `Bearer` 或其他 header，可在渠道配置中设置 `api_key_header`、`auth_scheme` 或 `headers`。
 - 任务查询默认使用 `GET /api/async/detail?id=<task_id>`；如三方要求 POST，可在渠道配置中设置 `detail_method: "POST"`、`detail_path`、`detail_id_field`。
 - 模型 `provider_model` 可用 `google_omni`、`grok_imagine`、`image_gpt`、`image_nanoBanana2`；也可以在模型 `pricing_config.submit_path` 显式配置提交路径。
+- `google_omni` 支持参考图/视频输入；模型能力建议配置 `inputModes: ["text", "image", "frames", "video"]`、`maxReferenceImages: 7`、`supportsReferenceVideo: true`、`supportsFirstFrame: true`、`supportsLastFrame: true`，分辨率使用 `1280x720`、`720x1280`、`1920x1080`、`1080x1920`。EntitleHub 会把参考素材 URL 合并为速创要求的 `images` 字段，并把 `resolution` 转成 `size`。
 
 ### 18.10.8 后台生成任务处理
 
