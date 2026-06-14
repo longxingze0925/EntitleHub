@@ -2923,11 +2923,45 @@ Content-Type: application/json
 }
 ```
 
+推荐的新结构：
+
+```json
+{
+  "customer_id": "00000000-0000-0000-0000-000000000001",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "根据参考图和首尾帧生成视频",
+  "inputMode": "frames",
+  "referenceAssets": [
+    {
+      "assetId": "00000000-0000-0000-0000-000000000002",
+      "kind": "image",
+      "role": "reference"
+    },
+    {
+      "assetId": "00000000-0000-0000-0000-000000000003",
+      "kind": "image",
+      "role": "first_frame"
+    },
+    {
+      "assetId": "00000000-0000-0000-0000-000000000004",
+      "kind": "image",
+      "role": "last_frame"
+    }
+  ],
+  "ratio": "16:9",
+  "resolution": "1080p",
+  "duration": 8
+}
+```
+
 说明：
 
 - 参考素材只支持视频任务。
-- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 必须属于当前 Server Key 应用下的当前客户。
+- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 和 `referenceAssets[].assetId` 必须属于当前 Server Key 应用下的当前客户。
+- `referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`。
 - EntitleHub 会校验素材状态、类型、MIME、大小和模型能力。
+- 模型不支持对应输入时会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_asset_kind_mismatch`。
 - 任务、作品和广场返回会包含 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`publishedAt`、`favoritedAt`、`downloadedAt`。
 
 完整接入流程见 `Web 后端接入指南.md`。
@@ -2966,7 +3000,7 @@ GET    /api/server/web/v1/assets/{id}/download
   "customer_id": "uuid",
   "folder_id": null,
   "file_name": "reference.png",
-  "asset_type": "image",
+  "kind": "image",
   "asset_role": "reference",
   "mime_type": "image/png",
   "file_size": 123456,
@@ -2987,7 +3021,7 @@ Content-Type: image/png
 服务端直传：
 
 ```http
-POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&asset_type=image&asset_role=reference&mime_type=image/png
+POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&kind=image&asset_role=reference&mime_type=image/png
 Authorization: Bearer ehsk_...
 Content-Type: image/png
 
@@ -3000,23 +3034,31 @@ Content-Type: image/png
 {
   "asset": {
     "id": "uuid",
+    "kind": "image",
     "asset_type": "image",
     "asset_role": "reference",
     "public_url": "https://example.com/api/server/web/v1/assets/uuid/download",
-    "mime_type": "image/png"
+    "url": "https://example.com/api/server/web/v1/assets/uuid/download",
+    "mime_type": "image/png",
+    "mimeType": "image/png",
+    "thumbnailUrl": "https://example.com/api/server/web/v1/assets/uuid/download",
+    "duration": null,
+    "sourceAlias": "upload",
+    "createdAt": "2026-06-14T12:00:00Z"
   },
   "assetId": "uuid",
   "url": "https://example.com/api/server/web/v1/assets/uuid/download",
   "type": "image",
+  "kind": "image",
   "mimeType": "image/png"
 }
 ```
 
 资产类型：
 
-- `asset_type`：`image`、`video`、`audio`、`file`。
+- `asset_type` / `kind`：`image`、`video`、`audio`、`file`，两个字段等价，推荐 Web 产品用 `kind`。
 - `asset_role`：`upload`、`generated`、`reference`、`first_frame`、`last_frame`、`brand`、`other`。
-- `source`：`user_upload`、`generated`、`imported`。
+- `source`：兼容 `user_upload`、`generated`、`imported`；也支持 `upload`、`ai`、`digital-human`、`product`。
 
 说明：
 
@@ -3025,6 +3067,9 @@ Content-Type: image/png
 - 文件夹删除要求文件夹为空。
 - 资产删除是软删除，不会立刻物理删除对象存储文件。
 - Server Key 调用的同步/异步图片视频生成成功后，会自动把生成素材写入资产库，`asset_role=generated`、`source=generated`，并自动创建私有作品。
+- 资产列表支持分页和筛选：`GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_size=20`。
+- 图片资产 `thumbnailUrl` 默认等于自身 `url`；视频资产优先读取 metadata 中的 `thumbnailUrl` / `coverUrl` / `posterUrl` 和 `duration` / `duration_seconds`。
+- AI 生成成功后，如果第三方结果带封面或时长，EntitleHub 会写入资产 metadata 并在资产接口返回；同步上传暂不现场抽帧。
 - 参考素材提交给第三方时会使用资产 `public_url`。生产环境应使用第三方可访问的对象存储公开 URL 或短期签名 URL；如果 `public_url` 是需要 Server Key 的 EntitleHub 下载接口，第三方平台通常无法直接拉取。
 
 ### 18.10.6 Web 产品作品接口

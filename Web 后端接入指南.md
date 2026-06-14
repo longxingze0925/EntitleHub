@@ -325,6 +325,38 @@ Idempotency-Key: optional-unique-key
 }
 ```
 
+推荐的新结构也可以直接传 `referenceAssets`，便于影织按素材角色统一组装：
+
+```json
+{
+  "customer_id": "uuid",
+  "type": "video",
+  "model": "yingzhi-video-fast",
+  "prompt": "根据首尾帧生成一个产品展示视频",
+  "inputMode": "frames",
+  "referenceAssets": [
+    {
+      "assetId": "uuid-reference-image",
+      "kind": "image",
+      "role": "reference"
+    },
+    {
+      "assetId": "uuid-first-frame",
+      "kind": "image",
+      "role": "first_frame"
+    },
+    {
+      "assetId": "uuid-last-frame",
+      "kind": "image",
+      "role": "last_frame"
+    }
+  ],
+  "ratio": "16:9",
+  "resolution": "1080p",
+  "duration": 8
+}
+```
+
 注意：
 
 - `type` 只支持 `image`、`video`。
@@ -333,8 +365,10 @@ Idempotency-Key: optional-unique-key
 - EntitleHub 会按模型商品配置校验参数并预扣余额。
 - 参考素材字段只支持视频任务；图片任务传参考素材会被拒绝。
 - `aspectRatio` 会兼容映射为 `ratio`，`durationSec` 会兼容映射为 `duration`。
-- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 必须是当前客户资产库里的 `ready` 素材。
+- `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 和 `referenceAssets[].assetId` 必须是当前客户资产库里的 `ready` 素材。
+- `referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`；首帧/尾帧必须是图片。
 - EntitleHub 会按模型 `capabilities` 校验输入方式、参考素材数量、MIME 类型、大小、是否支持首帧/尾帧。
+- 如果模型不支持对应能力，会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_asset_kind_mismatch`。
 - 请求会记录 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`，生成成功后会同步写入作品元数据。
 
 ### 3A.6 查询、列表、取消、重试任务
@@ -423,6 +457,7 @@ Authorization: Bearer ehsk_...
 
 ```http
 GET /api/server/web/v1/assets?customer_id=uuid&asset_type=image&asset_role=reference&page=1&page_size=20
+GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_size=20
 ```
 
 过滤规则：
@@ -430,9 +465,36 @@ GET /api/server/web/v1/assets?customer_id=uuid&asset_type=image&asset_role=refer
 - `folder_id` 不传：查询该客户全部资产。
 - `folder_id=root`：只查根目录资产。
 - `folder_id={uuid}`：只查指定文件夹。
-- `asset_type`：`image`、`video`、`audio`、`file`。
+- `asset_type` / `kind`：`image`、`video`、`audio`、`file`，两个字段等价，推荐 Web 产品用 `kind`。
 - `asset_role`：`upload`、`generated`、`reference`、`first_frame`、`last_frame`、`brand`、`other`。
-- `source`：`user_upload`、`generated`、`imported`。
+- `source`：兼容 `user_upload`、`generated`、`imported`；也支持 Web 友好别名 `upload`、`ai`、`digital-human`、`product`。
+
+资产列表和详情的统一字段：
+
+```json
+{
+  "id": "uuid",
+  "name": "result.mp4",
+  "kind": "video",
+  "asset_type": "video",
+  "mimeType": "video/mp4",
+  "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+  "thumbnailUrl": "https://cdn.example.com/result-cover.jpg",
+  "duration": 8,
+  "durationSeconds": 8,
+  "source": "generated",
+  "sourceAlias": "ai",
+  "createdAt": "2026-06-14T12:00:00Z"
+}
+```
+
+封面和时长说明：
+
+- 图片资产的 `thumbnailUrl` 默认就是图片自己的 `url`。
+- 视频资产优先读取资产 `metadata.thumbnailUrl` / `thumbnail_url` / `coverUrl` / `cover_url` / `posterUrl` / `poster_url`。
+- 视频时长优先读取资产 `metadata.duration` / `duration_seconds` / `seconds`。
+- AI 生成成功后，如果第三方结果里带封面或时长，EntitleHub 会写入资产 metadata 并在资产列表返回。
+- 当前不会在同步上传请求里现场抽帧；真正的视频抽帧封面和精确时长建议后续接异步媒体处理器。
 
 删除说明：
 
@@ -467,7 +529,7 @@ Content-Type: application/json
   "customer_id": "uuid",
   "folder_id": null,
   "file_name": "reference.png",
-  "asset_type": "image",
+  "kind": "image",
   "asset_role": "reference",
   "mime_type": "image/png",
   "file_size": 123456,
@@ -521,15 +583,20 @@ Content-Type: image/png
 {
   "asset": {
     "id": "uuid",
+    "kind": "image",
     "asset_type": "image",
     "asset_role": "reference",
     "public_url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+    "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
     "mime_type": "image/png",
+    "mimeType": "image/png",
+    "thumbnailUrl": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
     "file_size": 123456
   },
   "assetId": "uuid",
   "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
   "type": "image",
+  "kind": "image",
   "mimeType": "image/png"
 }
 ```
@@ -537,7 +604,7 @@ Content-Type: image/png
 服务端直传小文件：
 
 ```http
-POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&asset_type=image&asset_role=reference&mime_type=image/png
+POST /api/server/web/v1/assets/upload?customer_id=uuid&file_name=reference.png&kind=image&asset_role=reference&mime_type=image/png
 Authorization: Bearer ehsk_...
 Content-Type: image/png
 

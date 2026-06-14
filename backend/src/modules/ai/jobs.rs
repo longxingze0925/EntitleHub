@@ -213,6 +213,20 @@ struct GenerationInputAssets {
     has_last_frame: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReferenceAssetRole {
+    Reference,
+    FirstFrame,
+    LastFrame,
+}
+
+#[derive(Debug, Clone)]
+struct ReferenceAssetInput {
+    asset_id: Uuid,
+    kind: Option<String>,
+    role: ReferenceAssetRole,
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct WalletRecord {
     id: Uuid,
@@ -848,7 +862,14 @@ async fn process_generation_job(state: &AppState, job: JobWorkerRecord) -> Resul
             mark_job_provider_succeeded(state, job.id, poll.provider_status.clone(), &poll.body)
                 .await
                 .map_err(|error| error.to_string())?;
-            match cache_generation_assets(state, &job, &job.job_type, poll.asset_urls.clone()).await
+            match cache_generation_assets(
+                state,
+                &job,
+                &job.job_type,
+                poll.asset_urls.clone(),
+                &poll.body,
+            )
+            .await
             {
                 Ok(asset_urls) => {
                     let charged_minor = charge_minor_from_job(&job);
@@ -1348,11 +1369,125 @@ fn collect_string_urls(value: &Value, urls: &mut Vec<String>) {
     }
 }
 
+fn provider_asset_metadata(provider_body: &Value, provider_url: &str) -> Value {
+    let mut metadata = Map::new();
+    if let Some(container) = find_object_containing_url(provider_body, provider_url) {
+        if let Some(thumbnail_url) = first_object_string(
+            container,
+            &[
+                "thumbnailUrl",
+                "thumbnail_url",
+                "thumbnail",
+                "coverUrl",
+                "cover_url",
+                "cover",
+                "posterUrl",
+                "poster_url",
+                "poster",
+            ],
+        ) {
+            metadata.insert("thumbnailUrl".to_owned(), Value::String(thumbnail_url));
+        }
+        if let Some(duration_seconds) = first_object_positive_seconds(
+            container,
+            &[
+                "duration",
+                "durationSec",
+                "duration_sec",
+                "durationSeconds",
+                "duration_seconds",
+                "seconds",
+            ],
+        ) {
+            metadata.insert("duration".to_owned(), json!(duration_seconds));
+            metadata.insert("duration_seconds".to_owned(), json!(duration_seconds));
+        }
+        if let Some(width) = first_object_positive_i64(container, &["width", "w"]) {
+            metadata.insert("width".to_owned(), json!(width));
+        }
+        if let Some(height) = first_object_positive_i64(container, &["height", "h"]) {
+            metadata.insert("height".to_owned(), json!(height));
+        }
+    }
+
+    Value::Object(metadata)
+}
+
+fn find_object_containing_url<'a>(
+    value: &'a Value,
+    provider_url: &str,
+) -> Option<&'a Map<String, Value>> {
+    match value {
+        Value::Object(object) => {
+            if let Some(nested_match) = object
+                .values()
+                .find_map(|nested| find_object_containing_url(nested, provider_url))
+            {
+                return Some(nested_match);
+            }
+            let contains_url = object
+                .values()
+                .any(|value| value_contains_string(value, provider_url));
+            contains_url.then_some(object)
+        }
+        Value::Array(items) => items
+            .iter()
+            .find_map(|item| find_object_containing_url(item, provider_url)),
+        _ => None,
+    }
+}
+
+fn value_contains_string(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::String(value) => value == expected,
+        Value::Array(items) => items
+            .iter()
+            .any(|item| value_contains_string(item, expected)),
+        Value::Object(object) => object
+            .values()
+            .any(|nested| value_contains_string(nested, expected)),
+        _ => false,
+    }
+}
+
+fn first_object_string(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| object.get(*key))
+        .and_then(value_to_string)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn first_object_positive_seconds(object: &Map<String, Value>, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| object.get(*key))
+        .and_then(capabilities::value_to_positive_seconds)
+}
+
+fn first_object_positive_i64(object: &Map<String, Value>, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| object.get(*key))
+        .and_then(capabilities::value_to_positive_seconds)
+}
+
+fn merge_object_json(mut base: Value, overlay: Value) -> Value {
+    let Some(overlay) = overlay.as_object() else {
+        return base;
+    };
+    if let Some(base_object) = base.as_object_mut() {
+        for (key, value) in overlay {
+            base_object.insert(key.clone(), value.clone());
+        }
+    }
+    base
+}
+
 async fn cache_generation_assets(
     state: &AppState,
     job: &JobWorkerRecord,
     job_type: &str,
     provider_urls: Vec<String>,
+    provider_body: &Value,
 ) -> Result<Vec<String>, AppError> {
     let usage_id = job
         .usage_id
@@ -1369,6 +1504,7 @@ async fn cache_generation_assets(
         MAX_IMAGE_ASSET_BYTES
     };
     for provider_url in provider_urls {
+        let asset_metadata = provider_asset_metadata(provider_body, &provider_url);
         let asset = download_provider_asset(&provider_url, max_bytes).await?;
         let public_url = store_ai_asset(
             state,
@@ -1376,6 +1512,7 @@ async fn cache_generation_assets(
             usage_id,
             job_type,
             Some(provider_url),
+            asset_metadata,
             asset.mime_type,
             asset.bytes,
         )
@@ -1446,6 +1583,7 @@ async fn store_ai_asset(
     usage_id: Uuid,
     asset_type: &str,
     provider_url: Option<String>,
+    asset_metadata: Value,
     mime_type: String,
     bytes: Vec<u8>,
 ) -> Result<String, AppError> {
@@ -1494,17 +1632,20 @@ async fn store_ai_asset(
             .get("entitlehub_input")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        let metadata = json!({
-            "source": "ai_generation_job",
-            "job_id": job.id,
-            "usage_id": usage_id,
-            "provider_url": provider_url,
-            "sourceMode": input_metadata.get("sourceMode").cloned().unwrap_or(json!(job.job_type)),
-            "referenceCount": input_metadata.get("referenceCount").cloned().unwrap_or(json!(0)),
-            "hasFirstFrame": input_metadata.get("hasFirstFrame").cloned().unwrap_or(json!(false)),
-            "hasLastFrame": input_metadata.get("hasLastFrame").cloned().unwrap_or(json!(false)),
-            "input": input_metadata,
-        });
+        let metadata = merge_object_json(
+            json!({
+                "source": "ai_generation_job",
+                "job_id": job.id,
+                "usage_id": usage_id,
+                "provider_url": provider_url,
+                "sourceMode": input_metadata.get("sourceMode").cloned().unwrap_or(json!(job.job_type)),
+                "referenceCount": input_metadata.get("referenceCount").cloned().unwrap_or(json!(0)),
+                "hasFirstFrame": input_metadata.get("hasFirstFrame").cloned().unwrap_or(json!(false)),
+                "hasLastFrame": input_metadata.get("hasLastFrame").cloned().unwrap_or(json!(false)),
+                "input": input_metadata,
+            }),
+            asset_metadata,
+        );
         let customer_asset_id = web_assets::mirror_generated_ai_asset(
             state,
             job.tenant_id,
@@ -2803,6 +2944,7 @@ async fn retry_cache_admin_job(
         },
         &job.job_type,
         asset_urls,
+        &provider_body,
     )
     .await?;
     let charged_minor = charge_minor_from_admin_job(job);
@@ -3540,10 +3682,24 @@ async fn load_and_validate_generation_input_assets(
     if let Some(input_mode) = input_mode.as_deref() {
         capabilities::validate_input_mode(input_mode, &model.pricing_config)?;
     }
-    let reference_asset_ids = uuid_list(payload, &["referenceAssetIds", "reference_asset_ids"])?;
-    let first_frame_asset_id =
+    let reference_assets = reference_asset_inputs(payload)?;
+    let mut reference_asset_ids =
+        uuid_list(payload, &["referenceAssetIds", "reference_asset_ids"])?;
+    let mut reference_asset_kinds = reference_asset_ids
+        .iter()
+        .map(|asset_id| (*asset_id, None))
+        .collect::<Vec<_>>();
+    let mut first_frame_asset_id =
         optional_uuid(payload, &["firstFrameAssetId", "first_frame_asset_id"])?;
-    let last_frame_asset_id = optional_uuid(payload, &["lastFrameAssetId", "last_frame_asset_id"])?;
+    let mut last_frame_asset_id =
+        optional_uuid(payload, &["lastFrameAssetId", "last_frame_asset_id"])?;
+    merge_reference_asset_inputs(
+        reference_assets,
+        &mut reference_asset_ids,
+        &mut reference_asset_kinds,
+        &mut first_frame_asset_id,
+        &mut last_frame_asset_id,
+    )?;
     if job_type != "video"
         && (!reference_asset_ids.is_empty()
             || first_frame_asset_id.is_some()
@@ -3556,19 +3712,15 @@ async fn load_and_validate_generation_input_assets(
     if let Some(max_reference_images) = capabilities.max_reference_images {
         if reference_asset_ids.len() as i64 > max_reference_images {
             return Err(AppError::validation_failed(format!(
-                "referenceAssetIds must contain no more than {max_reference_images} items"
+                "reference_asset_too_many: reference assets must contain no more than {max_reference_images} items"
             )));
         }
     }
     if first_frame_asset_id.is_some() && !capabilities.supports_first_frame {
-        return Err(AppError::validation_failed(
-            "firstFrameAssetId is not supported by this model",
-        ));
+        return Err(AppError::validation_failed("model_not_support_first_frame"));
     }
     if last_frame_asset_id.is_some() && !capabilities.supports_last_frame {
-        return Err(AppError::validation_failed(
-            "lastFrameAssetId is not supported by this model",
-        ));
+        return Err(AppError::validation_failed("model_not_support_last_frame"));
     }
 
     let mut reference_urls = Vec::new();
@@ -3581,6 +3733,9 @@ async fn load_and_validate_generation_input_assets(
             *asset_id,
         )
         .await?;
+        if let Some(kind) = expected_reference_asset_kind(&reference_asset_kinds, *asset_id) {
+            validate_asset_kind_matches(&asset, kind, "referenceAssets")?;
+        }
         validate_reference_asset(&asset, &capabilities, "referenceAssetIds")?;
         reference_urls.push(asset_url(&asset, "referenceAssetIds")?);
     }
@@ -3652,6 +3807,8 @@ fn normalize_generation_request_payload(
     copy_string_alias(&mut object, "aspectRatio", "ratio");
     copy_string_alias(&mut object, "durationSec", "duration");
     copy_string_alias(&mut object, "inputMode", "input_mode");
+    object.remove("referenceAssets");
+    object.remove("reference_assets");
     if let Some(input_mode) = input_assets.input_mode.as_deref() {
         object.insert(
             "input_mode".to_owned(),
@@ -3711,9 +3868,14 @@ fn validate_reference_asset(
             "{field} mime type is missing"
         )));
     };
+    if !matches!(asset.asset_type.as_str(), "image" | "video") {
+        return Err(AppError::validation_failed(format!(
+            "reference_asset_kind_not_allowed: {field} must be an image or video asset"
+        )));
+    }
     if asset.asset_type == "video" && !capabilities.supports_reference_video {
         return Err(AppError::validation_failed(
-            "reference video is not supported by this model",
+            "model_not_support_reference_video",
         ));
     }
     validate_asset_mime_and_size(asset, capabilities, field, mime_type)
@@ -3731,7 +3893,7 @@ fn validate_frame_asset(
     };
     if !asset.asset_type.eq_ignore_ascii_case("image") {
         return Err(AppError::validation_failed(format!(
-            "{field} must be an image asset"
+            "reference_asset_kind_not_allowed: {field} must be an image asset"
         )));
     }
     validate_asset_mime_and_size(asset, capabilities, field, mime_type)
@@ -3750,7 +3912,7 @@ fn validate_asset_mime_and_size(
             .any(|item| item.eq_ignore_ascii_case(mime_type))
     {
         return Err(AppError::validation_failed(format!(
-            "{field} mime type must be one of {}",
+            "reference_asset_mime_not_allowed: {field} mime type must be one of {}",
             capabilities.accepted_mime_types.join(", ")
         )));
     }
@@ -3758,12 +3920,33 @@ fn validate_asset_mime_and_size(
         let max_bytes = max_mb.saturating_mul(1024 * 1024);
         if file_size > max_bytes {
             return Err(AppError::validation_failed(format!(
-                "{field} file size must be less than or equal to {max_mb} MB"
+                "reference_asset_too_large: {field} file size must be less than or equal to {max_mb} MB"
             )));
         }
     }
 
     Ok(())
+}
+
+fn expected_reference_asset_kind(kinds: &[(Uuid, Option<String>)], asset_id: Uuid) -> Option<&str> {
+    kinds
+        .iter()
+        .find_map(|(id, kind)| (*id == asset_id).then_some(kind.as_deref()).flatten())
+}
+
+fn validate_asset_kind_matches(
+    asset: &web_assets::GenerationAssetRecord,
+    expected_kind: &str,
+    field: &str,
+) -> Result<(), AppError> {
+    if asset.asset_type.eq_ignore_ascii_case(expected_kind) {
+        return Ok(());
+    }
+
+    Err(AppError::validation_failed(format!(
+        "reference_asset_kind_mismatch: {field} expected {expected_kind} but got {}",
+        asset.asset_type
+    )))
 }
 
 fn asset_url(asset: &web_assets::GenerationAssetRecord, field: &str) -> Result<String, AppError> {
@@ -3812,6 +3995,136 @@ fn uuid_list(payload: &Value, keys: &[&str]) -> Result<Vec<Uuid>, AppError> {
     }
 
     Ok(output)
+}
+
+fn reference_asset_inputs(payload: &Value) -> Result<Vec<ReferenceAssetInput>, AppError> {
+    let Some(value) = payload
+        .get("referenceAssets")
+        .or_else(|| payload.get("reference_assets"))
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err(AppError::validation_failed(
+            "referenceAssets must be an array",
+        ));
+    };
+    let mut output = Vec::new();
+    for item in items {
+        let Some(object) = item.as_object() else {
+            return Err(AppError::validation_failed(
+                "referenceAssets items must be objects",
+            ));
+        };
+        let asset_id = object
+            .get("assetId")
+            .or_else(|| object.get("asset_id"))
+            .map(uuid_from_value)
+            .transpose()?
+            .flatten()
+            .ok_or_else(|| AppError::validation_failed("referenceAssets assetId is required"))?;
+        let kind = object
+            .get("kind")
+            .or_else(|| object.get("asset_type"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+        if let Some(kind) = kind.as_deref() {
+            validate_reference_asset_kind(kind)?;
+        }
+        let role = object
+            .get("role")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(reference_asset_role)
+            .transpose()?
+            .unwrap_or(ReferenceAssetRole::Reference);
+        output.push(ReferenceAssetInput {
+            asset_id,
+            kind,
+            role,
+        });
+    }
+
+    Ok(output)
+}
+
+fn validate_reference_asset_kind(kind: &str) -> Result<(), AppError> {
+    match kind {
+        "image" | "video" => Ok(()),
+        _ => Err(AppError::validation_failed(
+            "reference_asset_kind_not_allowed: kind must be image or video",
+        )),
+    }
+}
+
+fn reference_asset_role(value: &str) -> Result<ReferenceAssetRole, AppError> {
+    match value.to_ascii_lowercase().as_str() {
+        "reference" | "reference_image" | "reference_video" => Ok(ReferenceAssetRole::Reference),
+        "first_frame" | "firstframe" | "first-frame" => Ok(ReferenceAssetRole::FirstFrame),
+        "last_frame" | "lastframe" | "last-frame" => Ok(ReferenceAssetRole::LastFrame),
+        _ => Err(AppError::validation_failed(
+            "reference_asset_role_invalid: role must be reference, first_frame, or last_frame",
+        )),
+    }
+}
+
+fn merge_reference_asset_inputs(
+    inputs: Vec<ReferenceAssetInput>,
+    reference_asset_ids: &mut Vec<Uuid>,
+    reference_asset_kinds: &mut Vec<(Uuid, Option<String>)>,
+    first_frame_asset_id: &mut Option<Uuid>,
+    last_frame_asset_id: &mut Option<Uuid>,
+) -> Result<(), AppError> {
+    for input in inputs {
+        match input.role {
+            ReferenceAssetRole::Reference => {
+                if !reference_asset_ids.contains(&input.asset_id) {
+                    reference_asset_ids.push(input.asset_id);
+                }
+                if let Some(existing) = reference_asset_kinds
+                    .iter_mut()
+                    .find(|(asset_id, _)| *asset_id == input.asset_id)
+                {
+                    if existing.1.is_none() {
+                        existing.1 = input.kind;
+                    }
+                } else {
+                    reference_asset_kinds.push((input.asset_id, input.kind));
+                }
+            }
+            ReferenceAssetRole::FirstFrame => {
+                if input.kind.as_deref().is_some_and(|kind| kind != "image") {
+                    return Err(AppError::validation_failed(
+                        "reference_asset_kind_not_allowed: first_frame must be image",
+                    ));
+                }
+                if first_frame_asset_id.is_some_and(|existing| existing != input.asset_id) {
+                    return Err(AppError::validation_failed(
+                        "reference_asset_conflict: first frame asset is duplicated",
+                    ));
+                }
+                *first_frame_asset_id = Some(input.asset_id);
+            }
+            ReferenceAssetRole::LastFrame => {
+                if input.kind.as_deref().is_some_and(|kind| kind != "image") {
+                    return Err(AppError::validation_failed(
+                        "reference_asset_kind_not_allowed: last_frame must be image",
+                    ));
+                }
+                if last_frame_asset_id.is_some_and(|existing| existing != input.asset_id) {
+                    return Err(AppError::validation_failed(
+                        "reference_asset_conflict: last frame asset is duplicated",
+                    ));
+                }
+                *last_frame_asset_id = Some(input.asset_id);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn uuid_from_value(value: &Value) -> Result<Option<Uuid>, AppError> {
@@ -4374,8 +4687,10 @@ mod tests {
     use crate::modules::ai::capabilities;
 
     use super::{
-        collect_asset_urls, estimated_quantity, provider_job_id_from_body, wuyin_status_from_body,
-        wuyin_submit_payload, JobModel, ProviderJobStatus, MAX_VIDEO_SECONDS,
+        collect_asset_urls, estimated_quantity, normalize_generation_request_payload,
+        provider_asset_metadata, provider_job_id_from_body, reference_asset_inputs,
+        wuyin_status_from_body, wuyin_submit_payload, GenerationInputAssets, JobModel,
+        ProviderJobStatus, ReferenceAssetRole, MAX_VIDEO_SECONDS,
     };
 
     #[test]
@@ -4428,6 +4743,51 @@ mod tests {
                 "https://cdn.example.com/b.mp4".to_owned()
             ]
         );
+    }
+
+    #[test]
+    fn provider_asset_metadata_follows_matching_result_item() {
+        let metadata = provider_asset_metadata(
+            &json!({
+                "data": {
+                    "items": [
+                        {
+                            "video_url": "https://cdn.example.com/a.mp4",
+                            "cover_url": "https://cdn.example.com/a.jpg",
+                            "duration_seconds": 8.2
+                        }
+                    ]
+                }
+            }),
+            "https://cdn.example.com/a.mp4",
+        );
+
+        assert_eq!(
+            metadata["thumbnailUrl"],
+            json!("https://cdn.example.com/a.jpg")
+        );
+        assert_eq!(metadata["duration"], json!(9));
+        assert_eq!(metadata["duration_seconds"], json!(9));
+    }
+
+    #[test]
+    fn reference_assets_accept_structured_inputs() {
+        let asset_id = uuid::Uuid::new_v4();
+        let inputs = reference_asset_inputs(&json!({
+            "referenceAssets": [
+                {
+                    "assetId": asset_id,
+                    "kind": "image",
+                    "role": "first_frame"
+                }
+            ]
+        }))
+        .expect("reference assets");
+
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].asset_id, asset_id);
+        assert_eq!(inputs[0].kind.as_deref(), Some("image"));
+        assert_eq!(inputs[0].role, ReferenceAssetRole::FirstFrame);
     }
 
     #[test]
@@ -4500,6 +4860,64 @@ mod tests {
         assert!(payload.get("reference_urls").is_none());
         assert!(payload.get("first_frame_url").is_none());
         assert!(payload.get("last_frame_url").is_none());
+    }
+
+    #[test]
+    fn normalized_generation_payload_removes_structured_reference_assets() {
+        let model = JobModel {
+            id: uuid::Uuid::new_v4(),
+            provider_id: uuid::Uuid::new_v4(),
+            provider_kind: "wuyin_keji".to_owned(),
+            provider_name: "速创".to_owned(),
+            provider_base_url: "https://api.example.com".to_owned(),
+            provider_config: json!({}),
+            provider_secret_encrypted: Some("secret".to_owned()),
+            code: "video".to_owned(),
+            modality: "video".to_owned(),
+            provider_model: Some("google_omni".to_owned()),
+            currency: "CNY".to_owned(),
+            billing_mode: "video_per_second".to_owned(),
+            input_1k_price_minor: 0,
+            output_1k_price_minor: 0,
+            request_price_minor: 0,
+            image_price_minor: 0,
+            second_price_minor: 10,
+            minute_price_minor: 0,
+            daily_spend_limit_minor: None,
+            pricing_config: json!({"default_duration_seconds": 8}),
+        };
+        let asset_id = uuid::Uuid::new_v4();
+        let payload = normalize_generation_request_payload(
+            json!({
+                "model": "video",
+                "prompt": "test",
+                "referenceAssets": [
+                    {
+                        "assetId": asset_id,
+                        "kind": "image",
+                        "role": "reference"
+                    }
+                ]
+            }),
+            "video",
+            &model,
+            &GenerationInputAssets {
+                source_mode: Some("image".to_owned()),
+                reference_asset_ids: vec![asset_id],
+                reference_urls: vec!["https://cdn.example.com/ref.png".to_owned()],
+                reference_count: 1,
+                ..Default::default()
+            },
+        )
+        .expect("payload");
+
+        assert!(payload.get("referenceAssets").is_none());
+        assert_eq!(payload["reference_asset_ids"], json!([asset_id]));
+        assert_eq!(
+            payload["reference_urls"],
+            json!(["https://cdn.example.com/ref.png"])
+        );
+        assert_eq!(payload["entitlehub_input"]["referenceCount"], json!(1));
     }
 
     #[test]

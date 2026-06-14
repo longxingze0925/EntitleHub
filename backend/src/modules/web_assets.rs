@@ -81,30 +81,105 @@ pub struct AssetFolderResponse {
 
 #[derive(Debug, Serialize)]
 pub struct CustomerAssetListResponse {
-    pub items: Vec<CustomerAsset>,
+    pub items: Vec<CustomerAssetView>,
     pub meta: ListMeta,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CustomerAssetResponse {
-    pub asset: CustomerAsset,
+    pub asset: CustomerAssetView,
     #[serde(rename = "assetId")]
     pub asset_id: Uuid,
     pub url: Option<String>,
     #[serde(rename = "type")]
     pub asset_type: String,
+    pub kind: String,
     #[serde(rename = "mimeType")]
     pub mime_type: Option<String>,
+    #[serde(rename = "thumbnailUrl")]
+    pub thumbnail_url: Option<String>,
+    pub duration: Option<i64>,
 }
 
 impl CustomerAssetResponse {
     fn from_asset(asset: CustomerAsset) -> Self {
+        let view = CustomerAssetView::from(asset);
         Self {
-            asset_id: asset.id,
-            url: asset.public_url.clone(),
+            asset_id: view.id,
+            url: view.url.clone(),
+            asset_type: view.asset_type.clone(),
+            kind: view.kind.clone(),
+            mime_type: view.mime_type.clone(),
+            thumbnail_url: view.thumbnail_url.clone(),
+            duration: view.duration,
+            asset: view,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerAssetView {
+    pub id: Uuid,
+    pub customer_id: Uuid,
+    pub folder_id: Option<Uuid>,
+    pub ai_asset_id: Option<Uuid>,
+    pub name: String,
+    pub asset_type: String,
+    pub kind: String,
+    pub asset_role: String,
+    pub source: String,
+    #[serde(rename = "sourceAlias")]
+    pub source_alias: String,
+    pub status: String,
+    pub public_url: Option<String>,
+    pub url: Option<String>,
+    pub mime_type: Option<String>,
+    #[serde(rename = "mimeType")]
+    pub mime_type_alias: Option<String>,
+    pub file_size: Option<i64>,
+    pub checksum_sha256: Option<String>,
+    #[serde(rename = "thumbnailUrl")]
+    pub thumbnail_url: Option<String>,
+    pub duration: Option<i64>,
+    #[serde(rename = "durationSeconds")]
+    pub duration_seconds: Option<i64>,
+    pub metadata: Value,
+    pub created_at: DateTime<Utc>,
+    #[serde(rename = "createdAt")]
+    pub created_at_alias: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<CustomerAsset> for CustomerAssetView {
+    fn from(asset: CustomerAsset) -> Self {
+        let thumbnail_url = asset_thumbnail_url(&asset);
+        let duration = asset_duration_seconds(&asset.metadata);
+        let source_alias = public_source_alias(&asset.source).to_owned();
+        Self {
+            id: asset.id,
+            customer_id: asset.customer_id,
+            folder_id: asset.folder_id,
+            ai_asset_id: asset.ai_asset_id,
+            name: asset.name,
             asset_type: asset.asset_type.clone(),
+            kind: asset.asset_type,
+            asset_role: asset.asset_role,
+            source: asset.source,
+            source_alias,
+            status: asset.status,
+            public_url: asset.public_url.clone(),
+            url: asset.public_url,
             mime_type: asset.mime_type.clone(),
-            asset,
+            mime_type_alias: asset.mime_type,
+            file_size: asset.file_size,
+            checksum_sha256: asset.checksum_sha256,
+            thumbnail_url,
+            duration,
+            duration_seconds: duration,
+            metadata: asset.metadata,
+            created_at: asset.created_at,
+            created_at_alias: asset.created_at,
+            updated_at: asset.updated_at,
         }
     }
 }
@@ -172,6 +247,7 @@ pub struct CustomerAssetListQuery {
     pub customer_id: Uuid,
     pub folder_id: Option<String>,
     pub asset_type: Option<String>,
+    pub kind: Option<String>,
     pub asset_role: Option<String>,
     pub source: Option<String>,
     pub page: Option<i64>,
@@ -183,7 +259,8 @@ pub struct CreateAssetUploadRequest {
     pub customer_id: Uuid,
     pub folder_id: Option<Uuid>,
     pub file_name: String,
-    pub asset_type: String,
+    pub asset_type: Option<String>,
+    pub kind: Option<String>,
     pub asset_role: Option<String>,
     pub mime_type: Option<String>,
     pub file_size: Option<i64>,
@@ -195,7 +272,8 @@ pub struct DirectAssetUploadQuery {
     pub customer_id: Uuid,
     pub folder_id: Option<Uuid>,
     pub file_name: String,
-    pub asset_type: String,
+    pub asset_type: Option<String>,
+    pub kind: Option<String>,
     pub asset_role: Option<String>,
     pub mime_type: Option<String>,
 }
@@ -433,7 +511,8 @@ pub async fn create_asset_upload_url(
     ensure_customer_active(&state, server_key.tenant_id, payload.customer_id).await?;
     ensure_folder_belongs(&state, &server_key, payload.customer_id, payload.folder_id).await?;
     let file_name = normalize_file_name(&payload.file_name)?;
-    let asset_type = normalize_asset_type(&payload.asset_type)?;
+    let asset_type =
+        normalize_asset_type_input(payload.asset_type.as_deref(), payload.kind.as_deref())?;
     let asset_role = normalize_upload_asset_role(payload.asset_role.as_deref())?;
     let mime_type = payload
         .mime_type
@@ -604,7 +683,8 @@ pub async fn direct_upload_customer_asset(
     ensure_customer_active(&state, server_key.tenant_id, query.customer_id).await?;
     ensure_folder_belongs(&state, &server_key, query.customer_id, query.folder_id).await?;
     let file_name = normalize_file_name(&query.file_name)?;
-    let asset_type = normalize_asset_type(&query.asset_type)?;
+    let asset_type =
+        normalize_asset_type_input(query.asset_type.as_deref(), query.kind.as_deref())?;
     let asset_role = normalize_upload_asset_role(query.asset_role.as_deref())?;
     let mime_type = query
         .mime_type
@@ -663,11 +743,8 @@ pub async fn list_customer_assets(
     ensure_customer_active(&state, server_key.tenant_id, query.customer_id).await?;
     let (filter_folder, folder_id) =
         normalize_optional_uuid_filter(query.folder_id.as_deref(), "folder_id")?;
-    let asset_type = query
-        .asset_type
-        .as_deref()
-        .map(normalize_asset_type)
-        .transpose()?;
+    let asset_type =
+        normalize_optional_asset_type_filter(query.asset_type.as_deref(), query.kind.as_deref())?;
     let asset_role = query
         .asset_role
         .as_deref()
@@ -691,7 +768,7 @@ pub async fn list_customer_assets(
 
     Ok(Json(ApiResponse::ok(
         CustomerAssetListResponse {
-            items,
+            items: items.into_iter().map(CustomerAssetView::from).collect(),
             meta: ListMeta { page, page_size },
         },
         request_id.to_string(),
@@ -1522,6 +1599,32 @@ fn normalize_asset_type(value: &str) -> Result<String, AppError> {
     }
 }
 
+fn normalize_asset_type_input(
+    asset_type: Option<&str>,
+    kind: Option<&str>,
+) -> Result<String, AppError> {
+    let value = asset_type
+        .or(kind)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::validation_failed("asset type or kind is required"))?;
+    normalize_asset_type(value)
+}
+
+fn normalize_optional_asset_type_filter(
+    asset_type: Option<&str>,
+    kind: Option<&str>,
+) -> Result<Option<String>, AppError> {
+    let Some(value) = asset_type
+        .or(kind)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    normalize_asset_type(value).map(Some)
+}
+
 fn normalize_upload_asset_role(value: Option<&str>) -> Result<String, AppError> {
     match value {
         Some(value) => {
@@ -1548,9 +1651,71 @@ fn normalize_asset_role(value: &str) -> Result<String, AppError> {
 fn normalize_source(value: &str) -> Result<String, AppError> {
     let value = value.trim().to_ascii_lowercase();
     match value.as_str() {
-        "user_upload" | "generated" | "imported" => Ok(value),
+        "upload" | "user_upload" => Ok("user_upload".to_owned()),
+        "ai" | "generated" => Ok("generated".to_owned()),
+        "digital-human" | "digital_human" | "product" | "import" | "imported" => {
+            Ok("imported".to_owned())
+        }
         _ => Err(AppError::validation_failed("asset source is invalid")),
     }
+}
+
+fn public_source_alias(source: &str) -> &str {
+    match source {
+        "user_upload" => "upload",
+        "generated" => "ai",
+        "imported" => "imported",
+        value => value,
+    }
+}
+
+fn asset_thumbnail_url(asset: &CustomerAsset) -> Option<String> {
+    if asset.asset_type == "image" {
+        return asset.public_url.clone();
+    }
+    first_metadata_string(
+        &asset.metadata,
+        &[
+            "thumbnailUrl",
+            "thumbnail_url",
+            "coverUrl",
+            "cover_url",
+            "posterUrl",
+            "poster_url",
+        ],
+    )
+}
+
+fn asset_duration_seconds(metadata: &Value) -> Option<i64> {
+    for key in ["duration", "durationSeconds", "duration_seconds", "seconds"] {
+        if let Some(value) = metadata.get(key).and_then(value_to_positive_seconds) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn first_metadata_string(metadata: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| metadata.get(*key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn value_to_positive_seconds(value: &Value) -> Option<i64> {
+    if let Some(value) = value.as_i64() {
+        return (value > 0).then_some(value);
+    }
+    if let Some(value) = value.as_f64() {
+        return (value.is_finite() && value > 0.0).then_some(value.ceil() as i64);
+    }
+    value
+        .as_str()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| value.ceil() as i64)
 }
 
 fn normalize_metadata(value: Option<Value>) -> Result<Value, AppError> {
@@ -1732,9 +1897,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        normalize_asset_role, normalize_asset_type, normalize_file_name, normalize_file_size,
-        normalize_metadata, normalize_mime_type, normalize_optional_uuid_filter,
-        validate_asset_type_mime, MAX_WEB_ASSET_UPLOAD_BYTES,
+        asset_duration_seconds, asset_thumbnail_url, normalize_asset_role, normalize_asset_type,
+        normalize_asset_type_input, normalize_file_name, normalize_file_size, normalize_metadata,
+        normalize_mime_type, normalize_optional_asset_type_filter, normalize_optional_uuid_filter,
+        normalize_source, validate_asset_type_mime, CustomerAsset, MAX_WEB_ASSET_UPLOAD_BYTES,
     };
 
     #[test]
@@ -1779,5 +1945,53 @@ mod tests {
         assert!(validate_asset_type_mime("image", Some("image/png")).is_ok());
         assert!(validate_asset_type_mime("image", Some("video/mp4")).is_err());
         assert!(validate_asset_type_mime("file", Some("video/mp4")).is_ok());
+    }
+
+    #[test]
+    fn asset_kind_and_source_aliases_are_compatible() {
+        assert_eq!(
+            normalize_asset_type_input(None, Some(" Video ")).expect("kind"),
+            "video"
+        );
+        assert_eq!(
+            normalize_optional_asset_type_filter(None, Some("image")).expect("filter"),
+            Some("image".to_owned())
+        );
+        assert_eq!(normalize_source("upload").expect("source"), "user_upload");
+        assert_eq!(normalize_source("ai").expect("source"), "generated");
+        assert_eq!(
+            normalize_source("digital-human").expect("source"),
+            "imported"
+        );
+    }
+
+    #[test]
+    fn asset_view_metadata_exposes_thumbnail_and_duration() {
+        let image = CustomerAsset {
+            id: uuid::Uuid::new_v4(),
+            customer_id: uuid::Uuid::new_v4(),
+            folder_id: None,
+            ai_asset_id: None,
+            name: "cover.png".to_owned(),
+            asset_type: "image".to_owned(),
+            asset_role: "upload".to_owned(),
+            source: "user_upload".to_owned(),
+            status: "ready".to_owned(),
+            public_url: Some("https://cdn.example.com/cover.png".to_owned()),
+            mime_type: Some("image/png".to_owned()),
+            file_size: Some(12),
+            checksum_sha256: None,
+            metadata: json!({}),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        assert_eq!(
+            asset_thumbnail_url(&image).as_deref(),
+            Some("https://cdn.example.com/cover.png")
+        );
+        assert_eq!(
+            asset_duration_seconds(&json!({"duration_seconds": 8.2})),
+            Some(9)
+        );
     }
 }

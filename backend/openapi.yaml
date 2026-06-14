@@ -139,6 +139,50 @@ paths:
             schema:
               type: object
               additionalProperties: true
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+                ratio:
+                  type: string
+                aspectRatio:
+                  type: string
+                resolution:
+                  type: string
+                duration:
+                  type: integer
+                durationSec:
+                  type: integer
+                inputMode:
+                  type: string
+                  enum: [text, image, video, frames]
+                referenceAssetIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                firstFrameAssetId:
+                  type: string
+                  format: uuid
+                lastFrameAssetId:
+                  type: string
+                  format: uuid
+                referenceAssets:
+                  type: array
+                  items:
+                    type: object
+                    required: [assetId]
+                    properties:
+                      assetId:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                        enum: [image, video]
+                      role:
+                        type: string
+                        enum: [reference, first_frame, last_frame]
       responses:
         "200":
           description: Provider-compatible chat completion response
@@ -597,6 +641,47 @@ paths:
                   enum: [image, video]
                 model:
                   type: string
+                prompt:
+                  type: string
+                ratio:
+                  type: string
+                aspectRatio:
+                  type: string
+                resolution:
+                  type: string
+                duration:
+                  type: integer
+                durationSec:
+                  type: integer
+                inputMode:
+                  type: string
+                  enum: [text, image, video, frames]
+                referenceAssetIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                firstFrameAssetId:
+                  type: string
+                  format: uuid
+                lastFrameAssetId:
+                  type: string
+                  format: uuid
+                referenceAssets:
+                  type: array
+                  items:
+                    type: object
+                    required: [assetId]
+                    properties:
+                      assetId:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                        enum: [image, video]
+                      role:
+                        type: string
+                        enum: [reference, first_frame, last_frame]
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -782,7 +867,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [customer_id, file_name, asset_type]
+              required: [customer_id, file_name]
               properties:
                 customer_id:
                   type: string
@@ -796,6 +881,11 @@ paths:
                 asset_type:
                   type: string
                   enum: [image, video, audio, file]
+                  description: Legacy asset type field. Either asset_type or kind is required.
+                kind:
+                  type: string
+                  enum: [image, video, audio, file]
+                  description: Web-friendly alias for asset_type. Either kind or asset_type is required.
                 asset_role:
                   type: string
                   enum: [upload, reference, first_frame, last_frame, brand, other]
@@ -839,10 +929,18 @@ paths:
             type: string
         - name: asset_type
           in: query
-          required: true
+          required: false
           schema:
             type: string
             enum: [image, video, audio, file]
+          description: Legacy asset type field. Either asset_type or kind is required.
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+          description: Web-friendly alias for asset_type. Either kind or asset_type is required.
         - name: asset_role
           in: query
           required: false
@@ -920,6 +1018,13 @@ paths:
           schema:
             type: string
             enum: [image, video, audio, file]
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video, audio, file]
+          description: Alias for asset_type.
         - name: asset_role
           in: query
           required: false
@@ -931,7 +1036,8 @@ paths:
           required: false
           schema:
             type: string
-            enum: [user_upload, generated, imported]
+            enum: [upload, ai, user_upload, generated, imported, digital-human, digital_human, product]
+          description: upload maps to user_upload; ai maps to generated; digital-human/product map to imported.
         - $ref: "#/components/parameters/PageQuery"
         - $ref: "#/components/parameters/PageSizeQuery"
       responses:
