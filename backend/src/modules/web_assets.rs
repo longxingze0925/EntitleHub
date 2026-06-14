@@ -35,7 +35,7 @@ const UPLOAD_TOKEN_DISPLAY_LEN: usize = 18;
 const UPLOAD_TOKEN_TTL_MINUTES: i64 = 15;
 const UPLOAD_TOKEN_HEADER: &str = "x-entitlehub-upload-token";
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct AssetFolder {
     pub id: Uuid,
     pub customer_id: Uuid,
@@ -71,7 +71,9 @@ pub struct CustomerAsset {
 #[derive(Debug, Serialize)]
 pub struct AssetFolderListResponse {
     pub items: Vec<AssetFolder>,
+    pub folders: Vec<AssetFolder>,
     pub meta: ListMeta,
+    pub pagination: ListMeta,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,7 +84,9 @@ pub struct AssetFolderResponse {
 #[derive(Debug, Serialize)]
 pub struct CustomerAssetListResponse {
     pub items: Vec<CustomerAssetView>,
+    pub assets: Vec<CustomerAssetView>,
     pub meta: ListMeta,
+    pub pagination: ListMeta,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,7 +121,7 @@ impl CustomerAssetResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CustomerAssetView {
     pub id: Uuid,
     pub customer_id: Uuid,
@@ -141,6 +145,8 @@ pub struct CustomerAssetView {
     #[serde(rename = "thumbnailUrl")]
     pub thumbnail_url: Option<String>,
     pub duration: Option<i64>,
+    #[serde(rename = "durationSec")]
+    pub duration_sec: Option<i64>,
     #[serde(rename = "durationSeconds")]
     pub duration_seconds: Option<i64>,
     pub metadata: Value,
@@ -175,6 +181,7 @@ impl From<CustomerAsset> for CustomerAssetView {
             checksum_sha256: asset.checksum_sha256,
             thumbnail_url,
             duration,
+            duration_sec: duration,
             duration_seconds: duration,
             metadata: asset.metadata,
             created_at: asset.created_at,
@@ -213,10 +220,25 @@ pub struct DeleteCustomerAssetResponse {
     pub asset_id: Uuid,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ListMeta {
     pub page: i64,
     pub page_size: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size_alias: i64,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
+impl ListMeta {
+    fn new(page: i64, page_size: i64, has_more: bool) -> Self {
+        Self {
+            page,
+            page_size,
+            page_size_alias: page_size,
+            has_more,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -321,6 +343,7 @@ pub struct GenerationAssetRecord {
     pub customer_id: Uuid,
     pub asset_type: String,
     pub asset_role: String,
+    pub status: String,
     pub public_url: Option<String>,
     pub mime_type: Option<String>,
     pub file_size: Option<i64>,
@@ -337,6 +360,7 @@ pub async fn list_asset_folders(
     let (filter_parent, parent_id) =
         normalize_optional_uuid_filter(query.parent_id.as_deref(), "parent_id")?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = list_folders(
         &state,
         &server_key,
@@ -344,14 +368,22 @@ pub async fn list_asset_folders(
         filter_parent,
         parent_id,
         page,
-        page_size,
+        fetch_limit,
     )
     .await?;
 
+    let has_more = items.len() as i64 > page_size;
+    let items = items
+        .into_iter()
+        .take(page_size as usize)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         AssetFolderListResponse {
+            folders: items.clone(),
             items,
-            meta: ListMeta { page, page_size },
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
@@ -752,6 +784,7 @@ pub async fn list_customer_assets(
         .transpose()?;
     let source = query.source.as_deref().map(normalize_source).transpose()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = list_assets(
         &state,
         &server_key,
@@ -762,14 +795,23 @@ pub async fn list_customer_assets(
         asset_role.as_deref(),
         source.as_deref(),
         page,
-        page_size,
+        fetch_limit,
     )
     .await?;
 
+    let has_more = items.len() as i64 > page_size;
+    let assets = items
+        .into_iter()
+        .take(page_size as usize)
+        .map(CustomerAssetView::from)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         CustomerAssetListResponse {
-            items: items.into_iter().map(CustomerAssetView::from).collect(),
-            meta: ListMeta { page, page_size },
+            items: assets.clone(),
+            assets,
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
@@ -1021,6 +1063,7 @@ pub async fn find_generation_asset(
           customer_id,
           asset_type,
           asset_role,
+          status,
           public_url,
           mime_type,
           file_size
@@ -1030,7 +1073,6 @@ pub async fn find_generation_asset(
           and customer_id = $3
           and id = $4
           and deleted_at is null
-          and status = 'ready'
         "#,
     )
     .bind(tenant_id)
@@ -1041,6 +1083,15 @@ pub async fn find_generation_asset(
     .await
     .map_err(map_db_error)?
     .ok_or_else(|| AppError::not_found("asset not found"))
+    .and_then(|asset| {
+        if asset.status == "ready" {
+            Ok(asset)
+        } else {
+            Err(AppError::validation_failed(
+                "asset_not_ready: asset must be ready before generation",
+            ))
+        }
+    })
 }
 
 #[derive(Debug)]
@@ -1687,7 +1738,13 @@ fn asset_thumbnail_url(asset: &CustomerAsset) -> Option<String> {
 }
 
 fn asset_duration_seconds(metadata: &Value) -> Option<i64> {
-    for key in ["duration", "durationSeconds", "duration_seconds", "seconds"] {
+    for key in [
+        "durationSec",
+        "duration",
+        "durationSeconds",
+        "duration_seconds",
+        "seconds",
+    ] {
         if let Some(value) = metadata.get(key).and_then(value_to_positive_seconds) {
             return Some(value);
         }

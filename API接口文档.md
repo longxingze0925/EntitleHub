@@ -2816,9 +2816,9 @@ server_api_key:update
 - 当前作用域为 `ai:invoke`，后续视频、文件等能力可以继续扩展 scope。
 - 生产建议一个产品后端使用一个 Server Key；多产品分别创建，避免一个 Key 横跨所有产品。
 
-### 18.10.3 Web 后端 AI 转发入口
+### 18.10.3 Server AI 低层转发入口
 
-Web 产品推荐由“你的业务后端”调用 EntitleHub，浏览器只登录你的业务系统，不保存 EntitleHub Server Key。
+这一组是低层 Server AI 接口，适合非 Web 产品或内部服务直接转发三方 AI。影织这类 Web 产品优先使用 `18.10.4 Web 产品平台 API` 的 `/api/server/web/v1/ai/jobs`，不要同时混用两套图片/视频任务入口。
 
 ```http
 POST /api/server/ai/v1/chat/completions
@@ -2842,7 +2842,8 @@ Content-Type: application/json
 - 客户必须是 active，且 AI 钱包未冻结、余额足够。
 - 计费、失败退款、图片/视频缓存、模型校验和 `/v1/...` 客户级 AI API Key 网关一致。
 - 幂等键仍使用 `Idempotency-Key`；服务端入口写入独立 endpoint，例如 `/api/server/ai/v1/chat/completions`，不会和客户端或客户级 `/v1` 入口互相重放。
-- 图片/视频异步平台优先使用 `/images/jobs` 和 `/videos/jobs`：EntitleHub 创建自己的任务、冻结余额、提交三方任务、后台轮询三方结果、成功后缓存素材并确认扣费，三方失败则释放预扣金额。
+- 低层图片/视频异步平台使用 `/images/jobs` 和 `/videos/jobs`：EntitleHub 创建自己的任务、冻结余额、提交三方任务、后台轮询三方结果、成功后缓存素材并确认扣费，三方失败则释放预扣金额。
+- Web 产品不要直接用这两个低层任务接口，统一用 `/api/server/web/v1/ai/jobs`，客户 ID 放请求体或查询参数。
 
 示例：
 
@@ -2963,6 +2964,47 @@ Content-Type: application/json
 - EntitleHub 会校验素材状态、类型、MIME、大小和模型能力。
 - 模型不支持对应输入时会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_asset_kind_mismatch`。
 - 任务、作品和广场返回会包含 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`publishedAt`、`favoritedAt`、`downloadedAt`。
+- Web 产品任务列表返回 `data.items` 和 `data.jobs` 两个等价数组，分页返回 `data.meta` 和 `data.pagination` 两个等价对象。
+- Web 产品任务详情返回 `job.progress`、`job.results`、`job.assetUrls`、`job.assets`、`job.workId`；成功任务的 `assets[]` 会包含 `status=ready`、`thumbnailUrl`、`durationSec`、`durationSeconds`。
+- Web 产品错误响应会额外返回 `errorCode` 字符串。数字 `code` 和通用 `message` 保持兼容旧接口。
+
+任务详情响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job": {
+      "id": "uuid",
+      "job_type": "video",
+      "status": "succeeded",
+      "progress": 100,
+      "result": {},
+      "results": [{}],
+      "asset_urls": ["https://example.com/api/ai/assets/uuid"],
+      "assetUrls": ["https://example.com/api/ai/assets/uuid"],
+      "assets": [
+        {
+          "id": "uuid",
+          "name": "result.mp4",
+          "kind": "video",
+          "status": "ready",
+          "url": "https://example.com/api/server/web/v1/assets/uuid/download",
+          "mimeType": "video/mp4",
+          "thumbnailUrl": "https://cdn.example.com/result-cover.jpg",
+          "durationSec": 8,
+          "durationSeconds": 8,
+          "source": "ai",
+          "createdAt": "2026-06-14T12:00:00Z"
+        }
+      ],
+      "workId": "uuid"
+    }
+  },
+  "request_id": "req_xxx"
+}
+```
 
 完整接入流程见 `Web 后端接入指南.md`。
 
@@ -3037,12 +3079,15 @@ Content-Type: image/png
     "kind": "image",
     "asset_type": "image",
     "asset_role": "reference",
+    "status": "ready",
     "public_url": "https://example.com/api/server/web/v1/assets/uuid/download",
     "url": "https://example.com/api/server/web/v1/assets/uuid/download",
     "mime_type": "image/png",
     "mimeType": "image/png",
     "thumbnailUrl": "https://example.com/api/server/web/v1/assets/uuid/download",
     "duration": null,
+    "durationSec": null,
+    "durationSeconds": null,
     "sourceAlias": "upload",
     "createdAt": "2026-06-14T12:00:00Z"
   },
@@ -3068,7 +3113,9 @@ Content-Type: image/png
 - 资产删除是软删除，不会立刻物理删除对象存储文件。
 - Server Key 调用的同步/异步图片视频生成成功后，会自动把生成素材写入资产库，`asset_role=generated`、`source=generated`，并自动创建私有作品。
 - 资产列表支持分页和筛选：`GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_size=20`。
-- 图片资产 `thumbnailUrl` 默认等于自身 `url`；视频资产优先读取 metadata 中的 `thumbnailUrl` / `coverUrl` / `posterUrl` 和 `duration` / `duration_seconds`。
+- 资产列表返回 `data.items` 和 `data.assets` 两个等价数组，分页返回 `data.meta` 和 `data.pagination` 两个等价对象。
+- 资产对象会返回 `status`；生成任务引用素材时必须是 `ready`，否则返回 `errorCode=asset_not_ready`。
+- 图片资产 `thumbnailUrl` 默认等于自身 `url`；视频资产优先读取 metadata 中的 `thumbnailUrl` / `coverUrl` / `posterUrl` 和 `durationSec` / `duration` / `durationSeconds` / `duration_seconds`。
 - AI 生成成功后，如果第三方结果带封面或时长，EntitleHub 会写入资产 metadata 并在资产接口返回；同步上传暂不现场抽帧。
 - 参考素材提交给第三方时会使用资产 `public_url`。生产环境应使用第三方可访问的对象存储公开 URL 或短期签名 URL；如果 `public_url` 是需要 Server Key 的 EntitleHub 下载接口，第三方平台通常无法直接拉取。
 
@@ -3108,6 +3155,7 @@ Content-Type: application/json
 - 删除作品是软删除，并会从广场下架；不会删除底层资产文件。
 - 发布、取消发布、更新、删除只能由作品 owner 操作。
 - `download` 会记录当前客户下载过该作品，并返回作品主资产下载地址；下载状态是客户维度，返回字段为 `downloadedAt`。
+- 作品列表和画廊列表返回 `data.items` 和 `data.works` 两个等价数组，分页返回 `data.meta` 和 `data.pagination` 两个等价对象。
 
 更新作品请求：
 
@@ -3489,7 +3537,7 @@ x-entitlehub-usage-id: uuid
 - `billing_mode=video_per_second` 时，请求开始按 `request_price_minor + second_price_minor * duration` 预扣；`duration` 可用 `duration`、`duration_seconds` 或 `seconds`，默认 8 秒，最大 3600 秒。
 - 三方返回 2xx 且视频缓存成功后，优先按三方响应中的 `duration` / `duration_seconds` / `seconds` 结算；无法识别时按模型 `pricing_config.default_duration_seconds`，仍无法识别时按预扣金额结算。
 - 三方失败、请求异常或视频缓存失败时释放预扣金额。
-- 同步视频网关只支持同步返回视频 URL 的 `openai_compatible` 三方接口，且模型 `modality=video|multimodal`。速创等异步任务型视频平台请使用 `/api/server/ai/v1/videos/jobs`。
+- 同步视频网关只支持同步返回视频 URL 的 `openai_compatible` 三方接口，且模型 `modality=video|multimodal`。速创等异步任务型平台在 Web 产品里请使用 `/api/server/web/v1/ai/jobs`；非 Web 内部服务可使用低层 `/api/server/ai/v1/videos/jobs`。
 - AI API Key 默认每 60 秒最多 120 次网关请求，可通过 `AI_GATEWAY_RATE_LIMIT_MAX` 和 `AI_GATEWAY_RATE_LIMIT_WINDOW_SECONDS` 调整。
 - 支持 `Idempotency-Key`，规则同 Chat Completions；幂等重放返回已缓存后的平台素材地址。
 

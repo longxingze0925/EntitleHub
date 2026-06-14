@@ -68,6 +68,14 @@ pub struct AiGenerationJob {
     pub provider_request_id: Option<String>,
     pub result: Option<Value>,
     pub asset_urls: Value,
+    #[serde(rename = "assetUrls")]
+    #[sqlx(rename = "asset_urls_alias")]
+    pub asset_urls_alias: Value,
+    pub results: Value,
+    pub assets: Value,
+    #[serde(rename = "workId")]
+    pub work_id: Option<Uuid>,
+    pub progress: i64,
     pub charge_mode: String,
     pub quantity: i64,
     pub held_minor: i64,
@@ -111,13 +119,30 @@ pub struct AiGenerationJobDetailResponse {
 #[derive(Debug, Serialize)]
 pub struct AiGenerationJobListResponse {
     pub items: Vec<AiGenerationJob>,
+    pub jobs: Vec<AiGenerationJob>,
     pub meta: ListMeta,
+    pub pagination: ListMeta,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ListMeta {
     pub page: i64,
     pub page_size: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size_alias: i64,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
+impl ListMeta {
+    fn new(page: i64, page_size: i64, has_more: bool) -> Self {
+        Self {
+            page,
+            page_size,
+            page_size_alias: page_size,
+            has_more,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -402,6 +427,7 @@ pub async fn web_list_jobs(
         .map(normalize_job_type)
         .transpose()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = list_generation_jobs(
         &state,
         server_key.tenant_id,
@@ -409,14 +435,22 @@ pub async fn web_list_jobs(
         job_type.as_deref(),
         Some(query.customer_id),
         page,
-        page_size,
+        fetch_limit,
     )
     .await?;
 
+    let has_more = items.len() as i64 > page_size;
+    let items = items
+        .into_iter()
+        .take(page_size as usize)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         AiGenerationJobListResponse {
+            jobs: items.clone(),
             items,
-            meta: ListMeta { page, page_size },
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
@@ -502,6 +536,7 @@ pub async fn list_ai_generation_jobs(
         .map(normalize_job_type)
         .transpose()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = list_generation_jobs(
         &state,
         admin.tenant_id,
@@ -509,14 +544,22 @@ pub async fn list_ai_generation_jobs(
         job_type.as_deref(),
         query.customer_id,
         page,
-        page_size,
+        fetch_limit,
     )
     .await?;
 
+    let has_more = items.len() as i64 > page_size;
+    let items = items
+        .into_iter()
+        .take(page_size as usize)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         AiGenerationJobListResponse {
+            jobs: items.clone(),
             items,
-            meta: ListMeta { page, page_size },
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
@@ -3189,6 +3232,79 @@ async fn find_generation_job_detail(
           j.provider_request_id,
           j.result_json as result,
           j.asset_urls,
+          j.asset_urls as asset_urls_alias,
+          case
+            when j.result_json is null then '[]'::jsonb
+            when jsonb_typeof(j.result_json) = 'array' then j.result_json
+            else jsonb_build_array(j.result_json)
+          end as results,
+          (
+            select coalesce(
+              jsonb_agg(
+                jsonb_build_object(
+                  'id', ca.id,
+                  'name', ca.name,
+                  'kind', ca.asset_type,
+                  'asset_type', ca.asset_type,
+                  'status', ca.status,
+                  'url', ca.public_url,
+                  'public_url', ca.public_url,
+                  'mimeType', ca.mime_type,
+                  'mime_type', ca.mime_type,
+                  'thumbnailUrl', coalesce(
+                    nullif(ca.metadata_json->>'thumbnailUrl', ''),
+                    nullif(ca.metadata_json->>'thumbnail_url', ''),
+                    nullif(ca.metadata_json->>'coverUrl', ''),
+                    nullif(ca.metadata_json->>'cover_url', ''),
+                    nullif(ca.metadata_json->>'posterUrl', ''),
+                    nullif(ca.metadata_json->>'poster_url', ''),
+                    case when ca.asset_type = 'image' then ca.public_url else null end
+                  ),
+                  'durationSec', coalesce(
+                    ca.metadata_json->'durationSec',
+                    ca.metadata_json->'durationSeconds',
+                    ca.metadata_json->'duration',
+                    ca.metadata_json->'duration_seconds',
+                    ca.metadata_json->'seconds'
+                  ),
+                  'durationSeconds', coalesce(
+                    ca.metadata_json->'durationSeconds',
+                    ca.metadata_json->'durationSec',
+                    ca.metadata_json->'duration',
+                    ca.metadata_json->'duration_seconds',
+                    ca.metadata_json->'seconds'
+                  ),
+                  'source', case
+                    when ca.source = 'generated' then 'ai'
+                    when ca.source = 'user_upload' then 'upload'
+                    else ca.source
+                  end,
+                  'sourceAlias', case
+                    when ca.source = 'generated' then 'ai'
+                    when ca.source = 'user_upload' then 'upload'
+                    else ca.source
+                  end,
+                  'createdAt', ca.created_at
+                )
+                order by ca.created_at, ca.id
+              ),
+              '[]'::jsonb
+            )
+            from customer_assets ca
+            where ca.tenant_id = j.tenant_id
+              and ca.customer_id = j.customer_id
+              and ca.deleted_at is null
+              and ca.metadata_json->>'job_id' = j.id::text
+          ) as assets,
+          work.id as work_id,
+          case
+            when j.status in ('succeeded', 'failed', 'cancelled', 'refunded') then 100
+            when j.status = 'caching' then 90
+            when j.status = 'timeout_review' then 95
+            when j.status = 'running' then 50
+            when j.status in ('submitted', 'pending') then 10
+            else 0
+          end as progress,
           j.charge_mode,
           j.quantity,
           j.held_minor,
@@ -3385,6 +3501,79 @@ fn job_select_sql() -> &'static str {
       j.provider_request_id,
       j.result_json as result,
       j.asset_urls,
+      j.asset_urls as asset_urls_alias,
+      case
+        when j.result_json is null then '[]'::jsonb
+        when jsonb_typeof(j.result_json) = 'array' then j.result_json
+        else jsonb_build_array(j.result_json)
+      end as results,
+      (
+        select coalesce(
+          jsonb_agg(
+            jsonb_build_object(
+              'id', ca.id,
+              'name', ca.name,
+              'kind', ca.asset_type,
+              'asset_type', ca.asset_type,
+              'status', ca.status,
+              'url', ca.public_url,
+              'public_url', ca.public_url,
+              'mimeType', ca.mime_type,
+              'mime_type', ca.mime_type,
+              'thumbnailUrl', coalesce(
+                nullif(ca.metadata_json->>'thumbnailUrl', ''),
+                nullif(ca.metadata_json->>'thumbnail_url', ''),
+                nullif(ca.metadata_json->>'coverUrl', ''),
+                nullif(ca.metadata_json->>'cover_url', ''),
+                nullif(ca.metadata_json->>'posterUrl', ''),
+                nullif(ca.metadata_json->>'poster_url', ''),
+                case when ca.asset_type = 'image' then ca.public_url else null end
+              ),
+              'durationSec', coalesce(
+                ca.metadata_json->'durationSec',
+                ca.metadata_json->'durationSeconds',
+                ca.metadata_json->'duration',
+                ca.metadata_json->'duration_seconds',
+                ca.metadata_json->'seconds'
+              ),
+              'durationSeconds', coalesce(
+                ca.metadata_json->'durationSeconds',
+                ca.metadata_json->'durationSec',
+                ca.metadata_json->'duration',
+                ca.metadata_json->'duration_seconds',
+                ca.metadata_json->'seconds'
+              ),
+              'source', case
+                when ca.source = 'generated' then 'ai'
+                when ca.source = 'user_upload' then 'upload'
+                else ca.source
+              end,
+              'sourceAlias', case
+                when ca.source = 'generated' then 'ai'
+                when ca.source = 'user_upload' then 'upload'
+                else ca.source
+              end,
+              'createdAt', ca.created_at
+            )
+            order by ca.created_at, ca.id
+          ),
+          '[]'::jsonb
+        )
+        from customer_assets ca
+        where ca.tenant_id = j.tenant_id
+          and ca.customer_id = j.customer_id
+          and ca.deleted_at is null
+          and ca.metadata_json->>'job_id' = j.id::text
+      ) as assets,
+      work.id as work_id,
+      case
+        when j.status in ('succeeded', 'failed', 'cancelled', 'refunded') then 100
+        when j.status = 'caching' then 90
+        when j.status = 'timeout_review' then 95
+        when j.status = 'running' then 50
+        when j.status in ('submitted', 'pending') then 10
+        else 0
+      end as progress,
       j.charge_mode,
       j.quantity,
       j.held_minor,
@@ -3717,10 +3906,14 @@ async fn load_and_validate_generation_input_assets(
         }
     }
     if first_frame_asset_id.is_some() && !capabilities.supports_first_frame {
-        return Err(AppError::validation_failed("model_not_support_first_frame"));
+        return Err(AppError::validation_failed(
+            "model_not_support_first_frame: model does not support first frame input",
+        ));
     }
     if last_frame_asset_id.is_some() && !capabilities.supports_last_frame {
-        return Err(AppError::validation_failed("model_not_support_last_frame"));
+        return Err(AppError::validation_failed(
+            "model_not_support_last_frame: model does not support last frame input",
+        ));
     }
 
     let mut reference_urls = Vec::new();

@@ -370,7 +370,11 @@ paths:
               additionalProperties: true
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web AI generation job list response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobListEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/ai/v1/videos/generations:
@@ -416,7 +420,11 @@ paths:
               additionalProperties: true
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web AI generation job response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/ai/v1/jobs/{id}:
@@ -430,7 +438,11 @@ paths:
           ServerCustomerId: []
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web AI generation job response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/ai/v1/models:
@@ -474,7 +486,11 @@ paths:
                   type: string
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web AI generation job response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/customers/login:
@@ -499,7 +515,11 @@ paths:
                   type: string
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web AI generation job response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/customers/{id}:
@@ -512,7 +532,11 @@ paths:
         - ServerApiKey: []
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web customer asset list response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebCustomerAssetListEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/customers/{id}/balance:
@@ -525,7 +549,11 @@ paths:
         - ServerApiKey: []
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web customer asset response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebCustomerAssetEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/customers/{id}/usage:
@@ -546,7 +574,11 @@ paths:
         - ServerApiKey: []
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web work list response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebWorkListEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/customers/{id}/plan:
@@ -559,7 +591,11 @@ paths:
         - ServerApiKey: []
       responses:
         "200":
-          $ref: "#/components/responses/Ok"
+          description: Wrapped Web work list response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebWorkListEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
   /api/server/web/v1/ai/models:
@@ -4558,6 +4594,11 @@ components:
           type: integer
           format: int32
           example: 0
+        errorCode:
+          type: string
+          nullable: true
+          description: Stable string error code on error responses. Usually omitted on success.
+          example: model_not_support_reference_video
         message:
           type: string
           example: ok
@@ -4567,6 +4608,377 @@ components:
         request_id:
           type: string
           example: req_01HX0000000000000000000000
+    WebPagination:
+      type: object
+      required: [page, page_size, pageSize, hasMore]
+      properties:
+        page:
+          type: integer
+          format: int64
+          example: 1
+        page_size:
+          type: integer
+          format: int64
+          example: 20
+        pageSize:
+          type: integer
+          format: int64
+          example: 20
+        hasMore:
+          type: boolean
+          example: false
+    WebAsset:
+      type: object
+      required: [id, name, kind, asset_type, status, source, sourceAlias, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [image, video, audio, file]
+        asset_type:
+          type: string
+          enum: [image, video, audio, file]
+        asset_role:
+          type: string
+        status:
+          type: string
+          example: ready
+        url:
+          type: string
+          nullable: true
+        public_url:
+          type: string
+          nullable: true
+        mimeType:
+          type: string
+          nullable: true
+        mime_type:
+          type: string
+          nullable: true
+        thumbnailUrl:
+          type: string
+          nullable: true
+        duration:
+          type: integer
+          format: int64
+          nullable: true
+        durationSec:
+          type: integer
+          format: int64
+          nullable: true
+        durationSeconds:
+          type: integer
+          format: int64
+          nullable: true
+        source:
+          type: string
+        sourceAlias:
+          type: string
+          example: ai
+        createdAt:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    WebCustomerAssetListEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, assets, meta, pagination]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebAsset"
+                assets:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebAsset"
+                meta:
+                  $ref: "#/components/schemas/WebPagination"
+                pagination:
+                  $ref: "#/components/schemas/WebPagination"
+    WebCustomerAssetEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [asset, assetId, kind]
+              properties:
+                asset:
+                  $ref: "#/components/schemas/WebAsset"
+                assetId:
+                  type: string
+                  format: uuid
+                url:
+                  type: string
+                  nullable: true
+                type:
+                  type: string
+                kind:
+                  type: string
+                mimeType:
+                  type: string
+                  nullable: true
+                thumbnailUrl:
+                  type: string
+                  nullable: true
+                duration:
+                  type: integer
+                  format: int64
+                  nullable: true
+    WebAiGenerationJob:
+      type: object
+      required: [id, customer_id, job_type, status, progress, asset_urls, assetUrls, results, assets]
+      properties:
+        id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        model_code:
+          type: string
+          nullable: true
+        job_type:
+          type: string
+          enum: [image, video]
+        status:
+          type: string
+          enum: [submitted, running, caching, succeeded, provider_failed, failed, timeout_review, cancelled, refunded]
+        progress:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 100
+        provider_status:
+          type: string
+          nullable: true
+        provider_job_id:
+          type: string
+          nullable: true
+        provider_request_id:
+          type: string
+          nullable: true
+        result:
+          nullable: true
+          additionalProperties: true
+        results:
+          type: array
+          items: {}
+        asset_urls:
+          type: array
+          items:
+            type: string
+        assetUrls:
+          type: array
+          items:
+            type: string
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebAsset"
+        workId:
+          type: string
+          format: uuid
+          nullable: true
+        charge_mode:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+        held_minor:
+          type: integer
+          format: int64
+        charged_minor:
+          type: integer
+          format: int64
+        refunded_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        failure_reason:
+          type: string
+          nullable: true
+        sourceMode:
+          type: string
+          nullable: true
+        referenceCount:
+          type: integer
+          format: int64
+        hasFirstFrame:
+          type: boolean
+        hasLastFrame:
+          type: boolean
+        visibility:
+          type: string
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        favoritedAt:
+          type: string
+          format: date-time
+          nullable: true
+        downloadedAt:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    WebAiGenerationJobEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [job]
+              properties:
+                job:
+                  $ref: "#/components/schemas/WebAiGenerationJob"
+    WebAiGenerationJobListEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, jobs, meta, pagination]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebAiGenerationJob"
+                jobs:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebAiGenerationJob"
+                meta:
+                  $ref: "#/components/schemas/WebPagination"
+                pagination:
+                  $ref: "#/components/schemas/WebPagination"
+    WebWork:
+      type: object
+      required: [id, owner_customer_id, work_type, status, visibility, primary_asset_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_customer_id:
+          type: string
+          format: uuid
+        source_job_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        work_type:
+          type: string
+        status:
+          type: string
+        visibility:
+          type: string
+        primary_asset_id:
+          type: string
+          format: uuid
+        primary_asset_url:
+          type: string
+          nullable: true
+        cover_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        cover_asset_url:
+          type: string
+          nullable: true
+        favorite_count:
+          type: integer
+          format: int64
+        favorited:
+          type: boolean
+        sourceMode:
+          type: string
+          nullable: true
+        referenceCount:
+          type: integer
+          format: int64
+        hasFirstFrame:
+          type: boolean
+        hasLastFrame:
+          type: boolean
+        publication_status:
+          type: string
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        favoritedAt:
+          type: string
+          format: date-time
+          nullable: true
+        downloadedAt:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WebWorkListEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, works, meta, pagination]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebWork"
+                works:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WebWork"
+                meta:
+                  $ref: "#/components/schemas/WebPagination"
+                pagination:
+                  $ref: "#/components/schemas/WebPagination"
     AdminLoginRequest:
       type: object
       required: [email, password]

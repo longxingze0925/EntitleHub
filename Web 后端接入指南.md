@@ -406,6 +406,101 @@ POST /api/server/web/v1/ai/jobs/{jobId}/retry
 - 如果要重新生成，影织应该重新调用 `POST /api/server/web/v1/ai/jobs`，并使用新的幂等键。
 - 任务返回会带 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`visibility`、`publishedAt`、`favoritedAt`、`downloadedAt`，用于影织直接渲染“我的作品”和生成历史状态。
 
+任务列表完整响应外壳：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [],
+    "jobs": [],
+    "meta": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    },
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    }
+  },
+  "request_id": "req_xxx"
+}
+```
+
+任务详情完整结构：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job": {
+      "id": "uuid",
+      "customer_id": "uuid",
+      "model_code": "yingzhi-video-fast",
+      "job_type": "video",
+      "status": "succeeded",
+      "progress": 100,
+      "provider_status": "2",
+      "provider_job_id": "third-party-task-id",
+      "provider_request_id": null,
+      "result": {},
+      "results": [{}],
+      "asset_urls": [
+        "https://entitlehub.example.com/api/ai/assets/uuid"
+      ],
+      "assetUrls": [
+        "https://entitlehub.example.com/api/ai/assets/uuid"
+      ],
+      "assets": [
+        {
+          "id": "uuid",
+          "name": "result.mp4",
+          "kind": "video",
+          "asset_type": "video",
+          "status": "ready",
+          "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+          "public_url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
+          "mimeType": "video/mp4",
+          "mime_type": "video/mp4",
+          "thumbnailUrl": "https://cdn.example.com/result-cover.jpg",
+          "durationSec": 8,
+          "durationSeconds": 8,
+          "source": "ai",
+          "sourceAlias": "ai",
+          "createdAt": "2026-06-14T12:00:00Z"
+        }
+      ],
+      "workId": "uuid",
+      "charge_mode": "video_per_second",
+      "quantity": 8,
+      "held_minor": 800,
+      "charged_minor": 800,
+      "refunded_minor": 0,
+      "currency": "CNY",
+      "failure_reason": null,
+      "sourceMode": "frames",
+      "referenceCount": 1,
+      "hasFirstFrame": true,
+      "hasLastFrame": true,
+      "visibility": "private",
+      "publishedAt": null,
+      "favoritedAt": null,
+      "downloadedAt": null,
+      "created_at": "2026-06-14T12:00:00Z",
+      "updated_at": "2026-06-14T12:01:00Z",
+      "completed_at": "2026-06-14T12:01:00Z"
+    }
+  },
+  "request_id": "req_xxx"
+}
+```
+
 ### 3A.7 资产库和文件夹
 
 资产库用于管理 Web 用户上传素材和 AI 生成结果。典型素材包括：
@@ -477,10 +572,12 @@ GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_
   "name": "result.mp4",
   "kind": "video",
   "asset_type": "video",
+  "status": "ready",
   "mimeType": "video/mp4",
   "url": "https://entitlehub.example.com/api/server/web/v1/assets/uuid/download",
   "thumbnailUrl": "https://cdn.example.com/result-cover.jpg",
   "duration": 8,
+  "durationSec": 8,
   "durationSeconds": 8,
   "source": "generated",
   "sourceAlias": "ai",
@@ -488,11 +585,37 @@ GET /api/server/web/v1/assets?customer_id=uuid&kind=video&source=ai&page=1&page_
 }
 ```
 
+资产列表完整响应外壳：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [],
+    "assets": [],
+    "meta": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    },
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    }
+  },
+  "request_id": "req_xxx"
+}
+```
+
 封面和时长说明：
 
 - 图片资产的 `thumbnailUrl` 默认就是图片自己的 `url`。
 - 视频资产优先读取资产 `metadata.thumbnailUrl` / `thumbnail_url` / `coverUrl` / `cover_url` / `posterUrl` / `poster_url`。
-- 视频时长优先读取资产 `metadata.duration` / `duration_seconds` / `seconds`。
+- 视频时长优先读取资产 `metadata.durationSec` / `duration` / `durationSeconds` / `duration_seconds` / `seconds`。
 - AI 生成成功后，如果第三方结果里带封面或时长，EntitleHub 会写入资产 metadata 并在资产列表返回。
 - 当前不会在同步上传请求里现场抽帧；真正的视频抽帧封面和精确时长建议后续接异步媒体处理器。
 
@@ -782,9 +905,35 @@ GET /api/server/web/v1/gallery?type=video&customer_id=uuid&page=1&page_size=20
 - 收藏是客户维度关系，不是资产或作品的全局标签。
 - 下载状态也是客户维度关系，EntitleHub 会记录 `downloadedAt` 和下载次数，换设备后仍能展示。
 
+作品列表和画廊列表完整响应外壳：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [],
+    "works": [],
+    "meta": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    },
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "pageSize": 20,
+      "hasMore": false
+    }
+  },
+  "request_id": "req_xxx"
+}
+```
+
 ## 4. 异步图片/视频任务
 
-适合速创等“提交任务 -> 返回任务 ID -> 查询任务结果”的平台。
+这一节是 EntitleHub 低层 Server AI 接口，保留给非 Web 产品直接接入。影织这类 Web 产品优先使用 3A 的统一接口：`POST /api/server/web/v1/ai/jobs`、`GET /api/server/web/v1/ai/jobs`、`GET /api/server/web/v1/ai/jobs/{jobId}`。
 
 ### 4.1 创建任务
 
@@ -905,16 +1054,17 @@ async function createVideoJob(input: {
   prompt: string;
   duration: number;
 }) {
-  const response = await fetch(`${input.entitleHubBaseUrl}/api/server/ai/v1/videos/jobs`, {
+  const response = await fetch(`${input.entitleHubBaseUrl}/api/server/web/v1/ai/jobs`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${input.serverKey}`,
-      "X-EntitleHub-Customer-Id": input.customerId,
       "Idempotency-Key": input.idempotencyKey,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "google-omni",
+      customer_id: input.customerId,
+      type: "video",
+      model: "google_omni",
       prompt: input.prompt,
       duration: input.duration,
       size: "1280x720"
@@ -939,10 +1089,9 @@ async function getGenerationJob(input: {
   customerId: string;
   jobId: string;
 }) {
-  const response = await fetch(`${input.entitleHubBaseUrl}/api/server/ai/v1/jobs/${input.jobId}`, {
+  const response = await fetch(`${input.entitleHubBaseUrl}/api/server/web/v1/ai/jobs/${input.jobId}?customer_id=${input.customerId}`, {
     headers: {
-      "Authorization": `Bearer ${input.serverKey}`,
-      "X-EntitleHub-Customer-Id": input.customerId
+      "Authorization": `Bearer ${input.serverKey}`
     }
   });
 
@@ -956,6 +1105,24 @@ async function getGenerationJob(input: {
 ```
 
 ## 6. 错误处理
+
+错误响应外壳固定如下：
+
+```json
+{
+  "code": 40001,
+  "errorCode": "model_not_support_reference_video",
+  "message": "validation_failed",
+  "data": null,
+  "request_id": "req_xxx"
+}
+```
+
+说明：
+
+- `code` 是 EntitleHub 兼容旧接口的数字错误码。
+- `message` 是通用错误分类。
+- `errorCode` 是 Web 产品更适合判断的稳定字符串；如果没有更细原因，则和 `message` 一致。
 
 常见错误：
 
@@ -1066,13 +1233,13 @@ EntitleHub 负责平台级校验和钱包扣费，但你的业务后端仍要防
 上线前确认：
 
 - Server Key 已保存到业务后端密钥管理，不在前端。
-- 业务后端所有请求都传 `X-EntitleHub-Customer-Id`。
+- 影织这类 Web 产品统一使用 `/api/server/web/v1/ai/jobs`，客户 ID 放请求体或查询参数。
 - 客户订阅、钱包余额、AI 权限冻结流程已在后台验证。
-- 图片/视频异步任务使用 `/images/jobs`、`/videos/jobs`。
-- 图片/视频前端选项来自 `/api/server/ai/v1/models` 的 `capabilities`，不要在影织写死。
+- 图片/视频前端选项来自 `/api/server/web/v1/ai/models` 的 `capabilities`，不要在影织写死。
 - 业务后端保存 EntitleHub `job.id`，不要只保存三方任务 ID。
 - 任务轮询有退避策略，不要高频打满。
 - 客户可见素材 URL 使用 EntitleHub 返回的 `asset_urls`。
+- Web 产品也可以读取任务返回的 `assetUrls`、`assets[].url`、`assets[].thumbnailUrl`、`assets[].durationSec`。
 - `timeout_review` 有后台人工处理流程。
 - 客服能在 `任务与日志 -> 生成任务` 查到任务详情。
 - 生产日志不要打印 Server Key、第三方密钥、客户隐私请求体。

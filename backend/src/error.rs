@@ -361,6 +361,8 @@ where
 #[derive(Serialize)]
 struct ApiErrorResponse {
     code: u32,
+    #[serde(rename = "errorCode")]
+    error_code: &'static str,
     message: &'static str,
     data: Option<()>,
     request_id: String,
@@ -368,7 +370,7 @@ struct ApiErrorResponse {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code, message) = match self {
+        let (status, code, message) = match &self {
             Self::AccountDisabled(_) => (StatusCode::FORBIDDEN, 40302, "account_disabled"),
             Self::AlreadyRevoked(_) => (StatusCode::CONFLICT, 40906, "already_revoked"),
             Self::AppDisabled(_) => (StatusCode::FORBIDDEN, 40310, "app_disabled"),
@@ -473,14 +475,59 @@ impl IntoResponse for AppError {
             }
         };
 
+        let error_code = detailed_error_code(&self).unwrap_or(message);
         let body = ApiErrorResponse {
             code,
+            error_code,
             message,
             data: None,
             request_id: "req_bootstrap".to_owned(),
         };
 
         (status, Json(body)).into_response()
+    }
+}
+
+fn detailed_error_code(error: &AppError) -> Option<&'static str> {
+    let message = match error {
+        AppError::BusinessRuleFailed(message)
+        | AppError::Conflict(message)
+        | AppError::Forbidden(message)
+        | AppError::InvalidRequest(message)
+        | AppError::NotFound(message)
+        | AppError::SubscriptionInactive(message)
+        | AppError::ValidationFailed(message) => message.as_str(),
+        _ => return None,
+    };
+    message
+        .split_once(':')
+        .map(|(code, _)| code)
+        .filter(|code| is_stable_error_code(code))
+        .and_then(stable_error_code)
+}
+
+fn is_stable_error_code(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+fn stable_error_code(value: &str) -> Option<&'static str> {
+    match value {
+        "asset_not_ready" => Some("asset_not_ready"),
+        "model_not_support_reference_video" => Some("model_not_support_reference_video"),
+        "model_not_support_first_frame" => Some("model_not_support_first_frame"),
+        "model_not_support_last_frame" => Some("model_not_support_last_frame"),
+        "reference_asset_conflict" => Some("reference_asset_conflict"),
+        "reference_asset_kind_mismatch" => Some("reference_asset_kind_mismatch"),
+        "reference_asset_kind_not_allowed" => Some("reference_asset_kind_not_allowed"),
+        "reference_asset_mime_not_allowed" => Some("reference_asset_mime_not_allowed"),
+        "reference_asset_role_invalid" => Some("reference_asset_role_invalid"),
+        "reference_asset_too_large" => Some("reference_asset_too_large"),
+        "reference_asset_too_many" => Some("reference_asset_too_many"),
+        _ => None,
     }
 }
 
@@ -819,6 +866,7 @@ mod tests {
             let body: Value = serde_json::from_slice(&body).expect("json body");
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["message"], expected_message);
+            assert_eq!(body["errorCode"], expected_message);
 
             let documented_pair = format!("{expected_code} {expected_message}");
             assert!(
@@ -826,5 +874,22 @@ mod tests {
                 "{documented_pair} is missing from 权限点与错误码清单.md"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn app_error_response_exposes_stable_detail_error_code() {
+        let response = AppError::validation_failed(
+            "model_not_support_reference_video: model does not support reference video",
+        )
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        let body: Value = serde_json::from_slice(&body).expect("json body");
+        assert_eq!(body["code"], 40001);
+        assert_eq!(body["message"], "validation_failed");
+        assert_eq!(body["errorCode"], "model_not_support_reference_video");
     }
 }

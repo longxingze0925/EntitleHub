@@ -26,7 +26,7 @@ const MAX_DESCRIPTION_LEN: usize = 2_000;
 const MAX_TAG_LEN: usize = 40;
 const MAX_TAGS: usize = 20;
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct WebWork {
     pub id: Uuid,
     pub owner_customer_id: Uuid,
@@ -69,7 +69,9 @@ pub struct WebWork {
 #[derive(Debug, Serialize)]
 pub struct WebWorkListResponse {
     pub items: Vec<WebWork>,
+    pub works: Vec<WebWork>,
     pub meta: ListMeta,
+    pub pagination: ListMeta,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,10 +108,25 @@ pub struct DeleteWebWorkResponse {
     pub work_id: Uuid,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ListMeta {
     pub page: i64,
     pub page_size: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size_alias: i64,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
+impl ListMeta {
+    fn new(page: i64, page_size: i64, has_more: bool) -> Self {
+        Self {
+            page,
+            page_size,
+            page_size_alias: page_size,
+            has_more,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +198,7 @@ pub async fn list_works(
         .map(normalize_visibility)
         .transpose()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = if query.favorite.unwrap_or(false) {
         list_favorite_works(
             &state,
@@ -189,7 +207,7 @@ pub async fn list_works(
             work_type.as_deref(),
             visibility.as_deref(),
             page,
-            page_size,
+            fetch_limit,
         )
         .await?
     } else {
@@ -200,15 +218,23 @@ pub async fn list_works(
             work_type.as_deref(),
             visibility.as_deref(),
             page,
-            page_size,
+            fetch_limit,
         )
         .await?
     };
 
+    let has_more = items.len() as i64 > page_size;
+    let items = items
+        .into_iter()
+        .take(page_size as usize)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         WebWorkListResponse {
+            works: items.clone(),
             items,
-            meta: ListMeta { page, page_size },
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
@@ -622,20 +648,29 @@ pub async fn list_gallery(
         .map(normalize_work_type)
         .transpose()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
+    let fetch_limit = page_size + 1;
     let items = list_published_gallery(
         &state,
         &server_key,
         query.customer_id,
         work_type.as_deref(),
         page,
-        page_size,
+        fetch_limit,
     )
     .await?;
 
+    let has_more = items.len() as i64 > page_size;
+    let items = items
+        .into_iter()
+        .take(page_size as usize)
+        .collect::<Vec<_>>();
+    let meta = ListMeta::new(page, page_size, has_more);
     Ok(Json(ApiResponse::ok(
         WebWorkListResponse {
+            works: items.clone(),
             items,
-            meta: ListMeta { page, page_size },
+            meta: meta.clone(),
+            pagination: meta,
         },
         request_id.to_string(),
     )))
