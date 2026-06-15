@@ -2870,7 +2870,7 @@ GET /api/server/web/v1/customers/{customer_id}
 GET /api/server/web/v1/customers/{customer_id}/balance
 GET /api/server/web/v1/customers/{customer_id}/usage
 GET /api/server/web/v1/customers/{customer_id}/plan
-GET /api/server/web/v1/ai/models?type=image|video
+GET /api/server/web/v1/ai/models?type=image|video|audio
 POST /api/server/web/v1/ai/jobs
 GET /api/server/web/v1/ai/jobs?customer_id={customer_id}
 GET /api/server/web/v1/ai/jobs/{job_id}?customer_id={customer_id}
@@ -2890,7 +2890,7 @@ Content-Type: application/json
 - `cancel` 是 EntitleHub 本地取消：停止继续轮询并释放未扣费预扣；如果三方平台没有取消接口，不能保证三方侧停止生成。
 - `retry` 是重新查询第三方任务，不是新建任务；重新生成应重新调用 `POST /api/server/web/v1/ai/jobs` 并使用新的幂等键。
 - 用户上传素材和 AI 生成结果统一进入 Web 资产库，影织可以按客户、文件夹、类型、用途查询。
-- 模型 `capabilities` 会返回 `inputModes`、`maxReferenceImages`、`supportsReferenceVideo`、`supportsFirstFrame`、`supportsLastFrame`、`acceptedMimeTypes`、`maxAssetSizeMb`，Web 产品应按这些字段渲染参考素材、首帧、尾帧等输入能力。
+- 模型 `capabilities` 会返回 `inputModes`、`maxReferenceImages`、`maxReferenceVideos`、`maxReferenceAudios`、`supportsReferenceVideo`、`supportsReferenceAudio`、`supportsFirstFrame`、`supportsLastFrame`、`acceptedMimeTypes`、`maxAssetSizeMb`，Web 产品应按这些字段渲染参考素材、首帧、尾帧、参考音频等输入能力。
 
 统一创建视频任务示例：
 
@@ -2958,11 +2958,11 @@ Content-Type: application/json
 
 说明：
 
-- 参考素材只支持视频任务。
+- 参考素材支持视频、图片和音频任务，具体以模型 `capabilities` 为准；首帧/尾帧只适用于视频任务。
 - `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 和 `referenceAssets[].assetId` 必须属于当前 Server Key 应用下的当前客户。
-- `referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`。
+- `referenceAssets[].kind` 支持 `image`、`video`、`audio`；`referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`。
 - EntitleHub 会校验素材状态、类型、MIME、大小和模型能力。
-- 模型不支持对应输入时会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_asset_kind_mismatch`。
+- 模型不支持对应输入或数量超限时会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_reference_audio`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_image_too_many`、`reference_video_too_many`、`reference_audio_too_many`、`reference_asset_kind_mismatch`。
 - 任务、作品和广场返回会包含 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`、`publishedAt`、`favoritedAt`、`downloadedAt`。
 - Web 产品任务列表返回 `data.items` 和 `data.jobs` 两个等价数组，分页返回 `data.meta` 和 `data.pagination` 两个等价对象。
 - Web 产品任务详情返回 `job.progress`、`job.results`、`job.assetUrls`、`job.assets`、`job.workId`；成功任务的 `assets[]` 会包含 `status=ready`、`thumbnailUrl`、`durationSec`、`durationSeconds`。
@@ -3234,9 +3234,9 @@ Content-Type: application/json
 }
 ```
 
-### 18.10.7 Web 后端异步图片/视频任务
+### 18.10.7 Web 后端异步图片/视频/音频任务
 
-异步任务用于速创等“提交后返回任务 ID、再查询结果”的图片/视频平台。任务状态以第三方查询接口返回为准，EntitleHub 只负责内部商业状态：余额冻结、扣费/释放、素材缓存、后台审计。
+异步任务用于速创等“提交后返回任务 ID、再查询结果”的图片/视频/音频平台。任务状态以第三方查询接口返回为准，EntitleHub 只负责内部商业状态：余额冻结、扣费/释放、素材缓存、后台审计。影织这类 Web 产品优先使用统一入口 `/api/server/web/v1/ai/jobs`；低层入口保留给非 Web 内部服务。
 
 创建图片任务：
 
@@ -3263,6 +3263,16 @@ Content-Type: application/json
 
 ```http
 POST /api/server/ai/v1/videos/jobs
+Authorization: Bearer ehsk_...
+X-EntitleHub-Customer-Id: uuid
+Idempotency-Key: optional-unique-key
+Content-Type: application/json
+```
+
+创建音频任务：
+
+```http
+POST /api/server/ai/v1/audio/jobs
 Authorization: Bearer ehsk_...
 X-EntitleHub-Customer-Id: uuid
 Idempotency-Key: optional-unique-key
@@ -3321,7 +3331,28 @@ X-EntitleHub-Customer-Id: uuid
 - 渠道密钥填三方 API Key；默认使用 `Authorization: <api_key>`。如三方要求 `Bearer` 或其他 header，可在渠道配置中设置 `api_key_header`、`auth_scheme` 或 `headers`。
 - 任务查询默认使用 `GET /api/async/detail?id=<task_id>`；如三方要求 POST，可在渠道配置中设置 `detail_method: "POST"`、`detail_path`、`detail_id_field`。
 - 模型 `provider_model` 可用 `google_omni`、`grok_imagine`、`image_gpt`、`image_nanoBanana2`；也可以在模型 `pricing_config.submit_path` 显式配置提交路径。
-- `google_omni` 支持参考图/视频输入；模型能力建议配置 `inputModes: ["text", "image", "frames", "video"]`、`maxReferenceImages: 7`、`supportsReferenceVideo: true`、`supportsFirstFrame: true`、`supportsLastFrame: true`，分辨率使用 `1280x720`、`720x1280`、`1920x1080`、`1080x1920`。EntitleHub 会把参考素材 URL 合并为速创要求的 `images` 字段，并把 `resolution` 转成 `size`。
+- `google_omni` 支持参考图/视频输入；模型能力建议配置 `inputModes: ["text", "image", "video"]`、`maxReferenceImages: 7`、`maxReferenceVideos: 1`、`supportsReferenceVideo: true`、`supportsFirstFrame: false`、`supportsLastFrame: false`，分辨率使用 `1280x720`、`720x1280`、`1920x1080`、`1080x1920`。EntitleHub 会把参考素材 URL 合并为速创要求的 `images` 字段，并把 `resolution` 转成 `size`。速创该接口没有明确首帧/尾帧角色时，不应把普通参考图当成确定首尾帧能力。
+- 已内置速创模型路径映射：
+  `video_google_omni -> /api/async/video_google_omni`、
+  `video_vidu -> /api/async/video_vidu`、
+  `video_omni -> /api/async/video_omni`、
+  `video_seedance -> /api/async/video_seedance`、
+  `video_digital_humans -> /api/async/video_digital_humans`、
+  `video_package -> /api/async/video_package`、
+  `video_grok_imagine -> /api/async/video_grok_imagine`、
+  `video_wan2.6 -> /api/async/video_wan2.6`、
+  `image_gpt -> /api/async/image_gpt`、
+  `image_nanoBanana2 -> /api/async/image_nanoBanana2`、
+  `image_grok_imagine -> /api/async/image_grok_imagine`、
+  `image_nanoBanana_pro -> /api/async/image_nanoBanana_pro`、
+  `image_nanoBanana -> /api/async/image_nanoBanana`、
+  `image_wan2.6 -> /api/async/image_wan2.6`、
+  `image_split -> /api/img/split`、
+  `audio_tts -> /api/async/audio_tts`、
+  `audio_voice_composite -> /api/voice/composite`、
+  `audio_voice_clone -> /api/voice/clone`。
+- 速创字段适配已覆盖参考图、参考视频、参考音频、首帧、尾帧：EntitleHub 会按模型把统一的 `referenceAssets` / `referenceAssetIds` 拆成三方要求的 `images`、`image_url`、`video_url`、`audio_url`、`firstFrameUrl`、`lastFrameUrl`、`urls`、`image_urls` 等字段。
+- 默认 JSON 提交；需要表单提交的模型可在模型价格配置或渠道配置里设置 `request_format: "form"`。
 
 ### 18.10.8 后台生成任务处理
 

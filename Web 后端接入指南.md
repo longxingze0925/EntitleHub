@@ -131,11 +131,14 @@ X-EntitleHub-Customer-Id: uuid
         "default_duration_seconds": 10,
         "image_counts": [],
         "max_images": null,
-        "inputModes": ["text", "image", "frames", "video"],
+        "inputModes": ["text", "image", "video"],
         "maxReferenceImages": 7,
+        "maxReferenceVideos": 1,
+        "maxReferenceAudios": null,
         "supportsReferenceVideo": true,
-        "supportsFirstFrame": true,
-        "supportsLastFrame": true,
+        "supportsReferenceAudio": false,
+        "supportsFirstFrame": false,
+        "supportsLastFrame": false,
         "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp", "video/mp4"],
         "maxAssetSizeMb": 50
       }
@@ -153,8 +156,11 @@ X-EntitleHub-Customer-Id: uuid
 - `durations`：视频可选时长，单位秒。
 - `image_counts` / `max_images`：图片生成可选张数和最大张数。
 - `inputModes`：允许的输入方式，常用 `text`、`image`、`frames`、`video`。
-- `maxReferenceImages`：最多可传多少个参考素材。
+- `maxReferenceImages`：最多可传多少张参考图。
+- `maxReferenceVideos`：最多可传多少条参考视频。
+- `maxReferenceAudios`：最多可传多少条参考音频。
 - `supportsReferenceVideo`：是否允许把视频作为参考素材。
+- `supportsReferenceAudio`：是否允许把音频作为参考素材。
 - `supportsFirstFrame` / `supportsLastFrame`：是否支持首帧、尾帧。
 - `acceptedMimeTypes`：参考素材允许的 MIME 类型。
 - `maxAssetSizeMb`：单个参考素材最大体积。
@@ -359,22 +365,22 @@ Idempotency-Key: optional-unique-key
 
 注意：
 
-- `type` 只支持 `image`、`video`。
+- `type` 支持 `image`、`video`、`audio`。
 - `model` 使用 EntitleHub 模型代码，不是第三方真实模型名。
 - `customer_id` 是本次扣费、订阅校验和任务归属的 EntitleHub 客户 ID。
 - EntitleHub 会按模型商品配置校验参数并预扣余额。
-- 参考素材字段只支持视频任务；图片任务传参考素材会被拒绝。
+- 参考素材字段按模型能力支持图片、视频、音频任务；首帧/尾帧只适用于视频任务。
 - `aspectRatio` 会兼容映射为 `ratio`，`durationSec` 会兼容映射为 `duration`。
 - `referenceAssetIds`、`firstFrameAssetId`、`lastFrameAssetId` 和 `referenceAssets[].assetId` 必须是当前客户资产库里的 `ready` 素材。
-- `referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`；首帧/尾帧必须是图片。
+- `referenceAssets[].kind` 支持 `image`、`video`、`audio`；`referenceAssets[].role` 支持 `reference`、`first_frame`、`last_frame`；首帧/尾帧必须是图片。
 - EntitleHub 会按模型 `capabilities` 校验输入方式、参考素材数量、MIME 类型、大小、是否支持首帧/尾帧。
-- 如果模型不支持对应能力，会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_asset_kind_mismatch`。
+- 如果模型不支持对应能力或数量超限，会返回清晰错误，例如 `model_not_support_reference_video`、`model_not_support_reference_audio`、`model_not_support_first_frame`、`model_not_support_last_frame`、`reference_image_too_many`、`reference_video_too_many`、`reference_audio_too_many`、`reference_asset_kind_mismatch`。
 - 请求会记录 `sourceMode`、`referenceCount`、`hasFirstFrame`、`hasLastFrame`，生成成功后会同步写入作品元数据。
 
 ### 3A.6 查询、列表、取消、重试任务
 
 ```http
-GET  /api/server/web/v1/ai/jobs?customer_id={customerId}&type=image|video&status=running&page=1&page_size=20
+GET  /api/server/web/v1/ai/jobs?customer_id={customerId}&type=image|video|audio&status=running&page=1&page_size=20
 GET  /api/server/web/v1/ai/jobs/{jobId}?customer_id={customerId}
 POST /api/server/web/v1/ai/jobs/{jobId}/cancel
 POST /api/server/web/v1/ai/jobs/{jobId}/retry
@@ -765,7 +771,28 @@ Content-Type: image/png
 
 第三方引用素材注意：
 
-- EntitleHub 会按渠道适配参考素材字段。速创 `google_omni` 会把参考图、首帧、尾帧合并成三方要求的 `images`，并把 `resolution` 转成 `size`。
+- EntitleHub 会按渠道适配参考素材字段。速创 `google_omni` 会把参考图和参考视频合并成三方要求的 `images`，并把 `resolution` 转成 `size`。速创该接口没有明确首帧/尾帧角色时，不应把普通参考图当成确定首尾帧能力。
+- 已内置速创图片、视频、音频模型路径映射：
+  `video_google_omni -> /api/async/video_google_omni`、
+  `video_vidu -> /api/async/video_vidu`、
+  `video_omni -> /api/async/video_omni`、
+  `video_seedance -> /api/async/video_seedance`、
+  `video_digital_humans -> /api/async/video_digital_humans`、
+  `video_package -> /api/async/video_package`、
+  `video_grok_imagine -> /api/async/video_grok_imagine`、
+  `video_wan2.6 -> /api/async/video_wan2.6`、
+  `image_gpt -> /api/async/image_gpt`、
+  `image_nanoBanana2 -> /api/async/image_nanoBanana2`、
+  `image_grok_imagine -> /api/async/image_grok_imagine`、
+  `image_nanoBanana_pro -> /api/async/image_nanoBanana_pro`、
+  `image_nanoBanana -> /api/async/image_nanoBanana`、
+  `image_wan2.6 -> /api/async/image_wan2.6`、
+  `image_split -> /api/img/split`、
+  `audio_tts -> /api/async/audio_tts`、
+  `audio_voice_composite -> /api/voice/composite`、
+  `audio_voice_clone -> /api/voice/clone`。
+- 速创字段适配已覆盖参考图、参考视频、参考音频、首帧、尾帧：EntitleHub 会按模型把统一的 `referenceAssets` / `referenceAssetIds` 拆成三方要求的 `images`、`image_url`、`video_url`、`audio_url`、`firstFrameUrl`、`lastFrameUrl`、`urls`、`image_urls` 等字段。
+- 默认 JSON 提交；需要表单提交的模型可在模型价格配置或渠道配置里设置 `request_format: "form"`。
 - 三方平台必须能访问这些 URL。生产环境建议使用可外网访问的对象存储公开 URL 或短期签名 URL。
 - 如果使用本地文件存储，`public_url` 默认是 EntitleHub 下载接口，下载接口需要 Server Key，很多第三方平台无法直接拉取。
 - 长期商用建议把素材存储切到 S3/R2/OSS/COS 这类对象存储，并确保三方平台可访问参考素材。
@@ -783,7 +810,7 @@ Content-Type: image/png
 
 生成任务成功后，EntitleHub 会自动：
 
-1. 下载第三方图片或视频。
+1. 下载第三方图片、视频或音频。
 2. 缓存为 EntitleHub 自己的资产 URL。
 3. 写入客户资产库，`asset_role=generated`、`source=generated`。
 4. 自动创建 `Work`。

@@ -482,6 +482,16 @@ export interface AiServerModelCapabilities {
   default_duration_seconds?: number | null;
   image_counts: number[];
   max_images?: number | null;
+  inputModes?: string[];
+  maxReferenceImages?: number | null;
+  maxReferenceVideos?: number | null;
+  maxReferenceAudios?: number | null;
+  supportsReferenceVideo?: boolean;
+  supportsReferenceAudio?: boolean;
+  supportsFirstFrame?: boolean;
+  supportsLastFrame?: boolean;
+  acceptedMimeTypes?: string[];
+  maxAssetSizeMb?: number | null;
 }
 
 export interface AiServerModelBilling {

@@ -14,7 +14,10 @@ pub struct ModelCapabilities {
     pub max_images: Option<i64>,
     pub input_modes: Vec<String>,
     pub max_reference_images: Option<i64>,
+    pub max_reference_videos: Option<i64>,
+    pub max_reference_audios: Option<i64>,
     pub supports_reference_video: bool,
+    pub supports_reference_audio: bool,
     pub supports_first_frame: bool,
     pub supports_last_frame: bool,
     pub accepted_mime_types: Vec<String>,
@@ -39,9 +42,22 @@ impl ModelCapabilities {
                 source,
                 &["maxReferenceImages", "max_reference_images"],
             )?,
+            max_reference_videos: first_positive_int(
+                source,
+                &["maxReferenceVideos", "max_reference_videos"],
+            )?,
+            max_reference_audios: first_positive_int(
+                source,
+                &["maxReferenceAudios", "max_reference_audios"],
+            )?,
             supports_reference_video: optional_bool(
                 source,
                 &["supportsReferenceVideo", "supports_reference_video"],
+            )?
+            .unwrap_or(false),
+            supports_reference_audio: optional_bool(
+                source,
+                &["supportsReferenceAudio", "supports_reference_audio"],
             )?
             .unwrap_or(false),
             supports_first_frame: optional_bool(
@@ -75,7 +91,10 @@ impl ModelCapabilities {
             "max_images": self.max_images,
             "inputModes": self.input_modes,
             "maxReferenceImages": self.max_reference_images,
+            "maxReferenceVideos": self.max_reference_videos,
+            "maxReferenceAudios": self.max_reference_audios,
             "supportsReferenceVideo": self.supports_reference_video,
+            "supportsReferenceAudio": self.supports_reference_audio,
             "supportsFirstFrame": self.supports_first_frame,
             "supportsLastFrame": self.supports_last_frame,
             "acceptedMimeTypes": self.accepted_mime_types,
@@ -395,6 +414,7 @@ mod tests {
                 "sizes": ["720p"],
                 "max_images": 4,
                 "inputModes": ["text", "image"],
+                "maxReferenceVideos": 1,
                 "supportsFirstFrame": true,
                 "acceptedMimeTypes": ["image/png"],
                 "maxAssetSizeMb": 50
@@ -405,6 +425,7 @@ mod tests {
         assert_eq!(public["resolutions"], json!(["720p"]));
         assert_eq!(public["max_images"], json!(4));
         assert_eq!(public["inputModes"], json!(["text", "image"]));
+        assert_eq!(public["maxReferenceVideos"], json!(1));
         assert_eq!(public["supportsFirstFrame"], json!(true));
         assert_eq!(public["acceptedMimeTypes"], json!(["image/png"]));
         assert_eq!(public["maxAssetSizeMb"], json!(50));

@@ -117,7 +117,10 @@ interface ModelFormValues {
   max_images?: number | null;
   input_modes?: string[];
   max_reference_images?: number | null;
+  max_reference_videos?: number | null;
+  max_reference_audios?: number | null;
   supports_reference_video?: boolean;
+  supports_reference_audio?: boolean;
   supports_first_frame?: boolean;
   supports_last_frame?: boolean;
   accepted_mime_types?: string[];
@@ -218,6 +221,7 @@ const defaultImageCounts = [1, 2, 4];
 const defaultInputModes = ["text", "image", "video", "frames"];
 const defaultAcceptedImageMimes = ["image/png", "image/jpeg", "image/webp"];
 const defaultAcceptedVideoMimes = ["video/mp4", "video/webm", "video/quicktime"];
+const defaultAcceptedAudioMimes = ["audio/mpeg", "audio/wav", "audio/mp4", "audio/webm"];
 
 const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
   {
@@ -239,6 +243,27 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
     },
     metadata: {
       provider_doc_url: "https://api.wuyinkeji.com/doc/53"
+    }
+  },
+  {
+    provider_model: "image_grok_imagine",
+    name: "Grok Imagine 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_grok_imagine",
+      capabilities: {
+        ratios: ["2:3", "3:2", "1:1", "16:9", "9:16"],
+        image_counts: [1],
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/63"
     }
   },
   {
@@ -264,6 +289,95 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
     }
   },
   {
+    provider_model: "image_nanoBanana_pro",
+    name: "NanoBanana Pro 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_nanoBanana_pro",
+      capabilities: {
+        ratios: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9"],
+        resolutions: ["1K", "2K", "4K"],
+        image_counts: [1],
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/55"
+    }
+  },
+  {
+    provider_model: "image_nanoBanana",
+    name: "NanoBanana 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_nanoBanana",
+      capabilities: {
+        ratios: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9"],
+        resolutions: ["1K"],
+        image_counts: [1],
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/54"
+    }
+  },
+  {
+    provider_model: "image_wan2.7",
+    name: "Wan2.7 图片生成",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/async/image_wan2.6",
+      request_format: "form",
+      capabilities: {
+        ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+        resolutions: ["1280*1280", "1104*1472", "1472*1104", "960*1696", "1696*960"],
+        image_counts: [1],
+        max_images: 1,
+        inputModes: ["text", "image"],
+        maxReferenceImages: 4,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/56"
+    }
+  },
+  {
+    provider_model: "image_split",
+    name: "智能拼图",
+    modality: "image",
+    billing_mode: "per_image",
+    pricing_config: {
+      submit_path: "/api/img/split",
+      request_format: "form",
+      capabilities: {
+        image_counts: [1],
+        max_images: 1,
+        inputModes: ["image"],
+        maxReferenceImages: 20,
+        acceptedMimeTypes: defaultAcceptedImageMimes,
+        maxAssetSizeMb: 50,
+        sync: true
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/39"
+    }
+  },
+  {
     provider_model: "google_omni",
     name: "Google Omni 视频生成",
     modality: "video",
@@ -274,11 +388,12 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
         resolutions: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
         durations: [10],
         default_duration_seconds: 10,
-        inputModes: ["text", "image", "frames", "video"],
+        inputModes: ["text", "image", "video"],
         maxReferenceImages: 7,
+        maxReferenceVideos: 1,
         supportsReferenceVideo: true,
-        supportsFirstFrame: true,
-        supportsLastFrame: true,
+        supportsFirstFrame: false,
+        supportsLastFrame: false,
         acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
         maxAssetSizeMb: 50
       }
@@ -288,7 +403,127 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
     }
   },
   {
-    provider_model: "grok_imagine",
+    provider_model: "video_vidu",
+    name: "Vidu Q3 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_vidu",
+      capabilities: {
+        ratios: ["16:9", "9:16", "4:3", "3:4", "1:1"],
+        resolutions: ["540p", "720p", "1080p"],
+        durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        default_duration_seconds: 5,
+        inputModes: ["text", "image", "video"],
+        maxReferenceImages: 7,
+        maxReferenceVideos: 2,
+        supportsReferenceVideo: true,
+        supportsFirstFrame: false,
+        supportsLastFrame: false,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
+        maxAssetSizeMb: 100
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/71"
+    }
+  },
+  {
+    provider_model: "video_omni",
+    name: "可灵 Omni 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_omni",
+      capabilities: {
+        ratios: ["16:9", "9:16", "1:1"],
+        resolutions: ["std", "pro", "4k"],
+        durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        default_duration_seconds: 5,
+        inputModes: ["text", "image", "frames", "video"],
+        maxReferenceImages: 7,
+        maxReferenceVideos: 1,
+        supportsReferenceVideo: true,
+        supportsFirstFrame: true,
+        supportsLastFrame: true,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
+        maxAssetSizeMb: 200
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/70"
+    }
+  },
+  {
+    provider_model: "video_seedance",
+    name: "Seedance 2.0 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_seedance",
+      capabilities: {
+        ratios: ["adaptive", "16:9", "9:16", "4:3", "1:1", "3:4", "21:9"],
+        resolutions: ["480p", "720p"],
+        durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        default_duration_seconds: 5,
+        inputModes: ["text", "image", "frames", "video", "audio"],
+        maxReferenceImages: 7,
+        maxReferenceVideos: 3,
+        maxReferenceAudios: 3,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+        supportsFirstFrame: true,
+        supportsLastFrame: true,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes, ...defaultAcceptedAudioMimes],
+        maxAssetSizeMb: 200
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/69"
+    }
+  },
+  {
+    provider_model: "video_digital_humans",
+    name: "数字人对口型",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_digital_humans",
+      capabilities: {
+        inputModes: ["video", "audio"],
+        maxReferenceVideos: 1,
+        maxReferenceAudios: 1,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+        acceptedMimeTypes: [...defaultAcceptedVideoMimes, ...defaultAcceptedAudioMimes],
+        maxAssetSizeMb: 200
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/66"
+    }
+  },
+  {
+    provider_model: "video_package",
+    name: "视频包装",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_package",
+      capabilities: {
+        inputModes: ["video"],
+        maxReferenceVideos: 1,
+        supportsReferenceVideo: true,
+        acceptedMimeTypes: defaultAcceptedVideoMimes,
+        maxAssetSizeMb: 512
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/57"
+    }
+  },
+  {
+    provider_model: "video_grok_imagine",
     name: "Grok Imagine 视频生成",
     modality: "video",
     billing_mode: "video_per_second",
@@ -309,6 +544,88 @@ const wuyinKejiModelTemplates: ProviderModelTemplate[] = [
     },
     metadata: {
       provider_doc_url: "https://api.wuyinkeji.com/doc/62"
+    }
+  },
+  {
+    provider_model: "video_wan2.7",
+    name: "Wan2.7 视频生成",
+    modality: "video",
+    billing_mode: "video_per_second",
+    pricing_config: {
+      submit_path: "/api/async/video_wan2.6",
+      capabilities: {
+        resolutions: ["720P", "1080P"],
+        durations: [5, 10, 15],
+        default_duration_seconds: 5,
+        inputModes: ["text", "image", "video", "audio"],
+        maxReferenceImages: 5,
+        maxReferenceVideos: 3,
+        maxReferenceAudios: 1,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+        supportsFirstFrame: true,
+        supportsLastFrame: false,
+        acceptedMimeTypes: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes, ...defaultAcceptedAudioMimes],
+        maxAssetSizeMb: 200
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/59"
+    }
+  },
+  {
+    provider_model: "audio_tts",
+    name: "语音合成",
+    modality: "audio",
+    billing_mode: "audio_per_request",
+    pricing_config: {
+      submit_path: "/api/async/audio_tts",
+      capabilities: {
+        inputModes: ["text"],
+        acceptedMimeTypes: defaultAcceptedAudioMimes,
+        maxAssetSizeMb: 100
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/67"
+    }
+  },
+  {
+    provider_model: "voice_composite",
+    name: "语音合成（同步）",
+    modality: "audio",
+    billing_mode: "audio_per_request",
+    pricing_config: {
+      submit_path: "/api/voice/composite",
+      capabilities: {
+        inputModes: ["text"],
+        acceptedMimeTypes: defaultAcceptedAudioMimes,
+        maxAssetSizeMb: 100,
+        sync: true
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/13"
+    }
+  },
+  {
+    provider_model: "voice_clone",
+    name: "语音克隆（同步）",
+    modality: "audio",
+    billing_mode: "audio_per_request",
+    pricing_config: {
+      submit_path: "/api/voice/clone",
+      capabilities: {
+        inputModes: ["audio"],
+        maxReferenceAudios: 1,
+        supportsReferenceAudio: true,
+        acceptedMimeTypes: defaultAcceptedAudioMimes,
+        maxAssetSizeMb: 100,
+        sync: true
+      }
+    },
+    metadata: {
+      provider_doc_url: "https://api.wuyinkeji.com/doc/12"
     }
   }
 ];
@@ -729,7 +1046,10 @@ export function AiBillingPage() {
       max_images: null,
       input_modes: [],
       max_reference_images: null,
+      max_reference_videos: null,
+      max_reference_audios: null,
       supports_reference_video: false,
+      supports_reference_audio: false,
       supports_first_frame: false,
       supports_last_frame: false,
       accepted_mime_types: [],
@@ -789,7 +1109,10 @@ export function AiBillingPage() {
       max_images: capabilities.max_images,
       input_modes: capabilities.input_modes,
       max_reference_images: capabilities.max_reference_images,
+      max_reference_videos: capabilities.max_reference_videos,
+      max_reference_audios: capabilities.max_reference_audios,
       supports_reference_video: capabilities.supports_reference_video,
+      supports_reference_audio: capabilities.supports_reference_audio,
       supports_first_frame: capabilities.supports_first_frame,
       supports_last_frame: capabilities.supports_last_frame,
       accepted_mime_types: capabilities.accepted_mime_types,
@@ -2171,8 +2494,14 @@ export function AiBillingPage() {
                 </Form.Item>
               </div>
               <div className="settings-grid-inner">
-                <Form.Item name="max_reference_images" label="最多参考素材数">
+                <Form.Item name="max_reference_images" label="最多参考图片数">
                   <InputNumber min={1} max={20} precision={0} className="form-number" />
+                </Form.Item>
+                <Form.Item name="max_reference_videos" label="最多参考视频数">
+                  <InputNumber min={1} max={5} precision={0} className="form-number" />
+                </Form.Item>
+                <Form.Item name="max_reference_audios" label="最多参考音频数">
+                  <InputNumber min={1} max={5} precision={0} className="form-number" />
                 </Form.Item>
                 <Form.Item name="max_asset_size_mb" label="单个素材大小 MB">
                   <InputNumber min={1} max={512} precision={0} className="form-number" />
@@ -2180,6 +2509,13 @@ export function AiBillingPage() {
                 <Form.Item
                   name="supports_reference_video"
                   label="支持参考视频"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+                <Form.Item
+                  name="supports_reference_audio"
+                  label="支持参考音频"
                   valuePropName="checked"
                 >
                   <Switch />
@@ -2717,7 +3053,10 @@ function modelFormValuesFromTemplate(
     max_images: capabilities.max_images,
     input_modes: capabilities.input_modes,
     max_reference_images: capabilities.max_reference_images,
+    max_reference_videos: capabilities.max_reference_videos,
+    max_reference_audios: capabilities.max_reference_audios,
     supports_reference_video: capabilities.supports_reference_video,
+    supports_reference_audio: capabilities.supports_reference_audio,
     supports_first_frame: capabilities.supports_first_frame,
     supports_last_frame: capabilities.supports_last_frame,
     accepted_mime_types: capabilities.accepted_mime_types,
@@ -2742,7 +3081,10 @@ interface ModelCapabilityValues {
   max_images: number | null;
   input_modes: string[];
   max_reference_images: number | null;
+  max_reference_videos: number | null;
+  max_reference_audios: number | null;
   supports_reference_video: boolean;
+  supports_reference_audio: boolean;
   supports_first_frame: boolean;
   supports_last_frame: boolean;
   accepted_mime_types: string[];
@@ -2763,7 +3105,10 @@ function mergeModelCapabilities(
     max_images: normalizeOptionalNumber(values.max_images),
     inputModes: normalizeStringList(values.input_modes),
     maxReferenceImages: normalizeOptionalNumber(values.max_reference_images),
+    maxReferenceVideos: normalizeOptionalNumber(values.max_reference_videos),
+    maxReferenceAudios: normalizeOptionalNumber(values.max_reference_audios),
     supportsReferenceVideo: Boolean(values.supports_reference_video),
+    supportsReferenceAudio: Boolean(values.supports_reference_audio),
     supportsFirstFrame: Boolean(values.supports_first_frame),
     supportsLastFrame: Boolean(values.supports_last_frame),
     acceptedMimeTypes: normalizeStringList(values.accepted_mime_types),
@@ -2794,8 +3139,17 @@ function modelCapabilities(config: Record<string, unknown>): ModelCapabilityValu
     max_reference_images: normalizeOptionalNumber(
       source.maxReferenceImages ?? source.max_reference_images
     ),
+    max_reference_videos: normalizeOptionalNumber(
+      source.maxReferenceVideos ?? source.max_reference_videos
+    ),
+    max_reference_audios: normalizeOptionalNumber(
+      source.maxReferenceAudios ?? source.max_reference_audios
+    ),
     supports_reference_video: Boolean(
       source.supportsReferenceVideo ?? source.supports_reference_video
+    ),
+    supports_reference_audio: Boolean(
+      source.supportsReferenceAudio ?? source.supports_reference_audio
     ),
     supports_first_frame: Boolean(source.supportsFirstFrame ?? source.supports_first_frame),
     supports_last_frame: Boolean(source.supportsLastFrame ?? source.supports_last_frame),
@@ -2818,7 +3172,10 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         default_duration_seconds: null,
         input_modes: ["text", "image"],
         max_reference_images: 4,
+        max_reference_videos: null,
+        max_reference_audios: null,
         supports_reference_video: false,
+        supports_reference_audio: false,
         supports_first_frame: false,
         supports_last_frame: false,
         accepted_mime_types: defaultAcceptedImageMimes,
@@ -2834,11 +3191,33 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         max_images: null,
         input_modes: ["text", "image", "frames"],
         max_reference_images: 4,
+        max_reference_videos: null,
+        max_reference_audios: null,
         supports_reference_video: false,
+        supports_reference_audio: false,
         supports_first_frame: true,
         supports_last_frame: true,
         accepted_mime_types: [...defaultAcceptedImageMimes, ...defaultAcceptedVideoMimes],
         max_asset_size_mb: 50
+      };
+    case "audio":
+      return {
+        ratios: [],
+        resolutions: [],
+        durations: [],
+        default_duration_seconds: null,
+        image_counts: [],
+        max_images: null,
+        input_modes: ["text", "audio"],
+        max_reference_images: null,
+        max_reference_videos: null,
+        max_reference_audios: 1,
+        supports_reference_video: false,
+        supports_reference_audio: true,
+        supports_first_frame: false,
+        supports_last_frame: false,
+        accepted_mime_types: defaultAcceptedAudioMimes,
+        max_asset_size_mb: 100
       };
     default:
       return {
@@ -2850,7 +3229,10 @@ function defaultCapabilitiesForModality(modality?: AiModelModality): Partial<Mod
         max_images: null,
         input_modes: [],
         max_reference_images: null,
+        max_reference_videos: null,
+        max_reference_audios: null,
         supports_reference_video: false,
+        supports_reference_audio: false,
         supports_first_frame: false,
         supports_last_frame: false,
         accepted_mime_types: [],
@@ -3090,10 +3472,17 @@ function modelCapabilitiesSummary(record: AiModel): string {
     parts.push(`输入 ${capabilities.input_modes.join(" / ")}`);
   }
   if (capabilities.max_reference_images) {
-    parts.push(`参考素材 ${capabilities.max_reference_images} 个`);
+    parts.push(`参考图 ${capabilities.max_reference_images} 张`);
+  }
+  if (capabilities.max_reference_videos) {
+    parts.push(`参考视频 ${capabilities.max_reference_videos} 条`);
+  }
+  if (capabilities.max_reference_audios) {
+    parts.push(`参考音频 ${capabilities.max_reference_audios} 条`);
   }
   const frameParts = [
     capabilities.supports_reference_video ? "参考视频" : null,
+    capabilities.supports_reference_audio ? "参考音频" : null,
     capabilities.supports_first_frame ? "首帧" : null,
     capabilities.supports_last_frame ? "尾帧" : null
   ].filter(Boolean);

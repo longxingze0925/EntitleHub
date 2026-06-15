@@ -489,6 +489,10 @@ pub fn build(state: AppState) -> Router {
             "/api/server/ai/v1/videos/jobs",
             post(ai::jobs::server_create_video_job),
         )
+        .route(
+            "/api/server/ai/v1/audio/jobs",
+            post(ai::jobs::server_create_audio_job),
+        )
         .route("/api/server/ai/v1/jobs/{id}", get(ai::jobs::server_get_job))
         .route(
             "/api/server/ai/v1/models",

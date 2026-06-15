@@ -44,9 +44,11 @@ const DEFAULT_POLL_INTERVAL_SECONDS: i64 = 15;
 const DEFAULT_MAX_ATTEMPTS: i32 = 240;
 const MAX_IMAGE_COUNT: i64 = 10;
 const MAX_VIDEO_SECONDS: i64 = 3600;
+const MAX_AUDIO_SECONDS: i64 = 3600;
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 200;
 const MAX_IMAGE_ASSET_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_VIDEO_ASSET_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_AUDIO_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 const DEFAULT_PAGE_SIZE: i64 = 20;
 const MAX_PAGE_SIZE: i64 = 100;
 
@@ -229,6 +231,9 @@ struct GenerationInputAssets {
     source_mode: Option<String>,
     reference_asset_ids: Vec<Uuid>,
     reference_urls: Vec<String>,
+    reference_image_urls: Vec<String>,
+    reference_video_urls: Vec<String>,
+    reference_audio_urls: Vec<String>,
     first_frame_asset_id: Option<Uuid>,
     first_frame_url: Option<String>,
     last_frame_asset_id: Option<Uuid>,
@@ -369,6 +374,15 @@ pub async fn server_create_video_job(
     Json(payload): Json<Value>,
 ) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
     create_server_generation_job(state, request_id, headers, payload, "video").await
+}
+
+pub async fn server_create_audio_job(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<Json<ApiResponse<AiGenerationJobResponse>>, AppError> {
+    create_server_generation_job(state, request_id, headers, payload, "audio").await
 }
 
 pub async fn server_get_job(
@@ -996,10 +1010,20 @@ async fn submit_wuyin_generation_job(
     payload: Value,
 ) -> Result<ProviderSubmitResult, AppError> {
     let secret = decrypt_provider_secret(state, model.provider_secret_encrypted.as_deref())?;
-    let headers = provider_headers(&secret, &model.provider_config)?;
+    let mut headers = provider_headers(&secret, &model.provider_config)?;
     let timeout = provider_timeout(&model.provider_config)?;
     let path = provider_submit_path(model, job_type)?;
     let outbound_payload = wuyin_submit_payload(payload, model)?;
+    let request_format = provider_request_format(model);
+    if matches!(
+        request_format.as_str(),
+        "form" | "form_urlencoded" | "x-www-form-urlencoded"
+    ) {
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            ReqwestHeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+    }
     let url = format!(
         "{}/{}",
         model.provider_base_url.trim_end_matches('/'),
@@ -1009,13 +1033,21 @@ async fn submit_wuyin_generation_job(
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|error| AppError::dependency(format!("ai provider client failed: {error}")))?;
-    let response = client
-        .post(url)
-        .headers(headers)
-        .json(&outbound_payload)
-        .send()
-        .await
-        .map_err(|error| AppError::dependency(format!("ai provider request failed: {error}")))?;
+    let response = match request_format.as_str() {
+        "form" | "form_urlencoded" | "x-www-form-urlencoded" => {
+            let form = value_to_string_form(&outbound_payload)?;
+            client.post(url).headers(headers).form(&form).send().await
+        }
+        _ => {
+            client
+                .post(url)
+                .headers(headers)
+                .json(&outbound_payload)
+                .send()
+                .await
+        }
+    }
+    .map_err(|error| AppError::dependency(format!("ai provider request failed: {error}")))?;
     let status = response.status();
     let provider_request_id = provider_request_id_from_headers(response.headers());
     let body = response_json(response).await?;
@@ -1158,11 +1190,30 @@ fn provider_submit_path(model: &JobModel, job_type: &str) -> Result<String, AppE
     let provider_model = model.provider_model.as_deref().unwrap_or(&model.code);
     let path = match provider_model {
         "google_omni" | "video_google_omni" => "/api/async/video_google_omni",
+        "video_vidu" | "vidu" => "/api/async/video_vidu",
+        "video_omni" => "/api/async/video_omni",
+        "video_seedance" | "seedance" => "/api/async/video_seedance",
+        "Digital_Humans" | "digital_humans" | "video_digital_humans" => {
+            "/api/async/video_digital_humans"
+        }
+        "Package_1.0" | "package_1.0" | "video_package" => "/api/async/video_package",
         "grok_imagine" | "video_grok_imagine" => "/api/async/video_grok_imagine",
+        "Wan2.7" | "wan2.7" | "video_wan2.7" | "video_wan2.6" => "/api/async/video_wan2.6",
         "image_gpt" | "gpt_image_2" | "gpt-image-2" | "GPT-Image-2" => "/api/async/image_gpt",
         "image_nanoBanana2" | "nanobanana2" | "NanoBanana2" => "/api/async/image_nanoBanana2",
+        "image_grok_imagine" => "/api/async/image_grok_imagine",
+        "image_nanoBanana_pro" | "NanoBanana_pro" | "nanobanana_pro" => {
+            "/api/async/image_nanoBanana_pro"
+        }
+        "image_nanoBanana" | "NanoBanana" | "nanobanana" => "/api/async/image_nanoBanana",
+        "image_wan2.7" | "image_wan2.6" => "/api/async/image_wan2.6",
+        "image_split" | "img_split" | "smart_split" => "/api/img/split",
+        "audio_tts" => "/api/async/audio_tts",
+        "voice_composite" | "audio_voice_composite" => "/api/voice/composite",
+        "voice_clone" | "audio_voice_clone" => "/api/voice/clone",
         _ if job_type == "image" => "/api/async/image_gpt",
         _ if job_type == "video" => "/api/async/video_google_omni",
+        _ if job_type == "audio" => "/api/async/audio_tts",
         _ => {
             return Err(AppError::validation_failed(
                 "ai generation submit path is not configured",
@@ -1173,11 +1224,61 @@ fn provider_submit_path(model: &JobModel, job_type: &str) -> Result<String, AppE
     Ok(path.to_owned())
 }
 
+fn provider_request_format(model: &JobModel) -> String {
+    model
+        .pricing_config
+        .get("request_format")
+        .or_else(|| model.pricing_config.get("content_type"))
+        .or_else(|| model.provider_config.get("request_format"))
+        .or_else(|| model.provider_config.get("content_type"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("json")
+        .to_ascii_lowercase()
+}
+
+fn value_to_string_form(value: &Value) -> Result<Vec<(String, String)>, AppError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| AppError::validation_failed("ai provider form body must be an object"))?;
+    let mut form = Vec::new();
+    for (key, value) in object {
+        if value.is_null() {
+            continue;
+        }
+        let text = match value {
+            Value::String(value) => value.clone(),
+            Value::Number(value) => value.to_string(),
+            Value::Bool(value) => value.to_string(),
+            Value::Array(items) => items
+                .iter()
+                .filter_map(|item| match item {
+                    Value::String(value) => Some(value.clone()),
+                    Value::Number(value) => Some(value.to_string()),
+                    Value::Bool(value) => Some(value.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+            Value::Object(_) => serde_json::to_string(value).map_err(|error| {
+                AppError::validation_failed(format!("ai provider form field is invalid: {error}"))
+            })?,
+            Value::Null => continue,
+        };
+        if !text.trim().is_empty() {
+            form.push((key.clone(), text));
+        }
+    }
+
+    Ok(form)
+}
+
 fn wuyin_submit_payload(mut payload: Value, model: &JobModel) -> Result<Value, AppError> {
     let object = payload
         .as_object_mut()
         .ok_or_else(|| AppError::validation_failed("ai generation body must be an object"))?;
-    let is_google_omni = is_wuyin_google_omni_model(model);
+    let model_key = wuyin_model_key(model);
     object.remove("model");
     object.remove("entitlehub_input");
     object.remove("referenceAssetIds");
@@ -1195,78 +1296,330 @@ fn wuyin_submit_payload(mut payload: Value, model: &JobModel) -> Result<Value, A
             .or_insert_with(|| Value::String(provider_model.to_owned()));
     }
     let reference_urls = object.remove("reference_urls");
+    let reference_image_urls = object.remove("reference_image_urls");
+    let reference_video_urls = object.remove("reference_video_urls");
+    let reference_audio_urls = object.remove("reference_audio_urls");
     let first_frame_url = object.remove("first_frame_url");
     let last_frame_url = object.remove("last_frame_url");
-    if is_google_omni {
-        let images = object.remove("images");
-        merge_wuyin_google_omni_images(
-            object,
-            images,
-            reference_urls,
-            first_frame_url,
-            last_frame_url,
-        );
-        if let Some(value) = object.remove("resolution") {
-            object.entry("size".to_owned()).or_insert(value);
+
+    match model_key.as_str() {
+        "google_omni" | "video_google_omni" => {
+            let images = object.remove("images");
+            merge_wuyin_urls(
+                object,
+                "images",
+                UrlFieldFormat::CommaString,
+                [
+                    images,
+                    reference_image_urls,
+                    reference_video_urls,
+                    reference_urls,
+                    first_frame_url,
+                    last_frame_url,
+                ],
+            );
+            move_field(object, "resolution", "size");
         }
-    } else {
-        if let Some(value) = reference_urls {
-            object.entry("reference_urls".to_owned()).or_insert(value);
+        "video_vidu" | "vidu" => {
+            copy_field(object, "ratio", "aspectRatio");
+            let image_url = object.remove("image_url");
+            let video_url = object.remove("video_url");
+            merge_wuyin_urls(
+                object,
+                "image_url",
+                UrlFieldFormat::CommaString,
+                [
+                    image_url,
+                    reference_image_urls,
+                    first_frame_url,
+                    last_frame_url,
+                ],
+            );
+            merge_wuyin_urls(
+                object,
+                "video_url",
+                UrlFieldFormat::CommaString,
+                [video_url, reference_video_urls],
+            );
         }
-        if let Some(value) = first_frame_url {
-            object
-                .entry("first_frame_url".to_owned())
-                .or_insert(value.clone());
-            object.entry("first_frame".to_owned()).or_insert(value);
+        "video_omni" => {
+            copy_field(object, "ratio", "aspectRatio");
+            let image_url = object.remove("image_url");
+            let video_url = object.remove("video_url");
+            let first_frame = object.remove("firstFrameUrl");
+            let last_frame = object.remove("lastFrameUrl");
+            merge_wuyin_urls(
+                object,
+                "image_url",
+                UrlFieldFormat::CommaString,
+                [image_url, reference_image_urls],
+            );
+            merge_wuyin_urls(
+                object,
+                "video_url",
+                UrlFieldFormat::CommaString,
+                [video_url, reference_video_urls],
+            );
+            insert_first_string(object, "firstFrameUrl", [first_frame, first_frame_url]);
+            insert_first_string(object, "lastFrameUrl", [last_frame, last_frame_url]);
         }
-        if let Some(value) = last_frame_url {
-            object
-                .entry("last_frame_url".to_owned())
-                .or_insert(value.clone());
-            object.entry("last_frame".to_owned()).or_insert(value);
+        "video_seedance" | "seedance" => {
+            let image_url = object.remove("image_url");
+            let video_url = object.remove("video_url");
+            let audio_url = object.remove("audio_url");
+            let first_frame = object.remove("firstFrameUrl");
+            let last_frame = object.remove("lastFrameUrl");
+            merge_wuyin_urls(
+                object,
+                "image_url",
+                UrlFieldFormat::CommaString,
+                [image_url, reference_image_urls],
+            );
+            merge_wuyin_urls(
+                object,
+                "video_url",
+                UrlFieldFormat::CommaString,
+                [video_url, reference_video_urls],
+            );
+            merge_wuyin_urls(
+                object,
+                "audio_url",
+                UrlFieldFormat::CommaString,
+                [audio_url, reference_audio_urls],
+            );
+            insert_first_string(object, "firstFrameUrl", [first_frame, first_frame_url]);
+            insert_first_string(object, "lastFrameUrl", [last_frame, last_frame_url]);
+        }
+        "grok_imagine" | "video_grok_imagine" | "image_grok_imagine" => {
+            copy_field(object, "ratio", "aspect_ratio");
+            let image_urls = object.remove("image_urls");
+            merge_wuyin_urls(
+                object,
+                "image_urls",
+                UrlFieldFormat::Array,
+                [image_urls, reference_image_urls, reference_urls],
+            );
+        }
+        "wan2.7" | "video_wan2.7" | "video_wan2.6" => {
+            let urls = object.remove("urls");
+            let audio_url = object.remove("audio_url");
+            let first_frame = object.remove("firstFrameUrl");
+            merge_wuyin_urls(
+                object,
+                "urls",
+                UrlFieldFormat::CommaString,
+                [urls, reference_image_urls, reference_video_urls],
+            );
+            merge_wuyin_urls(
+                object,
+                "audio_url",
+                UrlFieldFormat::CommaString,
+                [audio_url, reference_audio_urls],
+            );
+            insert_first_string(object, "firstFrameUrl", [first_frame, first_frame_url]);
+        }
+        "digital_humans" | "video_digital_humans" => {
+            let video_url_camel = object.remove("videoUrl");
+            let video_url_snake = object.remove("video_url");
+            let audio_url_camel = object.remove("audioUrl");
+            let audio_url_snake = object.remove("audio_url");
+            insert_first_string(
+                object,
+                "videoUrl",
+                [video_url_camel, video_url_snake, reference_video_urls],
+            );
+            insert_first_string(
+                object,
+                "audioUrl",
+                [audio_url_camel, audio_url_snake, reference_audio_urls],
+            );
+            if !object.contains_key("videoName") {
+                let name = object
+                    .get("name")
+                    .or_else(|| object.get("title"))
+                    .or_else(|| object.get("prompt"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("EntitleHub 数字人视频");
+                object.insert("videoName".to_owned(), Value::String(name.to_owned()));
+            }
+        }
+        "package_1.0" | "video_package" => {
+            let video = object.remove("video");
+            let video_url = object.remove("video_url");
+            insert_first_string(object, "video", [video, video_url, reference_video_urls]);
+        }
+        "image_gpt" | "gpt_image_2" | "gpt-image-2" => {
+            move_field(object, "ratio", "size");
+            let urls = object.remove("urls");
+            merge_wuyin_urls(
+                object,
+                "urls",
+                UrlFieldFormat::Array,
+                [urls, reference_image_urls, reference_urls],
+            );
+        }
+        "image_nanobanana2" | "nanobanana2" | "image_nanobanana_pro" | "nanobanana_pro" => {
+            copy_field(object, "ratio", "aspectRatio");
+            let urls = object.remove("urls");
+            merge_wuyin_urls(
+                object,
+                "urls",
+                UrlFieldFormat::Array,
+                [urls, reference_image_urls, reference_urls],
+            );
+        }
+        "image_nanobanana" | "nanobanana" => {
+            copy_field(object, "ratio", "aspectRatio");
+            move_field(object, "size", "imageSize");
+            move_field(object, "resolution", "imageSize");
+            let urls = object.remove("urls");
+            merge_wuyin_urls(
+                object,
+                "urls",
+                UrlFieldFormat::Array,
+                [urls, reference_image_urls, reference_urls],
+            );
+        }
+        "image_wan2.7" | "image_wan2.6" => {
+            let urls = object.remove("urls");
+            merge_wuyin_urls(
+                object,
+                "urls",
+                UrlFieldFormat::CommaString,
+                [urls, reference_image_urls, reference_urls],
+            );
+        }
+        "image_split" | "img_split" | "smart_split" => {
+            let video_url = object.remove("video_url");
+            let images = object.remove("images");
+            merge_wuyin_urls(
+                object,
+                "video_url",
+                UrlFieldFormat::CommaString,
+                [video_url, images, reference_image_urls, reference_urls],
+            );
+        }
+        "voice_clone" | "audio_voice_clone" => {
+            let audio_url = object.remove("audio_url");
+            insert_first_string(object, "audio_url", [audio_url, reference_audio_urls]);
+        }
+        _ => {
+            if let Some(value) = reference_urls {
+                object.entry("reference_urls".to_owned()).or_insert(value);
+            }
+            if let Some(value) = reference_image_urls {
+                object
+                    .entry("reference_image_urls".to_owned())
+                    .or_insert(value);
+            }
+            if let Some(value) = reference_video_urls {
+                object
+                    .entry("reference_video_urls".to_owned())
+                    .or_insert(value);
+            }
+            if let Some(value) = reference_audio_urls {
+                object
+                    .entry("reference_audio_urls".to_owned())
+                    .or_insert(value);
+            }
+            if let Some(value) = first_frame_url {
+                object
+                    .entry("first_frame_url".to_owned())
+                    .or_insert(value.clone());
+                object.entry("first_frame".to_owned()).or_insert(value);
+            }
+            if let Some(value) = last_frame_url {
+                object
+                    .entry("last_frame_url".to_owned())
+                    .or_insert(value.clone());
+                object.entry("last_frame".to_owned()).or_insert(value);
+            }
         }
     }
 
     Ok(payload)
 }
 
-fn is_wuyin_google_omni_model(model: &JobModel) -> bool {
+#[derive(Debug, Clone, Copy)]
+enum UrlFieldFormat {
+    Array,
+    CommaString,
+}
+
+fn wuyin_model_key(model: &JobModel) -> String {
     model
         .provider_model
         .as_deref()
         .unwrap_or(&model.code)
-        .eq_ignore_ascii_case("google_omni")
-        || model
-            .provider_model
-            .as_deref()
-            .unwrap_or(&model.code)
-            .eq_ignore_ascii_case("video_google_omni")
+        .trim()
+        .to_ascii_lowercase()
 }
 
-fn merge_wuyin_google_omni_images(
+fn move_field(object: &mut Map<String, Value>, from: &str, to: &str) {
+    if object.contains_key(to) {
+        object.remove(from);
+        return;
+    }
+    if let Some(value) = object.remove(from) {
+        object.insert(to.to_owned(), value);
+    }
+}
+
+fn copy_field(object: &mut Map<String, Value>, from: &str, to: &str) {
+    if object.contains_key(to) {
+        return;
+    }
+    if let Some(value) = object.get(from).cloned() {
+        object.insert(to.to_owned(), value);
+    }
+}
+
+fn insert_first_string<const N: usize>(
     object: &mut Map<String, Value>,
-    images: Option<Value>,
-    reference_urls: Option<Value>,
-    first_frame_url: Option<Value>,
-    last_frame_url: Option<Value>,
+    key: &str,
+    values: [Option<Value>; N],
+) {
+    if object.contains_key(key) {
+        return;
+    }
+    let mut urls = Vec::new();
+    for value in values {
+        collect_wuyin_input_urls(value.as_ref(), &mut urls);
+    }
+    if let Some(value) = urls.into_iter().next() {
+        object.insert(key.to_owned(), Value::String(value));
+    }
+}
+
+fn merge_wuyin_urls<const N: usize>(
+    object: &mut Map<String, Value>,
+    key: &str,
+    format: UrlFieldFormat,
+    values: [Option<Value>; N],
 ) {
     let mut urls = Vec::new();
-    collect_wuyin_image_input_urls(images.as_ref(), &mut urls);
-    collect_wuyin_image_input_urls(reference_urls.as_ref(), &mut urls);
-    collect_wuyin_image_input_urls(first_frame_url.as_ref(), &mut urls);
-    collect_wuyin_image_input_urls(last_frame_url.as_ref(), &mut urls);
+    for value in values {
+        collect_wuyin_input_urls(value.as_ref(), &mut urls);
+    }
     let mut unique_urls = Vec::new();
     for url in urls {
         if !unique_urls.contains(&url) {
             unique_urls.push(url);
         }
     }
-    if !unique_urls.is_empty() {
-        object.insert("images".to_owned(), Value::String(unique_urls.join(",")));
+    if unique_urls.is_empty() {
+        return;
     }
+    let value = match format {
+        UrlFieldFormat::Array => json!(unique_urls),
+        UrlFieldFormat::CommaString => Value::String(unique_urls.join(",")),
+    };
+    object.insert(key.to_owned(), value);
 }
 
-fn collect_wuyin_image_input_urls(value: Option<&Value>, urls: &mut Vec<String>) {
+fn collect_wuyin_input_urls(value: Option<&Value>, urls: &mut Vec<String>) {
     match value {
         Some(Value::String(value)) => {
             for item in value.split(',') {
@@ -1278,7 +1631,7 @@ fn collect_wuyin_image_input_urls(value: Option<&Value>, urls: &mut Vec<String>)
         }
         Some(Value::Array(items)) => {
             for item in items {
-                collect_wuyin_image_input_urls(Some(item), urls);
+                collect_wuyin_input_urls(Some(item), urls);
             }
         }
         _ => {}
@@ -1375,6 +1728,10 @@ fn collect_asset_urls_in_value(value: &Value, urls: &mut Vec<String>) {
                 "image_urls",
                 "video_url",
                 "video_urls",
+                "audio_url",
+                "audio_urls",
+                "audio",
+                "demo_audio",
                 "output_url",
                 "download_url",
             ] {
@@ -1541,10 +1898,10 @@ async fn cache_generation_assets(
         ));
     }
     let mut public_urls = Vec::new();
-    let max_bytes = if job_type == "video" {
-        MAX_VIDEO_ASSET_BYTES
-    } else {
-        MAX_IMAGE_ASSET_BYTES
+    let max_bytes = match job_type {
+        "video" => MAX_VIDEO_ASSET_BYTES,
+        "audio" => MAX_AUDIO_ASSET_BYTES,
+        _ => MAX_IMAGE_ASSET_BYTES,
     };
     for provider_url in provider_urls {
         let asset_metadata = provider_asset_metadata(provider_body, &provider_url);
@@ -3297,14 +3654,16 @@ async fn find_generation_job_detail(
               and ca.metadata_json->>'job_id' = j.id::text
           ) as assets,
           work.id as work_id,
-          case
+          (
+            case
             when j.status in ('succeeded', 'failed', 'cancelled', 'refunded') then 100
             when j.status = 'caching' then 90
             when j.status = 'timeout_review' then 95
             when j.status = 'running' then 50
             when j.status in ('submitted', 'pending') then 10
             else 0
-          end as progress,
+            end
+          )::bigint as progress,
           j.charge_mode,
           j.quantity,
           j.held_minor,
@@ -3566,14 +3925,16 @@ fn job_select_sql() -> &'static str {
           and ca.metadata_json->>'job_id' = j.id::text
       ) as assets,
       work.id as work_id,
-      case
+      (
+        case
         when j.status in ('succeeded', 'failed', 'cancelled', 'refunded') then 100
         when j.status = 'caching' then 90
         when j.status = 'timeout_review' then 95
         when j.status = 'running' then 50
         when j.status in ('submitted', 'pending') then 10
         else 0
-      end as progress,
+        end
+      )::bigint as progress,
       j.charge_mode,
       j.quantity,
       j.held_minor,
@@ -3764,6 +4125,21 @@ fn validate_generation_model(model: &JobModel, job_type: &str) -> Result<(), App
                 ));
             }
         }
+        "audio" => {
+            if !matches!(model.modality.as_str(), "audio" | "multimodal") {
+                return Err(AppError::validation_failed(
+                    "ai model does not support audio jobs",
+                ));
+            }
+            if !matches!(
+                model.billing_mode.as_str(),
+                "audio_per_second" | "audio_per_minute" | "audio_per_request"
+            ) {
+                return Err(AppError::validation_failed(
+                    "ai audio job billing mode must be audio_per_second, audio_per_minute, or audio_per_request",
+                ));
+            }
+        }
         _ => {
             return Err(AppError::validation_failed(
                 "ai generation job type invalid",
@@ -3786,6 +4162,12 @@ fn estimated_quantity(job_type: &str, payload: &Value, model: &JobModel) -> Resu
             capabilities::requested_video_seconds(payload, &model.pricing_config, MAX_VIDEO_SECONDS)
         }
         "video" => Ok(1),
+        "audio" if model.billing_mode == "audio_per_second" => audio_seconds(payload, model),
+        "audio" if model.billing_mode == "audio_per_minute" => {
+            let seconds = audio_seconds(payload, model)?;
+            Ok((seconds + 59) / 60)
+        }
+        "audio" => Ok(1),
         _ => Err(AppError::validation_failed(
             "ai generation job type invalid",
         )),
@@ -3821,6 +4203,29 @@ fn estimate_generation_hold_minor(
             )
             .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large")),
         ("video", "video_per_request") => Ok(model.request_price_minor),
+        ("audio", "audio_per_second") => model
+            .request_price_minor
+            .checked_add(
+                model
+                    .second_price_minor
+                    .checked_mul(quantity)
+                    .ok_or_else(|| {
+                        AppError::validation_failed("ai estimated audio charge is too large")
+                    })?,
+            )
+            .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large")),
+        ("audio", "audio_per_minute") => model
+            .request_price_minor
+            .checked_add(
+                model
+                    .minute_price_minor
+                    .checked_mul(quantity)
+                    .ok_or_else(|| {
+                        AppError::validation_failed("ai estimated audio charge is too large")
+                    })?,
+            )
+            .ok_or_else(|| AppError::validation_failed("ai estimated charge is too large")),
+        ("audio", "audio_per_request") => Ok(model.request_price_minor),
         _ => Err(AppError::validation_failed(
             "ai generation billing mode is invalid",
         )),
@@ -3829,15 +4234,16 @@ fn estimate_generation_hold_minor(
 
 fn charge_minor_from_job(job: &JobWorkerRecord) -> i64 {
     match job.charge_mode.as_str() {
-        "per_image" | "video_per_second" => job.held_minor,
-        "video_per_request" => job.held_minor,
+        "per_image" | "video_per_second" | "video_per_request" | "audio_per_second"
+        | "audio_per_minute" | "audio_per_request" => job.held_minor,
         _ => job.held_minor,
     }
 }
 
 fn charge_minor_from_admin_job(job: &AdminJobRecord) -> i64 {
     match job.charge_mode.as_str() {
-        "per_image" | "video_per_second" | "video_per_request" => job.held_minor,
+        "per_image" | "video_per_second" | "video_per_request" | "audio_per_second"
+        | "audio_per_minute" | "audio_per_request" => job.held_minor,
         _ => job.held_minor,
     }
 }
@@ -3852,17 +4258,62 @@ fn validate_generation_payload(
             capabilities::validate_image_payload(payload, &model.pricing_config, MAX_IMAGE_COUNT)
         }
         "video" => capabilities::validate_video_payload(payload, &model.pricing_config),
+        "audio" => Ok(()),
         _ => Err(AppError::validation_failed(
             "ai generation job type invalid",
         )),
     }
 }
 
+fn audio_seconds(payload: &Value, model: &JobModel) -> Result<i64, AppError> {
+    if let Some(seconds) = optional_positive_i64(
+        payload,
+        &[
+            "duration",
+            "durationSec",
+            "durationSeconds",
+            "duration_seconds",
+            "seconds",
+        ],
+    ) {
+        return Ok(seconds.min(MAX_AUDIO_SECONDS).max(1));
+    }
+    if let Some(seconds) = optional_positive_i64(
+        &model.pricing_config,
+        &["default_duration_seconds", "duration_seconds", "seconds"],
+    ) {
+        return Ok(seconds.min(MAX_AUDIO_SECONDS).max(1));
+    }
+    let text_len = payload
+        .get("text")
+        .and_then(Value::as_str)
+        .map(|value| value.chars().count() as i64)
+        .unwrap_or(1)
+        .max(1);
+    // 中文语音常见语速约 4-6 字/秒，预扣取保守值，成功后仍可按实际结果人工调整或配置按次计费。
+    Ok(((text_len + 3) / 4).clamp(1, MAX_AUDIO_SECONDS))
+}
+
+fn optional_positive_i64(payload: &Value, keys: &[&str]) -> Option<i64> {
+    for key in keys {
+        let value = payload.get(*key)?;
+        let number = match value {
+            Value::Number(number) => number.as_i64(),
+            Value::String(text) => text.trim().parse::<i64>().ok(),
+            _ => None,
+        }?;
+        if number > 0 {
+            return Some(number);
+        }
+    }
+    None
+}
+
 async fn load_and_validate_generation_input_assets(
     state: &AppState,
     server_key: &ServerApiKeyContext,
     customer_id: Uuid,
-    job_type: &str,
+    _job_type: &str,
     payload: &Value,
     model: &JobModel,
 ) -> Result<GenerationInputAssets, AppError> {
@@ -3889,22 +4340,6 @@ async fn load_and_validate_generation_input_assets(
         &mut first_frame_asset_id,
         &mut last_frame_asset_id,
     )?;
-    if job_type != "video"
-        && (!reference_asset_ids.is_empty()
-            || first_frame_asset_id.is_some()
-            || last_frame_asset_id.is_some())
-    {
-        return Err(AppError::validation_failed(
-            "reference assets are only supported for video generation jobs",
-        ));
-    }
-    if let Some(max_reference_images) = capabilities.max_reference_images {
-        if reference_asset_ids.len() as i64 > max_reference_images {
-            return Err(AppError::validation_failed(format!(
-                "reference_asset_too_many: reference assets must contain no more than {max_reference_images} items"
-            )));
-        }
-    }
     if first_frame_asset_id.is_some() && !capabilities.supports_first_frame {
         return Err(AppError::validation_failed(
             "model_not_support_first_frame: model does not support first frame input",
@@ -3917,6 +4352,12 @@ async fn load_and_validate_generation_input_assets(
     }
 
     let mut reference_urls = Vec::new();
+    let mut reference_image_count = 0_i64;
+    let mut reference_video_count = 0_i64;
+    let mut reference_audio_count = 0_i64;
+    let mut reference_image_urls = Vec::new();
+    let mut reference_video_urls = Vec::new();
+    let mut reference_audio_urls = Vec::new();
     for asset_id in &reference_asset_ids {
         let asset = web_assets::find_generation_asset(
             state,
@@ -3930,7 +4371,39 @@ async fn load_and_validate_generation_input_assets(
             validate_asset_kind_matches(&asset, kind, "referenceAssets")?;
         }
         validate_reference_asset(&asset, &capabilities, "referenceAssetIds")?;
-        reference_urls.push(asset_url(&asset, "referenceAssetIds")?);
+        let url = asset_url(&asset, "referenceAssetIds")?;
+        if asset.asset_type.eq_ignore_ascii_case("video") {
+            reference_video_count += 1;
+            reference_video_urls.push(url.clone());
+        } else if asset.asset_type.eq_ignore_ascii_case("audio") {
+            reference_audio_count += 1;
+            reference_audio_urls.push(url.clone());
+        } else {
+            reference_image_count += 1;
+            reference_image_urls.push(url.clone());
+        }
+        reference_urls.push(url);
+    }
+    if let Some(max_reference_images) = capabilities.max_reference_images {
+        if reference_image_count > max_reference_images {
+            return Err(AppError::validation_failed(format!(
+                "reference_image_too_many: reference images must contain no more than {max_reference_images} items"
+            )));
+        }
+    }
+    if let Some(max_reference_videos) = capabilities.max_reference_videos {
+        if reference_video_count > max_reference_videos {
+            return Err(AppError::validation_failed(format!(
+                "reference_video_too_many: reference videos must contain no more than {max_reference_videos} items"
+            )));
+        }
+    }
+    if let Some(max_reference_audios) = capabilities.max_reference_audios {
+        if reference_audio_count > max_reference_audios {
+            return Err(AppError::validation_failed(format!(
+                "reference_audio_too_many: reference audios must contain no more than {max_reference_audios} items"
+            )));
+        }
     }
     let first_frame_url = match first_frame_asset_id {
         Some(asset_id) => {
@@ -3965,6 +4438,10 @@ async fn load_and_validate_generation_input_assets(
     let source_mode = input_mode.clone().or_else(|| {
         if first_frame_asset_id.is_some() || last_frame_asset_id.is_some() {
             Some("frames".to_owned())
+        } else if reference_audio_count > 0 {
+            Some("audio".to_owned())
+        } else if reference_video_count > 0 {
+            Some("video".to_owned())
         } else if !reference_asset_ids.is_empty() {
             Some("image".to_owned())
         } else {
@@ -3980,6 +4457,9 @@ async fn load_and_validate_generation_input_assets(
         has_last_frame: last_frame_asset_id.is_some(),
         reference_asset_ids,
         reference_urls,
+        reference_image_urls,
+        reference_video_urls,
+        reference_audio_urls,
         first_frame_asset_id,
         first_frame_url,
         last_frame_asset_id,
@@ -3997,9 +4477,13 @@ fn normalize_generation_request_payload(
         .as_object()
         .cloned()
         .ok_or_else(|| AppError::validation_failed("ai generation body must be an object"))?;
-    copy_string_alias(&mut object, "aspectRatio", "ratio");
-    copy_string_alias(&mut object, "durationSec", "duration");
-    copy_string_alias(&mut object, "inputMode", "input_mode");
+    copy_value_aliases(&mut object, &["aspectRatio"], "ratio");
+    copy_value_aliases(
+        &mut object,
+        &["durationSec", "durationSeconds", "duration_seconds"],
+        "duration",
+    );
+    copy_value_aliases(&mut object, &["inputMode"], "input_mode");
     object.remove("referenceAssets");
     object.remove("reference_assets");
     if let Some(input_mode) = input_assets.input_mode.as_deref() {
@@ -4017,6 +4501,24 @@ fn normalize_generation_request_payload(
             "reference_urls".to_owned(),
             json!(input_assets.reference_urls),
         );
+        if !input_assets.reference_image_urls.is_empty() {
+            object.insert(
+                "reference_image_urls".to_owned(),
+                json!(input_assets.reference_image_urls),
+            );
+        }
+        if !input_assets.reference_video_urls.is_empty() {
+            object.insert(
+                "reference_video_urls".to_owned(),
+                json!(input_assets.reference_video_urls),
+            );
+        }
+        if !input_assets.reference_audio_urls.is_empty() {
+            object.insert(
+                "reference_audio_urls".to_owned(),
+                json!(input_assets.reference_audio_urls),
+            );
+        }
     }
     if let Some(asset_id) = input_assets.first_frame_asset_id {
         object.insert("first_frame_asset_id".to_owned(), json!(asset_id));
@@ -4061,14 +4563,19 @@ fn validate_reference_asset(
             "{field} mime type is missing"
         )));
     };
-    if !matches!(asset.asset_type.as_str(), "image" | "video") {
+    if !matches!(asset.asset_type.as_str(), "image" | "video" | "audio") {
         return Err(AppError::validation_failed(format!(
-            "reference_asset_kind_not_allowed: {field} must be an image or video asset"
+            "reference_asset_kind_not_allowed: {field} must be an image, video, or audio asset"
         )));
     }
     if asset.asset_type == "video" && !capabilities.supports_reference_video {
         return Err(AppError::validation_failed(
             "model_not_support_reference_video",
+        ));
+    }
+    if asset.asset_type == "audio" && !capabilities.supports_reference_audio {
+        return Err(AppError::validation_failed(
+            "model_not_support_reference_audio",
         ));
     }
     validate_asset_mime_and_size(asset, capabilities, field, mime_type)
@@ -4246,9 +4753,9 @@ fn reference_asset_inputs(payload: &Value) -> Result<Vec<ReferenceAssetInput>, A
 
 fn validate_reference_asset_kind(kind: &str) -> Result<(), AppError> {
     match kind {
-        "image" | "video" => Ok(()),
+        "image" | "video" | "audio" => Ok(()),
         _ => Err(AppError::validation_failed(
-            "reference_asset_kind_not_allowed: kind must be image or video",
+            "reference_asset_kind_not_allowed: kind must be image, video, or audio",
         )),
     }
 }
@@ -4333,17 +4840,22 @@ fn uuid_from_value(value: &Value) -> Result<Option<Uuid>, AppError> {
         .map_err(|_| AppError::validation_failed("asset id is invalid"))
 }
 
-fn copy_string_alias(object: &mut Map<String, Value>, source: &str, target: &str) {
+fn copy_value_aliases(object: &mut Map<String, Value>, sources: &[&str], target: &str) {
     if object.contains_key(target) {
         return;
     }
-    if let Some(value) = object
-        .get(source)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        object.insert(target.to_owned(), Value::String(value.to_owned()));
+    for source in sources {
+        let Some(value) = object.get(*source) else {
+            continue;
+        };
+        if value.as_str().is_some_and(|text| text.trim().is_empty()) {
+            continue;
+        }
+        if value.is_null() {
+            continue;
+        }
+        object.insert(target.to_owned(), value.clone());
+        return;
     }
 }
 
@@ -4381,6 +4893,7 @@ fn generation_endpoint(job_type: &str) -> &'static str {
     match job_type {
         "image" => "/api/server/ai/v1/images/jobs",
         "video" => "/api/server/ai/v1/videos/jobs",
+        "audio" => "/api/server/ai/v1/audio/jobs",
         _ => "/api/server/ai/v1/jobs",
     }
 }
@@ -4638,6 +5151,11 @@ fn extension_for_mime(mime_type: &str) -> &'static str {
         "video/mpeg" => "mpeg",
         "video/x-msvideo" => "avi",
         "video/x-matroska" => "mkv",
+        "audio/mpeg" => "mp3",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/mp4" => "m4a",
+        "audio/webm" => "weba",
+        "audio/ogg" => "ogg",
         _ => "bin",
     }
 }
@@ -4680,7 +5198,7 @@ fn normalize_status(value: &str) -> Result<String, AppError> {
 fn normalize_job_type(value: &str) -> Result<String, AppError> {
     let value = value.trim().to_ascii_lowercase();
     match value.as_str() {
-        "image" | "video" => Ok(value),
+        "image" | "video" | "audio" => Ok(value),
         _ => Err(AppError::validation_failed(
             "ai generation job type is invalid",
         )),
@@ -5125,7 +5643,7 @@ mod tests {
             provider_secret_encrypted: Some("secret".to_owned()),
             code: "video".to_owned(),
             modality: "video".to_owned(),
-            provider_model: Some("grok_imagine".to_owned()),
+            provider_model: Some("custom_async_model".to_owned()),
             currency: "CNY".to_owned(),
             billing_mode: "video_per_second".to_owned(),
             input_1k_price_minor: 0,
@@ -5148,7 +5666,7 @@ mod tests {
         )
         .expect("payload");
 
-        assert_eq!(payload["model"], json!("grok_imagine"));
+        assert_eq!(payload["model"], json!("custom_async_model"));
         assert_eq!(
             payload["reference_urls"],
             json!(["https://cdn.example.com/ref.png"])
@@ -5192,6 +5710,45 @@ mod tests {
             estimated_quantity("video", &json!({"model": "video", "duration": 8}), &video)
                 .expect("quantity"),
             8
+        );
+
+        let audio = JobModel {
+            id: uuid::Uuid::new_v4(),
+            provider_id: uuid::Uuid::new_v4(),
+            provider_kind: "wuyin_keji".to_owned(),
+            provider_name: "速创".to_owned(),
+            provider_base_url: "https://api.example.com".to_owned(),
+            provider_config: json!({}),
+            provider_secret_encrypted: Some("secret".to_owned()),
+            code: "audio".to_owned(),
+            modality: "audio".to_owned(),
+            provider_model: None,
+            currency: "CNY".to_owned(),
+            billing_mode: "audio_per_second".to_owned(),
+            input_1k_price_minor: 0,
+            output_1k_price_minor: 0,
+            request_price_minor: 0,
+            image_price_minor: 0,
+            second_price_minor: 20,
+            minute_price_minor: 0,
+            daily_spend_limit_minor: None,
+            pricing_config: json!({}),
+        };
+        let payload = normalize_generation_request_payload(
+            json!({
+                "model": "audio",
+                "text": "web audio smoke",
+                "durationSec": 5
+            }),
+            "audio",
+            &audio,
+            &GenerationInputAssets::default(),
+        )
+        .expect("payload");
+        assert_eq!(payload["duration"], json!(5));
+        assert_eq!(
+            estimated_quantity("audio", &payload, &audio).expect("quantity"),
+            5
         );
     }
 }

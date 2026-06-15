@@ -518,6 +518,7 @@ fn stable_error_code(value: &str) -> Option<&'static str> {
     match value {
         "asset_not_ready" => Some("asset_not_ready"),
         "model_not_support_reference_video" => Some("model_not_support_reference_video"),
+        "model_not_support_reference_audio" => Some("model_not_support_reference_audio"),
         "model_not_support_first_frame" => Some("model_not_support_first_frame"),
         "model_not_support_last_frame" => Some("model_not_support_last_frame"),
         "reference_asset_conflict" => Some("reference_asset_conflict"),
@@ -526,7 +527,10 @@ fn stable_error_code(value: &str) -> Option<&'static str> {
         "reference_asset_mime_not_allowed" => Some("reference_asset_mime_not_allowed"),
         "reference_asset_role_invalid" => Some("reference_asset_role_invalid"),
         "reference_asset_too_large" => Some("reference_asset_too_large"),
+        "reference_image_too_many" => Some("reference_image_too_many"),
         "reference_asset_too_many" => Some("reference_asset_too_many"),
+        "reference_video_too_many" => Some("reference_video_too_many"),
+        "reference_audio_too_many" => Some("reference_audio_too_many"),
         _ => None,
     }
 }
@@ -891,5 +895,22 @@ mod tests {
         assert_eq!(body["code"], 40001);
         assert_eq!(body["message"], "validation_failed");
         assert_eq!(body["errorCode"], "model_not_support_reference_video");
+    }
+
+    #[tokio::test]
+    async fn app_error_response_exposes_reference_limit_error_codes() {
+        let response = AppError::validation_failed(
+            "reference_video_too_many: reference videos must contain no more than 1 items",
+        )
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        let body: Value = serde_json::from_slice(&body).expect("json body");
+        assert_eq!(body["code"], 40001);
+        assert_eq!(body["message"], "validation_failed");
+        assert_eq!(body["errorCode"], "reference_video_too_many");
     }
 }

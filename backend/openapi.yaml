@@ -179,7 +179,7 @@ paths:
                         format: uuid
                       kind:
                         type: string
-                        enum: [image, video]
+                        enum: [image, video, audio]
                       role:
                         type: string
                         enum: [reference, first_frame, last_frame]
@@ -427,6 +427,32 @@ paths:
                 $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
         default:
           $ref: "#/components/responses/ApiError"
+  /api/server/ai/v1/audio/jobs:
+    post:
+      tags: [server-ai]
+      summary: Create asynchronous audio generation job
+      description: Reserves customer wallet balance, submits an async audio task to the configured provider, and returns the EntitleHub job state.
+      security:
+        - ServerApiKey: []
+          ServerCustomerId: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Wrapped Web AI generation job response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAiGenerationJobEnvelope"
+        default:
+          $ref: "#/components/responses/ApiError"
   /api/server/ai/v1/jobs/{id}:
     parameters:
       - $ref: "#/components/parameters/IdPath"
@@ -640,7 +666,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [image, video]
+            enum: [image, video, audio]
         - name: status
           in: query
           required: false
@@ -655,7 +681,7 @@ paths:
           $ref: "#/components/responses/ApiError"
     post:
       tags: [server-web]
-      summary: Create unified image or video generation job for Web product backend
+      summary: Create unified image, video, or audio generation job for Web product backend
       security:
         - ServerApiKey: []
       parameters:
@@ -674,7 +700,7 @@ paths:
                   format: uuid
                 type:
                   type: string
-                  enum: [image, video]
+                  enum: [image, video, audio]
                 model:
                   type: string
                 prompt:
@@ -714,7 +740,7 @@ paths:
                         format: uuid
                       kind:
                         type: string
-                        enum: [image, video]
+                        enum: [image, video, audio]
                       role:
                         type: string
                         enum: [reference, first_frame, last_frame]
@@ -2094,7 +2120,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [image, video]
+            enum: [image, video, audio]
         - name: customer_id
           in: query
           schema:
@@ -4756,7 +4782,7 @@ components:
           nullable: true
         job_type:
           type: string
-          enum: [image, video]
+          enum: [image, video, audio]
         status:
           type: string
           enum: [submitted, running, caching, succeeded, provider_failed, failed, timeout_review, cancelled, refunded]
